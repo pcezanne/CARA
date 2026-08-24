@@ -710,6 +710,12 @@
             "tooltip": "Removes common time-control tokens such as 10+0, 15+10, G/90, or 15|10 from Event (and similar) tags."
           }
         ]
+      },
+      "moment": {
+        "title": "Tag this moment",
+        "why_placeholder": "Optional — why did this matter?",
+        "width": 400,
+        "height": 320
       }
     },
     "positional_heatmap": {

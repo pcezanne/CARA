@@ -27,6 +27,7 @@ from app.controllers.player_stats_controller import PlayerStatsController
 from app.controllers.metadata_controller import MetadataController
 from app.controllers.search_controller import SearchController
 from app.controllers.notes_controller import NotesController
+from app.controllers.chess_log_controller import ChessLogController
 from app.services.version_check_service import VersionCheckService
 from app.controllers.debug_controller import DebugController
 from app.controllers.menu_options_sync_controller import MenuOptionsSyncController
@@ -65,7 +66,12 @@ class AppController:
 
         # Initialize notes controller (depends on game controller)
         self.notes_controller = NotesController(config, self.game_controller)
-        
+
+        # Initialize Chess Log controller (depends on game controller and database controller)
+        self.chess_log_controller = ChessLogController(
+            config, self.game_controller, self.database_controller
+        )
+
         # Initialize column profile controller
         self.column_profile_controller = ColumnProfileController()
 
@@ -210,6 +216,7 @@ class AppController:
             "database_controller",
             "game_controller",
             "notes_controller",
+            "chess_log_controller",
             "move_classification_controller",
             "game_summary_controller",
             "engine_controller",
@@ -781,6 +788,14 @@ class AppController:
             The NotesController instance for managing notes operations.
         """
         return self.notes_controller
+
+    def get_chess_log_controller(self) -> ChessLogController:
+        """Get the Chess Log controller.
+
+        Returns:
+            The ChessLogController instance for managing Chess Log moments.
+        """
+        return self.chess_log_controller
 
     def get_database_model_for_active_game(self) -> Optional[DatabaseModel]:
         """Return the database model that contains the active game, or None."""

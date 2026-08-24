@@ -33,6 +33,7 @@ class GameData:
                  analyzed: bool = False,
                  annotated: bool = False,
                  has_notes: bool = False,
+                 has_chess_log_tags: bool = False,
                  notes: Optional[str] = None,
                  source_database: str = "",
                  file_position: int = 0,
@@ -56,6 +57,7 @@ class GameData:
             analyzed: Whether the game has been analyzed (has CARAAnalysisData tag).
             annotated: Whether the game has saved annotations (has CARAAnnotations tag).
             has_notes: Whether the game has a CARANotes tag.
+            has_chess_log_tags: Whether the game has CARAChessLog moments.
             notes: Optional cached notes text (from CARANotes tag); None until loaded.
             source_database: Name of the database this game came from (for search results).
             file_position: Original position of game in file (1-based, 0 if not from file).
@@ -82,6 +84,7 @@ class GameData:
         self.analyzed = analyzed
         self.annotated = annotated
         self.has_notes = has_notes
+        self.has_chess_log_tags = has_chess_log_tags
         self.notes = notes  # Cached notes from CARANotes tag; None until loaded
         self.source_database = source_database
         self.file_position = file_position

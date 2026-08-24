@@ -59,6 +59,8 @@ def game_data_updates_for_header_tag(
         updates["has_notes"] = False if removed else True
         if removed:
             updates["notes"] = None
+    elif tag_name == "CARAChessLog":
+        updates["has_chess_log_tags"] = False if removed else True
 
     return updates
 

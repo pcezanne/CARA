@@ -1441,6 +1441,23 @@ class MainWindow(QMainWindow):
                     self.controller.get_database_controller().mark_database_unsaved(database_model)
             self.controller.set_status("Notes saved to current game")
 
+    def _save_chess_log_for_current_game(self) -> None:
+        """Save Chess Log moments to the active game's PGN tag (in memory)."""
+        if not self.controller:
+            return
+        chess_log_controller = self.controller.get_chess_log_controller()
+        if chess_log_controller and chess_log_controller.save_tags_for_current_game():
+            self.controller.set_status("Chess Log saved to current game")
+
+    def _clear_chess_log_for_current_game(self) -> None:
+        """Clear Chess Log moments for the current game (removes CARAChessLog tags in memory)."""
+        if not self.controller:
+            return
+        chess_log_controller = self.controller.get_chess_log_controller()
+        if chess_log_controller:
+            chess_log_controller.clear_tags_for_current_game()
+            self.controller.set_status("Chess Log cleared for current game")
+
     def _show_ai_model_settings(self) -> None:
         """Show the AI model settings dialog."""
         from app.views.dialogs.ai_model_settings_dialog import AIModelSettingsDialog
@@ -1955,6 +1972,9 @@ class MainWindow(QMainWindow):
                 )
             if hasattr(self.detail_panel, 'moves_view'):
                 self.detail_panel.moves_view.set_database_controller(database_controller)
+                self.detail_panel.moves_view.set_chess_log_controller(
+                    self.controller.get_chess_log_controller()
+                )
             if hasattr(self.detail_panel, 'pgn_view'):
                 self.detail_panel.pgn_view.set_database_controller(database_controller)
             if hasattr(self.detail_panel, 'player_stats_view'):

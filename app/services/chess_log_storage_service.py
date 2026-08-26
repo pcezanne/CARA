@@ -31,6 +31,12 @@ class ChessLogStorageService:
     One path key = one moment. A path's list may hold multiple entries so that
     a CCT tag with two letters (both apply to the same moment) costs one moment
     against the 3-moment cap, not two.  count_tags() counts paths, not entries.
+
+    For 3x3 moments, cat is one of "Why1", "Why2", "Why3" and why holds the
+    answer text.  A single 3x3 moment stores up to three entries (one per Why
+    answered), all sharing the same path key.  Insertion order is preserved by
+    json.dumps/loads and Python dicts (3.7+), so Why1 always precedes Why2
+    and Why3 when loaded back.  preset="3x3" on all three entries.
     """
 
     TAG_NAME = "CARAChessLog"

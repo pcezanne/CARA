@@ -69,7 +69,7 @@ class AppController:
 
         # Initialize Chess Log controller (depends on game controller and database controller)
         self.chess_log_controller = ChessLogController(
-            config, self.game_controller, self.database_controller
+            config, self.game_controller, self.database_controller, self.user_settings_service
         )
 
         # Initialize column profile controller

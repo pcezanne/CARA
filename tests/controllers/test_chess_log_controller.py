@@ -41,11 +41,52 @@ def make_game_controller_mock(game_model: MagicMock) -> MagicMock:
     return gc
 
 
-def make_controller(game=None, active_path=()) -> tuple[ChessLogController, MagicMock]:
+def make_user_settings_mock(active_preset="CLAMP", custom_categories=None) -> MagicMock:
+    uss = MagicMock()
+    uss.get_chess_log.return_value = {
+        "active_preset": active_preset,
+        "custom_categories": custom_categories or [],
+    }
+    return uss
+
+
+def make_controller(game=None, active_path=(), user_settings_service=None) -> tuple[ChessLogController, MagicMock]:
     gm = make_game_model_mock(game, active_path)
     gc = make_game_controller_mock(gm)
-    ctrl = ChessLogController({}, gc)
+    ctrl = ChessLogController({}, gc, user_settings_service=user_settings_service)
     return ctrl, gm
+
+
+class TestPresetAccessors(unittest.TestCase):
+    def test_get_active_preset_reads_from_user_settings(self):
+        uss = make_user_settings_mock(active_preset="CCT")
+        ctrl, _ = make_controller(user_settings_service=uss)
+        self.assertEqual(ctrl.get_active_preset(), "CCT")
+
+    def test_get_custom_categories_reads_from_user_settings(self):
+        uss = make_user_settings_mock(custom_categories=["Time trouble", "Wrong plan"])
+        ctrl, _ = make_controller(user_settings_service=uss)
+        self.assertEqual(ctrl.get_custom_categories(), ["Time trouble", "Wrong plan"])
+
+    def test_get_active_preset_defaults_to_clamp_when_no_service(self):
+        ctrl, _ = make_controller(user_settings_service=None)
+        self.assertEqual(ctrl.get_active_preset(), "CLAMP")
+
+    def test_get_custom_categories_defaults_to_empty_when_no_service(self):
+        ctrl, _ = make_controller(user_settings_service=None)
+        self.assertEqual(ctrl.get_custom_categories(), [])
+
+    def test_get_active_preset_defaults_to_clamp_when_key_missing(self):
+        uss = MagicMock()
+        uss.get_chess_log.return_value = {}  # chess_log key exists but active_preset missing
+        ctrl, _ = make_controller(user_settings_service=uss)
+        self.assertEqual(ctrl.get_active_preset(), "CLAMP")
+
+    def test_get_custom_categories_defaults_to_empty_when_key_missing(self):
+        uss = MagicMock()
+        uss.get_chess_log.return_value = {}
+        ctrl, _ = make_controller(user_settings_service=uss)
+        self.assertEqual(ctrl.get_custom_categories(), [])
 
 
 class TestAddMomentBelowCap(unittest.TestCase):

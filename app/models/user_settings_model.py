@@ -479,6 +479,18 @@ class UserSettingsModel(QObject):
         cur.update(partial)
         self.set_opening_encyclopedia_dialog(cur)
 
+    def get_chess_log(self) -> Dict[str, Any]:
+        """Get Chess Log settings (active_preset, custom_categories)."""
+        raw = self._settings.get("chess_log", {})
+        if not isinstance(raw, dict):
+            return {"active_preset": "CLAMP", "custom_categories": []}
+        return raw.copy()
+
+    def set_chess_log(self, settings: Dict[str, Any]) -> None:
+        """Replace Chess Log settings."""
+        self._settings["chess_log"] = settings.copy()
+        self.settings_changed.emit()
+
     def get_recent_pgn_databases(self) -> list:
         """Get recent PGN database file paths (most recent first)."""
         raw = self._settings.get("recent_pgn_databases", [])

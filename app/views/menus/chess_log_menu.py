@@ -16,6 +16,12 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     chess_log_menu = menu_bar.addMenu("Chess Log")
     mw._apply_menu_styling(chess_log_menu)
 
+    mw.chess_log_settings_action = QAction("Chess Log Settings…", mw)
+    mw.chess_log_settings_action.triggered.connect(mw._show_chess_log_settings)
+    chess_log_menu.addAction(mw.chess_log_settings_action)
+
+    chess_log_menu.addSeparator()
+
     mw.clear_chess_log_action = QAction("Clear Chess Log for current game", mw)
     mw.clear_chess_log_action.setShortcut(QKeySequence("Ctrl+Shift+L"))
     set_menubar_themable_action_icon(mw, mw.clear_chess_log_action, SVG_CONTEXT_DELETE)

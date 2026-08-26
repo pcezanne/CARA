@@ -12,6 +12,20 @@ python cara.py
 
 On macOS, you may need `python3` instead. Requires Python 3.8+ and a UCI-compatible chess engine (Stockfish, Berserk, etc.) configured via the Engines menu.
 
+**Known issue: PyQt6 / PyQt6-Qt6 version drift.** These two packages must have matching versions — pip does not enforce this, and a mismatch produces a misleading error (`Could not find the Qt platform plugin "cocoa"`) that looks like a missing file, broken signature, or corrupt install, none of which is the actual cause. If `cara.py` fails to start with this error:
+
+```bash
+pip show PyQt6 PyQt6-Qt6 | grep -E "Name|Version"
+```
+
+If the versions don't match, reinstall whichever one is ahead to match the other:
+
+```bash
+pip install --force-reinstall --no-deps PyQt6-Qt6==<matching version>
+```
+
+PyPI doesn't always have every point-release pair available for both packages — run `pip install PyQt6-Qt6==` (no version, to list what's available) if the exact match isn't found.
+
 ## Running Tests
 
 Tests use Python's standard `unittest` framework, living in `tests/` as `test_*.py`.
@@ -76,7 +90,9 @@ CARA follows **PyQt's Model/View pattern with Controllers**, with signal/slot co
 
 Three files loaded at startup: `app/config/config.json` (UI styling/dimensions/colors/fonts), `user_settings.json` (user preferences), `engine_parameters.json` (UCI engine parameters).
 
-**Open question on validation strictness** (see note below in Configuration Access) — confirm with maintainer before relying on either behavior.
+**Config is split by kind, not just by file.** `config.json` holds *behavioral* config; the `style_*.config.json` theme files hold *style/layout* config. ConfigLoader merges both into memory at startup — treat them as one logical config in code, but a new key's *home file* depends on whether it's behavior or presentation, not convenience.
+
+**Convention for new config keys (confirmed by maintainer):** add every new key to ConfigLoader so a missing one fails loudly at startup. Whether the corresponding `.get()` call in code also carries an inline default doesn't matter either way — the loader is the actual gate, `.get()` defaults are just belt-and-suspenders. (The strict-validation-everywhere language elsewhere in this doc is aspirational, not fully true yet — it's known tech debt from a mid-project design shift, with a config-loader refactor planned but not yet done. Don't be surprised by `.get(..., default)` patterns in the existing code; follow the "always register in ConfigLoader" rule for anything new regardless.)
 
 Style config files (`style_default.config.json`, `style_light.config.json`, `style_scholar.config.json`) define reusable constants with a `$_` prefix, referenced elsewhere via `{"$ref": "$_CONSTANT_NAME"}`. `config.json`'s `default_style_config` key selects the active style file.
 
@@ -88,7 +104,7 @@ Key sections: `ui.window`, `ui.panels`, `ui.dialogs.*`, `ui.styles`, `ui.colors`
 bg_color = config.get("ui", {}).get("dialogs", {}).get("my_dialog", {}).get("background_color", [40, 40, 45])
 ```
 
-**Note:** ConfigLoader is documented as strictly validating config at startup (fails fast on missing required keys, no fallback logic) — but the pattern above shows `.get()` calls with inline defaults, which *is* fallback logic. Unconfirmed whether this means strict validation applies only to a specific set of required keys while everything else may use `.get()` defaults, or whether the two statements are in tension. Confirm the actual rule before writing new config-reading code, rather than copying this pattern blindly.
+**Note:** the docs describe ConfigLoader as strictly validating at startup, but the pattern above uses `.get()` with an inline default — that's not a contradiction to resolve, it's the current transitional state (see Configuration System above). For new config-reading code: register the key in ConfigLoader regardless of whether you also add a `.get()` default.
 
 ### Dialog Implementation
 
@@ -120,6 +136,8 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 
 **Vocabulary**: "moment" in all user-facing text; `tag` is fine in internal code. Avoids collision with `CARAGameTags` whole-game chips.
 
+**Active preset model:** the player selects one active preset — CLAMP, CCT, 3x3, or Custom — in the Chess Log Settings dialog (Chess Log menu → "Chess Log Settings…"), mirroring the existing Engines/AI Summary setup pattern. CLAMP and CCT both allow multiple letters per moment. Custom is a Settings-managed picklist (add/remove), not free-form text at tag time. 3x3 is the sole preset with free-form text at tag time (its three Whys: "Why did I make this move?", "Why was it suboptimal?", "Why is the engine's suggestion better?"). The active preset can change over time, so a library may end up with moments tagged under more than one preset — expected, not an error. See `chess-log-design-doc.md` §3.2–3.4 for full detail.
+
 **CARA-namespaced PGN tags** (all read-only in metadata view and model):
 - `CARAAnalysisData` / `CARAAnalysisInfo` / `CARAAnalysisChecksum` — per-move engine data
 - `CARAAnnotations` / `CARAAnnotationsInfo` / `CARAAnnotationsChecksum` — board drawing annotations
@@ -127,11 +145,11 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 - `CARAChessLog` / `CARAChessLogInfo` / `CARAChessLogChecksum` — Chess Log moments
 - `CARAGameTags` — whole-game chip tags
 
-**Key files**: `app/services/chess_log_storage_service.py`, `app/controllers/chess_log_controller.py`, `app/views/dialogs/moment_dialog.py`, `app/views/menus/chess_log_menu.py`.
+**Key files**: `app/services/chess_log_storage_service.py`, `app/controllers/chess_log_controller.py`, `app/views/dialogs/moment_dialog.py`, `app/views/dialogs/chess_log_settings_dialog.py`, `app/views/menus/chess_log_menu.py`.
 
-**Entry point**: right-click a move in the Moves List → "Tag this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
+**Entry point**: first-time users should open Chess Log → Chess Log Settings to pick their preset (and, for Custom, populate the picklist). Then right-click a move in the Moves List → "Tag this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
 
-**Out of scope for this PR**: detail tab view/edit UI, "highlight tagged moves" toggle, 3x3 preset, trend charts, AI narrative summary.
+**Out of scope for the `tagging` branch**: detail tab view/edit UI, "highlight tagged moves" toggle, trend charts, AI narrative summary.
 
 ## Naming Conventions
 
@@ -153,7 +171,7 @@ Architecture and feature docs live in `doc/` — `architecture_outline.md` for h
 This fork has two `master` branches to keep straight:
 
 - **This fork's `master`** — the integration branch for Chess Log development. Feature branches merge here via PR, reviewed by Paul.
-- **Upstream CARA's `master`** (Philipp's) — a separate, later destination. Never push or target it directly. Reaching it happens via a deliberate PR once a feature (or the whole project) is ready for his review — exact PR granularity/cadence TBD, pending discussion with Philipp.
+- **Upstream CARA's `master`** (Philipp's) — a separate, later destination. Never push or target it directly. Reaching it happens via a deliberate PR once a feature is complete enough to integrate well into the app — config.json, the theme system, the manual (`resources/manual/index.html`), and any new keyboard shortcuts, per Philipp — not a partial/incremental PR (confirmed by Philipp, 2026-08-24).
 
 Rules:
 - **Never commit directly to either `master`.** Always work on a feature branch. If none exists for the current task, create one before the first commit — don't wait to be asked.
@@ -161,7 +179,7 @@ Rules:
 
 ## CI/CD
 
-`.github/workflows/tests.yml` runs on Python 3.12 with `QT_QPA_PLATFORM=offscreen` for headless Qt testing, on push to main/master/development and on PRs. Manual-trigger build workflows (`build-appbundles.yml`, `build-linux-appbundles.yml`) produce macOS/Windows/Linux bundles as artifacts.
+`.github/workflows/tests.yml` runs on Python 3.12 with `QT_QPA_PLATFORM=offscreen` for headless Qt testing, on push to `master`/`development` and on PRs. Manual-trigger build workflows (`build-appbundles.yml`, `build-linux-appbundles.yml`) produce macOS/Windows/Linux bundles as artifacts.
 
 ## Version and Release
 

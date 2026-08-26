@@ -716,6 +716,11 @@
         "why_placeholder": "Optional — why did this matter?",
         "width": 400,
         "height": 320
+      },
+      "chess_log_settings": {
+        "title": "Chess Log Settings",
+        "width": 440,
+        "height": 360
       }
     },
     "positional_heatmap": {

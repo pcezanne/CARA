@@ -28,10 +28,12 @@ class ChessLogController:
         config: Dict[str, Any],
         game_controller: GameController,
         database_controller=None,
+        user_settings_service=None,
     ) -> None:
         self.config = config
         self._game_controller = game_controller
         self._database_controller = database_controller
+        self._user_settings_service = user_settings_service
         self._cached_paths_data: Dict[str, List[Dict[str, Any]]] = {}
         self._cached_game_id: Optional[int] = None
 
@@ -41,6 +43,19 @@ class ChessLogController:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def get_active_preset(self) -> str:
+        """Return the currently active Chess Log preset name (e.g. 'CLAMP')."""
+        if self._user_settings_service is None:
+            return "CLAMP"
+        return self._user_settings_service.get_chess_log().get("active_preset", "CLAMP")
+
+    def get_custom_categories(self) -> List[str]:
+        """Return the user-defined Custom picklist categories."""
+        if self._user_settings_service is None:
+            return []
+        cats = self._user_settings_service.get_chess_log().get("custom_categories", [])
+        return list(cats) if isinstance(cats, list) else []
 
     def get_tags_for_current_game(self) -> Dict[str, List[Dict[str, Any]]]:
         """Return in-memory moments for the active game (loading from PGN if needed)."""

@@ -1462,13 +1462,22 @@ class MainWindow(QMainWindow):
         """Show the AI model settings dialog."""
         from app.views.dialogs.ai_model_settings_dialog import AIModelSettingsDialog
         from app.services.user_settings_service import UserSettingsService
-        
+
         settings_service = UserSettingsService.get_instance()
         dialog = AIModelSettingsDialog(self.config, settings_service, self)
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._refresh_ai_summary_models()
             self._refresh_ai_summary_menu_state()
-    
+
+    def _show_chess_log_settings(self) -> None:
+        """Show the Chess Log settings dialog (active preset + custom categories)."""
+        from app.views.dialogs.chess_log_settings_dialog import ChessLogSettingsDialog
+        from app.services.user_settings_service import UserSettingsService
+
+        settings_service = UserSettingsService.get_instance()
+        dialog = ChessLogSettingsDialog(self.config, settings_service, self)
+        dialog.exec()
+
     def _show_annotation_preferences(self) -> None:
         """Show annotation preferences dialog."""
         from app.views.dialogs.annotation_preferences_dialog import AnnotationPreferencesDialog

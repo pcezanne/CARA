@@ -1134,5 +1134,9 @@
   "bulk_operation_plans": {},
   "keyboard_shortcuts": {
     "overrides": {}
+  },
+  "chess_log": {
+    "active_preset": "CLAMP",
+    "custom_categories": []
   }
 }

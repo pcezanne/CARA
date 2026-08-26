@@ -511,8 +511,13 @@ class DetailMovesListView(QWidget):
                     san = move_data.black_move or ""
                     is_white = False
 
+        active_preset = self._chess_log_controller.get_active_preset()
+        custom_categories = self._chess_log_controller.get_custom_categories()
+
         from app.views.dialogs.moment_dialog import MomentDialog
-        entries = MomentDialog.tag_moment(self.config, move_number, san, is_white, self)
+        entries = MomentDialog.tag_moment(
+            self.config, active_preset, custom_categories, move_number, san, is_white, self
+        )
         if not entries:
             return
 

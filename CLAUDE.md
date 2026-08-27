@@ -12,7 +12,9 @@ python cara.py
 
 On macOS, you may need `python3` instead. Requires Python 3.8+ and a UCI-compatible chess engine (Stockfish, Berserk, etc.) configured via the Engines menu.
 
-**Known issue: PyQt6 / PyQt6-Qt6 version drift.** These two packages must have matching versions — pip does not enforce this, and a mismatch produces a misleading error (`Could not find the Qt platform plugin "cocoa"`) that looks like a missing file, broken signature, or corrupt install, none of which is the actual cause. If `cara.py` fails to start with this error:
+**PyQt6 / PyQt6-Qt6 version pinning.** `requirements.txt` pins both `PyQt6` and `PyQt6-Qt6` to the same exact version. They must match — a mismatch produces a misleading error (`Could not find the Qt platform plugin "cocoa"`) that looks like a missing file, broken signature, or corrupt install, none of which is the actual cause. A plain `pip install -r requirements.txt` on a clean venv should no longer produce drift.
+
+If you hit this error despite installing from `requirements.txt` (e.g. after manually upgrading one package), diagnose with:
 
 ```bash
 pip show PyQt6 PyQt6-Qt6 | grep -E "Name|Version"
@@ -25,6 +27,22 @@ pip install --force-reinstall --no-deps PyQt6-Qt6==<matching version>
 ```
 
 PyPI doesn't always have every point-release pair available for both packages — run `pip install PyQt6-Qt6==` (no version, to list what's available) if the exact match isn't found.
+
+**macOS UF_HIDDEN platform-plugin flag.** macOS sometimes sets the `UF_HIDDEN` file flag on `libqcocoa.dylib` and sibling Qt platform plugins during pip extraction. The flag is invisible to permissions, dlopen, and codesigning checks but prevents Qt plugin discovery, producing the same misleading "Could not find the Qt platform plugin 'cocoa'" error. CARA clears this flag automatically at every startup (`app/utils/macos_startup.py` → `clear_platform_plugin_hidden_flags()` called in `cara.py` before `QApplication` is constructed). If you somehow still hit the error after startup has run (e.g., running Python directly without going through `cara.py`), clear manually:
+
+```bash
+python3 -c "
+import os, glob
+plugins = glob.glob(os.path.expanduser('~/.venv/lib/python*/site-packages/PyQt6/Qt6/plugins/platforms/*.dylib'))
+for p in plugins:
+    st = os.lstat(p)
+    if hasattr(st, 'st_flags') and st.st_flags & 0x8000:
+        os.chflags(p, st.st_flags & ~0x8000)
+        print('cleared', p)
+"
+```
+
+(Adjust the venv path to match yours.)
 
 ## Running Tests
 

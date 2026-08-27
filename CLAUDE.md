@@ -193,6 +193,7 @@ This fork has two `master` branches to keep straight:
 
 Rules:
 - **Never commit directly to either `master`.** Always work on a feature branch. If none exists for the current task, create one before the first commit — don't wait to be asked.
+- **Never push a branch or open/update a PR against upstream (Philipp's repo) without explicit confirmation first.** Pushing to this fork's own `origin` for a feature branch under active work is fine without asking each time; opening or updating a PR that Philipp will see is a distinct, separate action that always needs a go-ahead.
 - Prefer small, focused commits (one logical change each) over large batched ones — easier to review, easier to revert if something's wrong.
 
 ## CI/CD

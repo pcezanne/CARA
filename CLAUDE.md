@@ -165,6 +165,7 @@ Architecture and feature docs live in `doc/` — `architecture_outline.md` for h
 ## Git Workflow
 
 - **Never commit directly to `master`.** Always work on a feature branch.
+- **Never run `git push` on any branch without first showing Paul the exact commit(s) about to be pushed and getting explicit confirmation.** This applies universally — no exceptions based on how minor or "obviously fine" a change seems. (Supersedes the earlier narrower rule that only required confirmation for upstream PRs.)
 - Prefer small, focused commits (one logical change each) over large batched ones — easier to review, easier to revert if something's wrong.
 
 ## CI/CD

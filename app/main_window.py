@@ -1448,6 +1448,7 @@ class MainWindow(QMainWindow):
         chess_log_controller = self.controller.get_chess_log_controller()
         if chess_log_controller and chess_log_controller.save_tags_for_current_game():
             self.controller.set_status("Chess Log saved to current game")
+            self._notify_moveslist_chess_log_changed()
 
     def _clear_chess_log_for_current_game(self) -> None:
         """Clear Chess Log moments for the current game (removes CARAChessLog tags in memory)."""
@@ -1457,6 +1458,20 @@ class MainWindow(QMainWindow):
         if chess_log_controller:
             chess_log_controller.clear_tags_for_current_game()
             self.controller.set_status("Chess Log cleared for current game")
+            self._notify_moveslist_chess_log_changed()
+
+    def _on_highlight_chess_log_moves_toggled(self, checked: bool) -> None:
+        """Handle 'Highlight tagged moves in moves list' toggle."""
+        if not hasattr(self, '_settings_service') or self._settings_service is None:
+            return
+        self._settings_service.update_chess_log_settings({"highlight_chess_log_moves_in_list": checked})
+        if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'moveslist_model'):
+            self.detail_panel.moveslist_model.set_highlight_chess_log_moves(checked)
+
+    def _notify_moveslist_chess_log_changed(self) -> None:
+        """Tell the moves list model to refresh Chess Log tag indicators."""
+        if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'moveslist_model'):
+            self.detail_panel.moveslist_model.notify_chess_log_changed()
 
     def _show_ai_model_settings(self) -> None:
         """Show the AI model settings dialog."""
@@ -4222,6 +4237,18 @@ class MainWindow(QMainWindow):
             moveslist_model.set_highlight_annotated_moves(highlight_annotated_moves)
         if hasattr(self, 'highlight_annotated_moves_action'):
             self.highlight_annotated_moves_action.setChecked(highlight_annotated_moves)
+
+        # Chess Log moves list indicator: wire controller and load toggle state
+        chess_log_settings = settings.get("chess_log", {})
+        highlight_chess_log_moves = chess_log_settings.get("highlight_chess_log_moves_in_list", False)
+        if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'moveslist_model'):
+            moveslist_model = self.detail_panel.moveslist_model
+            chess_log_ctrl = self.controller.get_chess_log_controller() if self.controller else None
+            if chess_log_ctrl:
+                moveslist_model.set_chess_log_controller(chess_log_ctrl)
+            moveslist_model.set_highlight_chess_log_moves(highlight_chess_log_moves)
+        if hasattr(self, 'highlight_chess_log_moves_action'):
+            self.highlight_chess_log_moves_action.setChecked(highlight_chess_log_moves)
         
         # ===== BOARD MENU SETTINGS (in menu order) =====
         # Show Game Info

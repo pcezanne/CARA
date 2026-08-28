@@ -532,6 +532,8 @@ class DetailMovesListView(QWidget):
             return
 
         self._chess_log_controller.add_moment_at_active_path(entries, self)
+        if self._moveslist_model:
+            self._moveslist_model.notify_chess_log_changed()
 
     def _on_moves_table_context_menu(self, pos: QPoint) -> None:
         """Show context menu for copy actions at the cell under the cursor."""

@@ -8,6 +8,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
 from PyQt6.QtWidgets import (
     QButtonGroup,
+    QCheckBox,
     QDialog,
     QHBoxLayout,
     QLabel,
@@ -137,6 +138,7 @@ class MomentDialog(QDialog):
 
         # Per-preset content
         self._chip_buttons: List[tuple[str, QPushButton]] = []  # (cat_value, btn)
+        self._custom_checkboxes: List[tuple[str, QCheckBox]] = []  # (cat_value, cb) — Custom only
         self._why_edit: Optional[QTextEdit] = None
         self._threexthree_edits: List[tuple[str, QTextEdit]] = []  # (Why1/2/3, edit)
         self._warning_label: Optional[QLabel] = None
@@ -247,8 +249,16 @@ class MomentDialog(QDialog):
             return
 
         self._label("Select all that apply (more than one may fit):", layout)
-        chips = [(cat, f"Custom category: {cat}") for cat in self._custom_categories]
-        self._build_chip_row(chips, layout)
+        label_ss = (
+            f"color: rgb({self._label_color.red()},{self._label_color.green()},"
+            f"{self._label_color.blue()});"
+        )
+        for cat in self._custom_categories:
+            cb = QCheckBox(cat)
+            cb.setFont(QFont(self._label_font, self._label_size))
+            cb.setStyleSheet(label_ss)
+            layout.addWidget(cb)
+            self._custom_checkboxes.append((cat, cb))
         self._build_why_field(layout)
 
     def _build_why_field(self, layout: QVBoxLayout) -> None:
@@ -331,13 +341,19 @@ class MomentDialog(QDialog):
                     entries.append({"preset": "3x3", "cat": key, "why": answer})
             return entries
 
-        # CLAMP / CCT / Custom: chip multi-select + optional why
+        if self._custom_checkboxes:
+            selected = [cat for cat, cb in self._custom_checkboxes if cb.isChecked()]
+            if not selected:
+                return []
+            why = self._why_edit.toPlainText().strip() if self._why_edit else ""
+            return [{"preset": "Custom", "cat": cat, "why": why} for cat in selected]
+
+        # CLAMP / CCT: chip multi-select + optional why
         selected = [cat for cat, btn in self._chip_buttons if btn.isChecked()]
         if not selected:
             return []
         why = self._why_edit.toPlainText().strip() if self._why_edit else ""
-        preset = self._active_preset if self._active_preset in ("CLAMP", "CCT") else "Custom"
-        return [{"preset": preset, "cat": cat, "why": why} for cat in selected]
+        return [{"preset": self._active_preset, "cat": cat, "why": why} for cat in selected]
 
     def _on_ok(self) -> None:
         entries = self.get_entries()

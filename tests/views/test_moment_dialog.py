@@ -169,20 +169,26 @@ class TestCustomPreset(unittest.TestCase):
         dlg = _make("Custom", ["Time trouble", "Wrong plan", "Missed defense"])
         self.assertEqual(dlg.get_entries(), [])
 
-    def test_single_chip_returns_one_entry(self):
+    def test_single_checkbox_returns_one_entry(self):
         dlg = _make("Custom", ["Time trouble", "Wrong plan"])
-        tt_btn = next(btn for cat, btn in dlg._chip_buttons if cat == "Time trouble")
-        tt_btn.setChecked(True)
+        tt_cb = next(cb for cat, cb in dlg._custom_checkboxes if cat == "Time trouble")
+        tt_cb.setChecked(True)
         entries = dlg.get_entries()
         self.assertEqual(len(entries), 1)
         self.assertEqual(entries[0]["cat"], "Time trouble")
         self.assertEqual(entries[0]["preset"], "Custom")
 
+    def test_full_category_name_visible(self):
+        """Checkboxes must show the full category name, not a truncated abbreviation."""
+        dlg = _make("Custom", ["Time trouble", "Wrong plan"])
+        for cat, cb in dlg._custom_checkboxes:
+            self.assertEqual(cb.text(), cat)
+
     def test_multi_select_returns_multiple_entries(self):
         dlg = _make("Custom", ["Time trouble", "Wrong plan", "Missed defense"])
-        for cat, btn in dlg._chip_buttons:
+        for cat, cb in dlg._custom_checkboxes:
             if cat in ("Time trouble", "Wrong plan"):
-                btn.setChecked(True)
+                cb.setChecked(True)
         entries = dlg.get_entries()
         self.assertEqual(len(entries), 2)
         cats = {e["cat"] for e in entries}
@@ -190,8 +196,8 @@ class TestCustomPreset(unittest.TestCase):
 
     def test_why_shared_across_entries(self):
         dlg = _make("Custom", ["A", "B"])
-        for _, btn in dlg._chip_buttons:
-            btn.setChecked(True)
+        for _, cb in dlg._custom_checkboxes:
+            cb.setChecked(True)
         dlg._why_edit.setPlainText("shared reason")
         entries = dlg.get_entries()
         self.assertTrue(all(e["why"] == "shared reason" for e in entries))

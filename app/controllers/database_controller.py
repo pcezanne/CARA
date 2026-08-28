@@ -280,6 +280,7 @@ class DatabaseController:
                 analyzed=game_dict.get("analyzed", False),
                 annotated=game_dict.get("annotated", False),
                 has_notes=game_dict.get("has_notes", False),
+                has_chess_log_tags=game_dict.get("has_chess_log_tags", False),
                 file_position=0,  # Pasted games don't have file position
             )
             # Extract tags from parsed game dict (already available, no parsing needed)
@@ -805,6 +806,7 @@ class DatabaseController:
                     analyzed=game_dict.get("analyzed", False),
                     annotated=game_dict.get("annotated", False),
                     has_notes=game_dict.get("has_notes", False),
+                    has_chess_log_tags=game_dict.get("has_chess_log_tags", False),
                     file_position=file_pos,  # Store original file position (1-based)
                 )
                 games.append(game_data)
@@ -1058,6 +1060,7 @@ class DatabaseController:
                         analyzed=game_dict.get("analyzed", False),
                         annotated=game_dict.get("annotated", False),
                         has_notes=game_dict.get("has_notes", False),
+                        has_chess_log_tags=game_dict.get("has_chess_log_tags", False),
                         file_position=file_pos,
                     )
                     game_data_list.append(game_data)
@@ -1207,6 +1210,7 @@ class DatabaseController:
                     analyzed=game_dict.get("analyzed", False),
                     annotated=game_dict.get("annotated", False),
                     has_notes=game_dict.get("has_notes", False),
+                    has_chess_log_tags=game_dict.get("has_chess_log_tags", False),
                     file_position=file_pos,  # Store original file position (1-based)
                 )
                 games_data.append(game_data)

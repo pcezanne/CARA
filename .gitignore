@@ -177,3 +177,6 @@ update_version.py
 
 /.tools/
 
+# Test PGN files
+TaggingTestGames.pgn
+

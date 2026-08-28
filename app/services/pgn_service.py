@@ -973,11 +973,24 @@ class PgnService:
             if not has_notes:
                 has_notes = "[CARANotes" in game_pgn
 
-            # Per-game CARA tag bubbles (semicolon-separated)
+            has_chess_log_tags = "CARAChessLog" in headers
+            if not has_chess_log_tags:
+                has_chess_log_tags = "[CARAChessLog" in game_pgn
+
+            # Per-game CARA tag bubbles (semicolon-separated).
+            # If the game has Chess Log moments, inject the "🏷 Chess Log" presence
+            # chip into game_tags_raw so both render paths (database delegate and
+            # board widget) show it without any widget changes.
             game_tags_raw = headers.get("CARAGameTags", "") if headers else ""
             try:
-                from app.utils.game_tags_utils import parse_game_tags, tags_display_text
+                from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
 
+                if has_chess_log_tags:
+                    _chip = "🏷 Chess Log"
+                    _tags = parse_game_tags(game_tags_raw)
+                    if _chip.casefold() not in {t.casefold() for t in _tags}:
+                        _tags = [_chip] + _tags
+                        game_tags_raw = format_game_tags(_tags)
                 game_tags_display = tags_display_text(parse_game_tags(game_tags_raw))
             except Exception:
                 game_tags_display = ""
@@ -1065,6 +1078,7 @@ class PgnService:
                 "analyzed": analyzed,
                 "annotated": annotated,
                 "has_notes": has_notes,
+                "has_chess_log_tags": has_chess_log_tags,
                 "game_tags_raw": game_tags_raw,
                 "game_tags": game_tags_display,
                 "tags": tag_names,  # Tag names extracted during parsing

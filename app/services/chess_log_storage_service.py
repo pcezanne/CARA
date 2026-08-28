@@ -42,6 +42,7 @@ class ChessLogStorageService:
     TAG_NAME = "CARAChessLog"
     TAG_INFO = "CARAChessLogInfo"
     TAG_CHECKSUM = "CARAChessLogChecksum"
+    CHIP_TEXT = "🏷 Chess Log"
 
     @staticmethod
     def has_chess_log_tags(game: GameData) -> bool:
@@ -123,6 +124,10 @@ class ChessLogStorageService:
             chess_game.headers[ChessLogStorageService.TAG_CHECKSUM] = checksum
             game.pgn = PgnService.export_game_to_pgn(chess_game)
             game.has_chess_log_tags = ChessLogStorageService.count_tags(paths_data) > 0
+            if game.has_chess_log_tags:
+                ChessLogStorageService._inject_chess_log_chip(game)
+            else:
+                ChessLogStorageService._remove_chess_log_chip(game)
             return True
         except Exception as e:
             LoggingService.get_instance().error(
@@ -137,6 +142,7 @@ class ChessLogStorageService:
             return False
         ChessLogStorageService._remove_chess_log_tags(game)
         game.has_chess_log_tags = False
+        ChessLogStorageService._remove_chess_log_chip(game)
         return True
 
     @staticmethod
@@ -158,6 +164,32 @@ class ChessLogStorageService:
             "why": why,
             "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+
+    @staticmethod
+    def _inject_chess_log_chip(game: GameData) -> None:
+        """Add the Chess Log presence chip to game.game_tags_raw if absent."""
+        from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
+        raw = getattr(game, "game_tags_raw", "") or ""
+        tags = parse_game_tags(raw)
+        chip = ChessLogStorageService.CHIP_TEXT
+        if chip.casefold() not in {t.casefold() for t in tags}:
+            tags = [chip] + tags
+            new_raw = format_game_tags(tags)
+            game.game_tags_raw = new_raw
+            game.game_tags = tags_display_text(parse_game_tags(new_raw))
+
+    @staticmethod
+    def _remove_chess_log_chip(game: GameData) -> None:
+        """Remove the Chess Log presence chip from game.game_tags_raw."""
+        from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
+        raw = getattr(game, "game_tags_raw", "") or ""
+        tags = parse_game_tags(raw)
+        chip_lower = ChessLogStorageService.CHIP_TEXT.casefold()
+        new_tags = [t for t in tags if t.casefold() != chip_lower]
+        if len(new_tags) != len(tags):
+            new_raw = format_game_tags(new_tags)
+            game.game_tags_raw = new_raw
+            game.game_tags = tags_display_text(parse_game_tags(new_raw))
 
     @staticmethod
     def _remove_chess_log_tags(game: GameData) -> None:

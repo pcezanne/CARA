@@ -62,6 +62,8 @@ python -m unittest tests.services.test_pgn_service.TestPgnServiceNormalizeMovesF
 
 **Note**: Tests in `tests/opening_integrity/` require local chess engine installations — local only, not run in CI.
 
+**Test coverage is part of every item's definition of done — no exceptions for changes that seem purely cosmetic or UI-only.** "Just a label" or "just styling" is not a reason to skip a test; if it's worth shipping, it's worth a test confirming it shows what it's supposed to show. When implementing a batch of multiple fixes or features, treat "add tests" as part of each individual item, not a cleanup pass at the end. The last item in a batch is just as likely to need coverage as the first.
+
 ## Building
 
 PyInstaller specs exist for macOS, Windows, and Linux (`CARA_macos.spec`, etc. — each requires its target OS to build).

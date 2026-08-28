@@ -42,7 +42,7 @@ class ChessLogStorageService:
     TAG_NAME = "CARAChessLog"
     TAG_INFO = "CARAChessLogInfo"
     TAG_CHECKSUM = "CARAChessLogChecksum"
-    CHIP_TEXT = "🏷 Chess Log"
+    CHIP_TEXT = "🏷"
 
     @staticmethod
     def has_chess_log_tags(game: GameData) -> bool:

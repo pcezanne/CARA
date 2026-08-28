@@ -22,7 +22,7 @@ from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.game_tags_utils import format_game_tags, parse_game_tags
 
 
-CHIP = ChessLogStorageService.CHIP_TEXT  # "🏷 Chess Log"
+CHIP = ChessLogStorageService.CHIP_TEXT  # "🏷"
 
 # _extract_game_data filters out 0-move games, so tests that call it directly
 # need a PGN with at least one move.
@@ -263,6 +263,81 @@ class TestBothRenderPathsShareSource(unittest.TestCase):
         ChessLogStorageService.store_tags(game, paths)
         raw = getattr(game, "game_tags_raw", "")
         self.assertIn(CHIP, parse_game_tags(raw))
+
+
+# ---------------------------------------------------------------------------
+# Config consistency: style_default.config.json chip name == CHIP_TEXT
+# ---------------------------------------------------------------------------
+
+class TestConfigChipNameMatchesConstant(unittest.TestCase):
+    """The chip name in style_default.config.json must match CHIP_TEXT byte-for-byte.
+
+    The color-lookup in DatabaseTagsChipDelegate and GameTagsService matches by
+    chip name string; a mismatch silently falls back to the unstyled grey default.
+    """
+
+    def test_style_config_chip_name_matches_chip_text(self):
+        import json
+        import os
+        config_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "app", "config", "style_default.config.json",
+        )
+        with open(os.path.normpath(config_path), encoding="utf-8") as f:
+            style = json.load(f)
+        builtin = style.get("game_tags", {}).get("builtin", [])
+        names = [entry.get("name", "") for entry in builtin]
+        self.assertIn(
+            CHIP, names,
+            f"CHIP_TEXT {CHIP!r} not found in style_default.config.json "
+            f"game_tags.builtin names: {names!r}. "
+            "Update the config entry's 'name' field to match CHIP_TEXT.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Sanity check: chip appears only for tagged game at load time, not untagged
+# ---------------------------------------------------------------------------
+
+class TestChipOnlyOnTaggedGameAtLoad(unittest.TestCase):
+    """Chip must not appear on untagged games at database-open time.
+
+    Regression guard for an observation during testing where an untagged game
+    briefly appeared to show the chip right after opening the database.
+    """
+
+    def _extract(self, pgn_text: str) -> dict:
+        from app.services.pgn_service import PgnService
+        chess_game = chess.pgn.read_game(io.StringIO(pgn_text))
+        return PgnService._extract_game_data(chess_game, pgn_text) or {}
+
+    def _pgn_with_chess_log(self) -> str:
+        game = _make_game()
+        paths = {"0": [ChessLogStorageService.make_entry("CLAMP", "C", "")]}
+        ChessLogStorageService.store_tags(game, paths)
+        return game.pgn
+
+    def test_tagged_game_has_chip_at_load(self):
+        game_dict = self._extract(self._pgn_with_chess_log())
+        tags = parse_game_tags(game_dict.get("game_tags_raw", ""))
+        self.assertIn(CHIP, tags)
+
+    def test_untagged_game_has_no_chip_at_load(self):
+        game_dict = self._extract(ONE_MOVE_PGN)
+        tags = parse_game_tags(game_dict.get("game_tags_raw", ""))
+        self.assertNotIn(CHIP, tags,
+                         "Chip appeared on an untagged game at load time")
+
+    def test_untagged_game_has_chess_log_tags_false_at_load(self):
+        game_dict = self._extract(ONE_MOVE_PGN)
+        self.assertFalse(game_dict.get("has_chess_log_tags", True))
+
+    def test_tagged_game_chip_independent_of_untagged_sibling(self):
+        """Extracting an untagged game doesn't bleed chip state to/from a tagged one."""
+        tagged_dict = self._extract(self._pgn_with_chess_log())
+        untagged_dict = self._extract(ONE_MOVE_PGN)
+        self.assertIn(CHIP, parse_game_tags(tagged_dict.get("game_tags_raw", "")))
+        self.assertNotIn(CHIP, parse_game_tags(untagged_dict.get("game_tags_raw", "")))
 
 
 if __name__ == "__main__":

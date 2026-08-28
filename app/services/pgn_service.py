@@ -978,15 +978,16 @@ class PgnService:
                 has_chess_log_tags = "[CARAChessLog" in game_pgn
 
             # Per-game CARA tag bubbles (semicolon-separated).
-            # If the game has Chess Log moments, inject the "🏷 Chess Log" presence
-            # chip into game_tags_raw so both render paths (database delegate and
-            # board widget) show it without any widget changes.
+            # If the game has Chess Log moments, inject the Chess Log presence chip
+            # into game_tags_raw so both render paths (database delegate and board
+            # widget) show it without any widget changes.
             game_tags_raw = headers.get("CARAGameTags", "") if headers else ""
             try:
                 from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
+                from app.services.chess_log_storage_service import ChessLogStorageService as _CLS
 
                 if has_chess_log_tags:
-                    _chip = "🏷 Chess Log"
+                    _chip = _CLS.CHIP_TEXT
                     _tags = parse_game_tags(game_tags_raw)
                     if _chip.casefold() not in {t.casefold() for t in _tags}:
                         _tags = [_chip] + _tags

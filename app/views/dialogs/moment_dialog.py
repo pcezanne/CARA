@@ -38,11 +38,10 @@ class MomentDialog(QDialog):
         ("P", "Pawn Promotion — promotion race or endgame dynamics"),
     ]
 
-    # Full-word cat values stored to distinguish the two "C"s
-    _CCT_CHIPS: List[tuple[str, str, str]] = [
-        ("Checks", "C", "Checks — a checking move that wasn't considered"),
-        ("Captures", "C", "Captures — a capture that wasn't considered"),
-        ("Threats", "T", "Threats — a non-capturing threat that wasn't considered"),
+    _CCT_CHIPS: List[tuple[str, str]] = [
+        ("Checks", "Checks — a checking move that wasn't considered"),
+        ("Captures", "Captures — a capture that wasn't considered"),
+        ("Threats", "Threats — a non-capturing threat that wasn't considered"),
     ]
 
     _3X3_PROMPTS: List[tuple[str, str]] = [
@@ -208,30 +207,18 @@ class MomentDialog(QDialog):
 
     def _build_cct_content(self, layout: QVBoxLayout) -> None:
         self._label("Select all that apply (more than one may fit):", layout)
-        # CCT uses full-word cat values for storage; show letter on chip + name label below
         chip_row = QHBoxLayout()
         chip_row.setSpacing(6)
-        name_row = QHBoxLayout()
-        name_row.setSpacing(6)
-        for cat_value, letter, tooltip in self._CCT_CHIPS:
-            btn = QPushButton(letter)
+        for cat_value, tooltip in self._CCT_CHIPS:
+            btn = QPushButton(cat_value)
             btn.setCheckable(True)
             btn.setToolTip(tooltip)
-            btn.setFixedSize(36, 32)
+            btn.setMinimumWidth(72)
+            btn.setFixedHeight(32)
             self._chip_buttons.append((cat_value, btn))
             chip_row.addWidget(btn)
-            lbl = QLabel(cat_value)
-            lbl.setFont(QFont(self._label_font, max(8, self._label_size - 2)))
-            lbl.setStyleSheet(
-                f"color: rgb({self._label_color.red()},{self._label_color.green()},{self._label_color.blue()});"
-            )
-            lbl.setFixedWidth(36)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            name_row.addWidget(lbl)
         chip_row.addStretch(1)
-        name_row.addStretch(1)
         layout.addLayout(chip_row)
-        layout.addLayout(name_row)
         self._build_why_field(layout)
 
     def _build_threexthree_content(self, layout: QVBoxLayout) -> None:

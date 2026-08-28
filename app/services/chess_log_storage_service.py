@@ -122,12 +122,16 @@ class ChessLogStorageService:
             chess_game.headers[ChessLogStorageService.TAG_NAME] = encoded
             chess_game.headers[ChessLogStorageService.TAG_INFO] = info_str
             chess_game.headers[ChessLogStorageService.TAG_CHECKSUM] = checksum
+            has_tags = ChessLogStorageService.count_tags(paths_data) > 0
+            # Sync chip into the real header BEFORE export so it is durably persisted.
+            ChessLogStorageService._sync_chess_log_chip_in_headers(chess_game, inject=has_tags)
             game.pgn = PgnService.export_game_to_pgn(chess_game)
-            game.has_chess_log_tags = ChessLogStorageService.count_tags(paths_data) > 0
-            if game.has_chess_log_tags:
-                ChessLogStorageService._inject_chess_log_chip(game)
-            else:
-                ChessLogStorageService._remove_chess_log_chip(game)
+            game.has_chess_log_tags = has_tags
+            # Sync Python-side attributes for immediate in-session UI consistency.
+            from app.utils.game_tags_utils import parse_game_tags, tags_display_text
+            new_raw = chess_game.headers.get("CARAGameTags", "")
+            game.game_tags_raw = new_raw
+            game.game_tags = tags_display_text(parse_game_tags(new_raw))
             return True
         except Exception as e:
             LoggingService.get_instance().error(
@@ -140,9 +144,8 @@ class ChessLogStorageService:
         """Remove CARAChessLog* tags from game PGN (in-memory)."""
         if game is None or not hasattr(game, "pgn") or game.pgn is None:
             return False
-        ChessLogStorageService._remove_chess_log_tags(game)
+        ChessLogStorageService._remove_chess_log_tags(game)  # also removes chip from header
         game.has_chess_log_tags = False
-        ChessLogStorageService._remove_chess_log_chip(game)
         return True
 
     @staticmethod
@@ -166,34 +169,32 @@ class ChessLogStorageService:
         }
 
     @staticmethod
-    def _inject_chess_log_chip(game: GameData) -> None:
-        """Add the Chess Log presence chip to game.game_tags_raw if absent."""
-        from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
-        raw = getattr(game, "game_tags_raw", "") or ""
+    def _sync_chess_log_chip_in_headers(chess_game, *, inject: bool) -> None:
+        """Add or remove the Chess Log chip in chess_game.headers["CARAGameTags"] in-place.
+
+        Must be called BEFORE PgnService.export_game_to_pgn() so the change is
+        durably written into game.pgn. Mutating game.game_tags_raw alone is not
+        enough — that attribute is not the serialization source.
+        """
+        from app.utils.game_tags_utils import parse_game_tags, format_game_tags
+        raw = chess_game.headers.get("CARAGameTags", "")
         tags = parse_game_tags(raw)
         chip = ChessLogStorageService.CHIP_TEXT
-        if chip.casefold() not in {t.casefold() for t in tags}:
-            tags = [chip] + tags
-            new_raw = format_game_tags(tags)
-            game.game_tags_raw = new_raw
-            game.game_tags = tags_display_text(parse_game_tags(new_raw))
-
-    @staticmethod
-    def _remove_chess_log_chip(game: GameData) -> None:
-        """Remove the Chess Log presence chip from game.game_tags_raw."""
-        from app.utils.game_tags_utils import parse_game_tags, format_game_tags, tags_display_text
-        raw = getattr(game, "game_tags_raw", "") or ""
-        tags = parse_game_tags(raw)
-        chip_lower = ChessLogStorageService.CHIP_TEXT.casefold()
-        new_tags = [t for t in tags if t.casefold() != chip_lower]
-        if len(new_tags) != len(tags):
-            new_raw = format_game_tags(new_tags)
-            game.game_tags_raw = new_raw
-            game.game_tags = tags_display_text(parse_game_tags(new_raw))
+        chip_lower = chip.casefold()
+        if inject:
+            if chip_lower not in {t.casefold() for t in tags}:
+                tags = [chip] + tags
+        else:
+            tags = [t for t in tags if t.casefold() != chip_lower]
+        new_raw = format_game_tags(tags)
+        if new_raw:
+            chess_game.headers["CARAGameTags"] = new_raw
+        elif "CARAGameTags" in chess_game.headers:
+            del chess_game.headers["CARAGameTags"]
 
     @staticmethod
     def _remove_chess_log_tags(game: GameData) -> None:
-        """Remove CARAChessLog* tags from game PGN (in-memory, best-effort)."""
+        """Remove CARAChessLog* tags and Chess Log chip from game PGN (in-memory, best-effort)."""
         try:
             chess_game = chess.pgn.read_game(StringIO(game.pgn))
             if not chess_game:
@@ -205,6 +206,12 @@ class ChessLogStorageService:
             ):
                 if key in chess_game.headers:
                     del chess_game.headers[key]
+            ChessLogStorageService._sync_chess_log_chip_in_headers(chess_game, inject=False)
             game.pgn = PgnService.export_game_to_pgn(chess_game)
+            # Sync Python-side attributes for immediate in-session UI consistency.
+            from app.utils.game_tags_utils import parse_game_tags, tags_display_text
+            new_raw = chess_game.headers.get("CARAGameTags", "")
+            game.game_tags_raw = new_raw
+            game.game_tags = tags_display_text(parse_game_tags(new_raw))
         except Exception:
             pass

@@ -166,5 +166,28 @@ class TestCategoryManagement(unittest.TestCase):
         self.assertEqual(saved["custom_categories"], ["Good category"])
 
 
+@requires_qt
+class TestAttributionLabels(unittest.TestCase):
+    """Attribution subtitles must appear for CLAMP and 3x3, and nowhere else."""
+
+    def _attribution_texts(self, dlg) -> set:
+        from PyQt6.QtWidgets import QLabel
+        return {lbl.text() for lbl in dlg.findChildren(QLabel) if lbl.text().startswith("Developed by")}
+
+    def test_clamp_attribution_present(self):
+        dlg, _ = _make_dialog("CLAMP")
+        self.assertIn("Developed by Dr. Can Kabadayi", self._attribution_texts(dlg))
+
+    def test_threexthree_attribution_present(self):
+        dlg, _ = _make_dialog("CLAMP")  # active preset doesn't affect which rows render
+        self.assertIn("Developed by GM Noel Studer", self._attribution_texts(dlg))
+
+    def test_cct_and_custom_have_no_attribution(self):
+        """Exactly two attribution labels exist — CLAMP and 3x3; none for CCT or Custom."""
+        dlg, _ = _make_dialog("CLAMP")
+        texts = self._attribution_texts(dlg)
+        self.assertEqual(len(texts), 2)
+
+
 if __name__ == "__main__":
     unittest.main()

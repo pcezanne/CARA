@@ -118,6 +118,22 @@ class ChessLogSettingsDialog(QDialog):
             "Custom": "Your own category vocabulary (manage below)",
         }
 
+        preset_attributions = {
+            "CLAMP": "Developed by Dr. Can Kabadayi",
+            "3x3": "Developed by GM Noel Studer",
+        }
+
+        dim_color = (
+            f"color: rgb({max(0, self._label_color.red()-40)},"
+            f"{max(0, self._label_color.green()-40)},"
+            f"{max(0, self._label_color.blue()-40)});"
+        )
+        attr_color = (
+            f"color: rgb({max(0, self._label_color.red()-70)},"
+            f"{max(0, self._label_color.green()-70)},"
+            f"{max(0, self._label_color.blue()-70)}); font-style: italic;"
+        )
+
         for preset in self._PRESETS:
             row = QHBoxLayout()
             rb = QRadioButton(preset)
@@ -128,15 +144,20 @@ class ChessLogSettingsDialog(QDialog):
             row.addWidget(rb)
             desc = QLabel(preset_descriptions[preset])
             desc.setFont(QFont(self._label_font, max(9, self._label_size - 1)))
-            desc.setStyleSheet(
-                f"color: rgb({max(0, self._label_color.red()-40)},"
-                f"{max(0, self._label_color.green()-40)},"
-                f"{max(0, self._label_color.blue()-40)});"
-            )
+            desc.setStyleSheet(dim_color)
             row.addWidget(desc)
             row.addStretch(1)
             preset_layout.addLayout(row)
             rb.toggled.connect(self._on_preset_toggled)
+            if preset in preset_attributions:
+                attr_row = QHBoxLayout()
+                attr_row.addSpacing(20)
+                attr_lbl = QLabel(preset_attributions[preset])
+                attr_lbl.setFont(QFont(self._label_font, max(8, self._label_size - 2)))
+                attr_lbl.setStyleSheet(attr_color)
+                attr_row.addWidget(attr_lbl)
+                attr_row.addStretch(1)
+                preset_layout.addLayout(attr_row)
 
         root.addWidget(preset_group)
 

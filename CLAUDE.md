@@ -197,6 +197,7 @@ Rules:
 - **Never commit directly to either `master`.** Always work on a feature branch. If none exists for the current task, create one before the first commit — don't wait to be asked.
 - **Never run `git push` on any branch without first showing Paul the exact commit(s) about to be pushed and getting explicit confirmation.** This applies universally — including pushes to this fork's own `origin`, not just pushes or PRs that reach upstream. No exceptions based on how minor or "obviously fine" a change seems. (Supersedes the earlier narrower rule that only required confirmation for upstream PRs — that distinction proved insufficient in practice.)
 - Prefer small, focused commits (one logical change each) over large batched ones — easier to review, easier to revert if something's wrong.
+- **After a conversation compaction, don't assume a multi-part directive is complete.** Compaction summarizes the conversation and can lose track of which parts of a multi-part directive were actually finished versus still pending — this has specifically happened with investigate-then-report steps being silently skipped in favor of jumping to whatever the last visible action was (e.g. a push). When resuming after compaction, check whether the directive in progress had multiple parts, and if so, confirm explicitly with Paul which parts are actually done before treating the task as finished.
 
 ## CI/CD
 

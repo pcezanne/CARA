@@ -491,6 +491,8 @@ class DetailMovesListView(QWidget):
         """Open the Tag Moment dialog and record the entry via chess_log_controller."""
         if not self._chess_log_controller or not self._game_model or not self._game_model.active_game:
             return
+        if not self._game_controller:
+            return
 
         # Derive display info from the clicked row (falls back to generic values if invalid)
         move_number = 1
@@ -511,12 +513,20 @@ class DetailMovesListView(QWidget):
                     san = move_data.black_move or ""
                     is_white = False
 
+                # Navigate to this move so active_path matches the right-clicked cell,
+                # regardless of which move was previously selected.
+                ply_index = (move_data.move_number - 1) * 2 + (1 if is_white else 2)
+                if not self._game_controller.navigate_to_ply(ply_index):
+                    return
+
         active_preset = self._chess_log_controller.get_active_preset()
         custom_categories = self._chess_log_controller.get_custom_categories()
+        existing_entries = self._chess_log_controller.get_entries_at_active_path()
 
         from app.views.dialogs.moment_dialog import MomentDialog
         entries = MomentDialog.tag_moment(
-            self.config, active_preset, custom_categories, move_number, san, is_white, self
+            self.config, active_preset, custom_categories, move_number, san, is_white,
+            existing_entries, self,
         )
         if not entries:
             return
@@ -579,7 +589,10 @@ class DetailMovesListView(QWidget):
             self._chess_log_controller is not None
             and self._game_model is not None
             and self._game_model.active_game is not None
-            and bool(self._game_model.get_active_path())
+            and self._game_controller is not None
+            and index.isValid()
+            and self._moveslist_model is not None
+            and self._moveslist_model.get_move(index.row()) is not None
         )
         tag_moment_action.setEnabled(can_tag)
         tag_moment_action.triggered.connect(

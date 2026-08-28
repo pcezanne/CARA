@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt
@@ -59,6 +60,7 @@ class MomentDialog(QDialog):
         move_number: int,
         san: str,
         is_white: bool,
+        existing_entries: Optional[List[Dict[str, Any]]] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -68,9 +70,11 @@ class MomentDialog(QDialog):
         self._move_number = move_number
         self._san = san
         self._is_white = is_white
+        self._existing_entries = list(existing_entries) if existing_entries else []
 
         self._load_config()
         self._setup_ui()
+        self._prefill_existing_entries()
         self._apply_styling()
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
         self._apply_size()
@@ -261,6 +265,47 @@ class MomentDialog(QDialog):
             self._custom_checkboxes.append((cat, cb))
         self._build_why_field(layout)
 
+    def _prefill_existing_entries(self) -> None:
+        if not self._existing_entries:
+            return
+        preset_entries = [e for e in self._existing_entries if e.get("preset") == self._active_preset]
+        other_entries = [e for e in self._existing_entries if e.get("preset") != self._active_preset]
+        if preset_entries:
+            if self._active_preset == "3x3":
+                why_map = {e["cat"]: e.get("why", "") for e in preset_entries}
+                for key, edit in self._threexthree_edits:
+                    if key in why_map:
+                        edit.setPlainText(why_map[key])
+            elif self._custom_checkboxes:
+                preset_cats = {e["cat"] for e in preset_entries}
+                for cat, cb in self._custom_checkboxes:
+                    cb.setChecked(cat in preset_cats)
+                first_why = next((e.get("why", "") for e in preset_entries), "")
+                if self._why_edit and first_why:
+                    self._why_edit.setPlainText(first_why)
+            else:
+                preset_cats = {e["cat"] for e in preset_entries}
+                for cat, btn in self._chip_buttons:
+                    btn.setChecked(cat in preset_cats)
+                first_why = next((e.get("why", "") for e in preset_entries), "")
+                if self._why_edit and first_why:
+                    self._why_edit.setPlainText(first_why)
+        if other_entries:
+            layout = self.layout()
+            if layout:
+                self._build_also_tagged_label(other_entries, layout)
+
+    def _build_also_tagged_label(self, other_entries: List[Dict[str, Any]], layout) -> None:
+        by_preset: Dict[str, List[str]] = defaultdict(list)
+        for e in other_entries:
+            by_preset[e.get("preset", "?")].append(e.get("cat", "?"))
+        parts = [f"{', '.join(cats)} ({preset})" for preset, cats in by_preset.items()]
+        lbl = QLabel("Also tagged: " + " · ".join(parts))
+        lbl.setWordWrap(True)
+        lbl.setFont(QFont(self._label_font, max(8, self._label_size - 1)))
+        lbl.setStyleSheet("color: rgb(130, 145, 165); font-style: italic;")
+        layout.insertWidget(layout.count() - 2, lbl)
+
     def _build_why_field(self, layout: QVBoxLayout) -> None:
         why_label = QLabel("Why did this matter? (optional)")
         why_label.setFont(QFont(self._label_font, self._label_size))
@@ -376,10 +421,14 @@ class MomentDialog(QDialog):
         move_number: int,
         san: str,
         is_white: bool,
+        existing_entries: Optional[List[Dict[str, Any]]] = None,
         parent=None,
     ) -> Optional[List[Dict[str, Any]]]:
         """Show the dialog. Returns a list of entries on OK, None on cancel."""
-        dlg = MomentDialog(config, active_preset, custom_categories, move_number, san, is_white, parent)
+        dlg = MomentDialog(
+            config, active_preset, custom_categories, move_number, san, is_white,
+            existing_entries, parent,
+        )
         if dlg.exec() != QDialog.DialogCode.Accepted:
             return None
         return dlg.get_entries()

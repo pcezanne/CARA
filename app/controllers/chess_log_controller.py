@@ -66,6 +66,12 @@ class ChessLogController:
             self._load_into_cache(game)
         return self._cached_paths_data
 
+    def get_entries_at_active_path(self) -> List[Dict[str, Any]]:
+        """Return the entries stored at the current active path, or [] if none."""
+        data = self.get_tags_for_current_game()
+        path_key = encode_path(self._game_controller.get_game_model().get_active_path())
+        return list(data.get(path_key, []))
+
     def add_moment_at_active_path(
         self,
         entries: List[Dict[str, Any]],
@@ -99,8 +105,13 @@ class ChessLogController:
                 return False
 
         tagged = [ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", "")) for e in entries]
+        preset_of_new = tagged[0].get("preset") if tagged else None
         if path_key in self._cached_paths_data:
-            self._cached_paths_data[path_key].extend(tagged)
+            if preset_of_new:
+                kept = [e for e in self._cached_paths_data[path_key] if e.get("preset") != preset_of_new]
+                self._cached_paths_data[path_key] = kept + tagged
+            else:
+                self._cached_paths_data[path_key].extend(tagged)
         else:
             self._cached_paths_data[path_key] = tagged
         return True

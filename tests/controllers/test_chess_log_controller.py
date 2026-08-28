@@ -197,6 +197,77 @@ class TestSaveAndClear(unittest.TestCase):
         gm.metadata_updated.emit.assert_called_once()
 
 
+class TestGetEntriesAtActivePath(unittest.TestCase):
+    def test_returns_empty_for_untagged_path(self):
+        ctrl, _ = make_controller(make_game())
+        ctrl._cached_game_id = make_game().game_number
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            result = ctrl.get_entries_at_active_path()
+        self.assertEqual(result, [])
+
+    def test_returns_entries_for_tagged_path(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        entry = ChessLogStorageService.make_entry("CLAMP", "M")
+        ctrl._cached_paths_data = {"0": [entry]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            result = ctrl.get_entries_at_active_path()
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["cat"], "M")
+
+    def test_returns_copy_not_reference(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            result = ctrl.get_entries_at_active_path()
+        result.clear()
+        self.assertEqual(len(ctrl._cached_paths_data["0"]), 1)
+
+
+class TestRetagSamePresetReplaces(unittest.TestCase):
+    def test_retag_same_preset_replaces_not_appends(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M")],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": ""}])
+        entries = ctrl._cached_paths_data["0"]
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["cat"], "C")
+
+    def test_retag_different_preset_preserves_existing(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M")],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CCT", "cat": "Threats", "why": ""}])
+        entries = ctrl._cached_paths_data["0"]
+        self.assertEqual(len(entries), 2)
+        presets = {e["preset"] for e in entries}
+        self.assertEqual(presets, {"CLAMP", "CCT"})
+
+    def test_retag_still_counts_as_one_moment(self):
+        """Re-tagging an existing path doesn't increase the moment count."""
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M")],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": ""}])
+        self.assertEqual(ChessLogStorageService.count_tags(ctrl._cached_paths_data), 1)
+
+
 class TestCacheReloadOnGameChange(unittest.TestCase):
     def test_cache_reloads_when_game_changes(self):
         game2 = make_game(game_number=2)

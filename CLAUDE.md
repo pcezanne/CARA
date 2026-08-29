@@ -158,6 +158,8 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 
 **Active preset model:** the player selects one active preset — CLAMP, CCT, 3x3, or Custom — in the Chess Log Settings dialog (Chess Log menu → "Chess Log Settings…"), mirroring the existing Engines/AI Summary setup pattern. CLAMP and CCT both allow multiple letters per moment. Custom is a Settings-managed picklist (add/remove), not free-form text at tag time. 3x3 is the sole preset with free-form text at tag time (its three Whys: "Why did I make this move?", "Why was it suboptimal?", "Why is the engine's suggestion better?"). The active preset can change over time, so a library may end up with moments tagged under more than one preset — expected, not an error. See `chess-log-design-doc.md` §3.2–3.4 for full detail.
 
+**Zero-category save (CLAMP, CCT, Custom-with-categories):** if no chips/checkboxes are checked but the why-field has content, the moment saves as a single entry with `cat=""` — genuinely uncategorized, not a fake "Other" category. Zero chips + empty why keeps OK blocked (hint shown). The Custom empty-picklist case (no categories defined at all) is distinct: that guard disables OK regardless of why content, because it's a configuration gap, not an honest non-match.
+
 **CARA-namespaced PGN tags** (all read-only in metadata view and model):
 - `CARAAnalysisData` / `CARAAnalysisInfo` / `CARAAnalysisChecksum` — per-move engine data
 - `CARAAnnotations` / `CARAAnnotationsInfo` / `CARAAnnotationsChecksum` — board drawing annotations

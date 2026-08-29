@@ -91,6 +91,19 @@ class TestClampPreset(unittest.TestCase):
         entries = dlg.get_entries()
         self.assertTrue(all(e["why"] == "Rook was trapped" for e in entries))
 
+    def test_zero_chips_with_why_returns_uncategorized_entry(self):
+        dlg = _make("CLAMP")
+        dlg._why_edit.setPlainText("general observation")
+        entries = dlg.get_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["preset"], "CLAMP")
+        self.assertEqual(entries[0]["cat"], "")
+        self.assertEqual(entries[0]["why"], "general observation")
+
+    def test_zero_chips_empty_why_returns_empty(self):
+        dlg = _make("CLAMP")
+        self.assertEqual(dlg.get_entries(), [])
+
 
 @requires_qt
 class TestCctPreset(unittest.TestCase):
@@ -125,6 +138,19 @@ class TestCctPreset(unittest.TestCase):
         for _, btn in dlg._chip_buttons:
             btn.setChecked(True)
         self.assertEqual(len(dlg.get_entries()), 3)
+
+    def test_zero_chips_with_why_returns_uncategorized_entry(self):
+        dlg = _make("CCT")
+        dlg._why_edit.setPlainText("missed a tactic")
+        entries = dlg.get_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["preset"], "CCT")
+        self.assertEqual(entries[0]["cat"], "")
+        self.assertEqual(entries[0]["why"], "missed a tactic")
+
+    def test_zero_chips_empty_why_returns_empty(self):
+        dlg = _make("CCT")
+        self.assertEqual(dlg.get_entries(), [])
 
 
 @requires_qt
@@ -201,6 +227,19 @@ class TestCustomPreset(unittest.TestCase):
         dlg._why_edit.setPlainText("shared reason")
         entries = dlg.get_entries()
         self.assertTrue(all(e["why"] == "shared reason" for e in entries))
+
+    def test_zero_selection_with_why_returns_uncategorized_entry(self):
+        dlg = _make("Custom", ["Time trouble", "Wrong plan"])
+        dlg._why_edit.setPlainText("hard to categorize")
+        entries = dlg.get_entries()
+        self.assertEqual(len(entries), 1)
+        self.assertEqual(entries[0]["preset"], "Custom")
+        self.assertEqual(entries[0]["cat"], "")
+        self.assertEqual(entries[0]["why"], "hard to categorize")
+
+    def test_zero_selection_empty_why_returns_empty(self):
+        dlg = _make("Custom", ["Time trouble", "Wrong plan"])
+        self.assertEqual(dlg.get_entries(), [])
 
 
 @requires_qt

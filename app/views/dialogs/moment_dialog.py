@@ -388,22 +388,22 @@ class MomentDialog(QDialog):
 
         if self._custom_checkboxes:
             selected = [cat for cat, cb in self._custom_checkboxes if cb.isChecked()]
-            if not selected:
-                return []
             why = self._why_edit.toPlainText().strip() if self._why_edit else ""
+            if not selected:
+                return [{"preset": "Custom", "cat": "", "why": why}] if why else []
             return [{"preset": "Custom", "cat": cat, "why": why} for cat in selected]
 
         # CLAMP / CCT: chip multi-select + optional why
         selected = [cat for cat, btn in self._chip_buttons if btn.isChecked()]
-        if not selected:
-            return []
         why = self._why_edit.toPlainText().strip() if self._why_edit else ""
+        if not selected:
+            return [{"preset": self._active_preset, "cat": "", "why": why}] if why else []
         return [{"preset": self._active_preset, "cat": cat, "why": why} for cat in selected]
 
     def _on_ok(self) -> None:
         entries = self.get_entries()
         if not entries:
-            self._hint.setText("Please select or enter a category.")
+            self._hint.setText("Select a category, or add a note to save uncategorized.")
             self._hint.setVisible(True)
             return
         self._hint.setVisible(False)

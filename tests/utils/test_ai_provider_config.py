@@ -84,7 +84,12 @@ class TestIsAiConfigured(unittest.TestCase):
         self.assertTrue(is_ai_configured(s))
 
     def test_all_toggles_false_falls_back_to_openai(self):
-        # None active → fallback to OpenAI; OpenAI has valid key+model
+        # The "all three False" state is only reachable via manual JSON editing —
+        # the settings dialog only ever writes exactly one True (or leaves them
+        # unchanged when multiple providers have credentials).  The fallback to
+        # OpenAI is a defensive guard against corrupt settings state, not a path
+        # normal users hit.  Credential check still applies: OpenAI must have a
+        # valid api_key+model for is_ai_configured() to return True.
         s = _settings_with_summary(
             {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": False},
             openai={"api_key": "sk-abc", "model": "gpt-4o"},
@@ -92,7 +97,8 @@ class TestIsAiConfigured(unittest.TestCase):
         self.assertTrue(is_ai_configured(s))
 
     def test_all_toggles_false_no_openai_configured_returns_false(self):
-        # None active → fallback to OpenAI; OpenAI has no key → False
+        # Even with the OpenAI fallback, no api_key → False.
+        # A player who has never configured any LLM will always get False here.
         s = _settings_with_summary(
             {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": False},
             openai={"api_key": "", "model": "gpt-4o"},

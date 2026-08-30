@@ -14,7 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtGui import QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -136,26 +136,38 @@ class DetailChessLogChartsView(QWidget):
     def _build_selector(self) -> QWidget:
         frame = QFrame()
         frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(8, 6, 8, 6)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(frame)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(4)
 
-        layout.addWidget(QLabel("Data Source:"))
+        label_names = ("Data Source:", "Player:")
+        fm = QFontMetrics(self.font())
+        label_width = max(fm.horizontalAdvance(s) for s in label_names) + 8
+
+        source_row = QHBoxLayout()
+        source_row.setSpacing(8)
+        source_label = QLabel("Data Source:")
+        source_label.setMinimumWidth(label_width)
+        source_row.addWidget(source_label)
         self._source_combo = QComboBox()
         for label in _SOURCE_LABELS:
             self._source_combo.addItem(label)
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
-        layout.addWidget(self._source_combo)
+        source_row.addWidget(self._source_combo, 1)
+        source_row.addStretch()
+        outer.addLayout(source_row)
 
-        layout.addSpacing(16)
-
-        layout.addWidget(QLabel("Player:"))
+        player_row = QHBoxLayout()
+        player_row.setSpacing(8)
+        player_label = QLabel("Player:")
+        player_label.setMinimumWidth(label_width)
+        player_row.addWidget(player_label)
         self._player_combo = QComboBox()
         self._player_combo.addItem("All players")
         self._player_combo.currentIndexChanged.connect(self._on_player_changed)
-        layout.addWidget(self._player_combo)
+        player_row.addWidget(self._player_combo, 1)
+        outer.addLayout(player_row)
 
-        layout.addStretch()
         return frame
 
     def _build_narrative_panel(self) -> QWidget:

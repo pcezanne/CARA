@@ -273,7 +273,7 @@ class DetailChessLogChartsView(QWidget):
         self._chart_scroll.setVisible(True)
         for preset in sorted(data):
             widget = ChessLogCategoryChartWidget(config=self._config)
-            widget.set_series(data[preset])
+            widget.set_series(data[preset], colors=self._cat_colors_for_preset(preset))
             self._charts_layout.addWidget(widget)
             self._chart_widgets.append(widget)
 
@@ -311,6 +311,17 @@ class DetailChessLogChartsView(QWidget):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _cat_colors_for_preset(self, preset: str) -> Dict[str, "QColor"]:
+        from PyQt6.QtGui import QColor
+        panel_cfg = self._config.get("ui", {}).get("panels", {}).get("detail", {})
+        cat_colors_cfg = panel_cfg.get("chess_log_charts", {}).get("category_colors", {})
+        preset_map = cat_colors_cfg.get(preset, {})
+        result: Dict[str, "QColor"] = {}
+        for cat, rgb in preset_map.items():
+            if isinstance(rgb, list) and len(rgb) >= 3:
+                result[cat] = QColor(int(rgb[0]), int(rgb[1]), int(rgb[2]))
+        return result
 
     def _clear_charts(self) -> None:
         for w in self._chart_widgets:

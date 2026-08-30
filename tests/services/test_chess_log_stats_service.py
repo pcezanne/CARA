@@ -254,10 +254,11 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
         self.assertEqual(cats, ["Checks", "Captures", "Threats"])
 
     def test_clamp_partial_subset_canonical_order(self):
+        # CLAMP always seeds all 5 canonical categories even when only a subset is tagged.
         game = self._game_with_cats("CLAMP", ["P", "C"], _clamp_entry)
         result = aggregate([game], player="Alice")
         cats = result["CLAMP"].categories
-        self.assertEqual(cats, ["C", "P"])
+        self.assertEqual(cats, ["C", "L", "A", "M", "P"])
 
     def test_custom_with_preset_orders_respected(self):
         game = self._game_with_cats("Custom", ["Zeta", "Alpha", "Mango"], _custom_entry)
@@ -287,6 +288,50 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
         cats = result["CLAMP"].categories
         self.assertEqual(cats[-1], "")
         self.assertEqual(cats[0], "C")
+
+
+# ---------------------------------------------------------------------------
+# Canonical category always present for CLAMP/CCT (Bug 4 fix)
+# ---------------------------------------------------------------------------
+
+class TestCanonicalCategoryAlwaysPresent(unittest.TestCase):
+    """CLAMP and CCT seed all canonical categories even if absent from data."""
+
+    def _game_with_cats(self, preset: str, cats: list[str], make_entry_fn) -> GameData:
+        paths = {str(i): [make_entry_fn(c)] for i, c in enumerate(cats)}
+        return _make_game(white="Alice", black="Bob", date="2025.06.01",
+                          entries_per_path=paths)
+
+    def test_clamp_missing_categories_seeded(self):
+        game = self._game_with_cats("CLAMP", ["C"], _clamp_entry)
+        result = aggregate([game], player="Alice")
+        self.assertEqual(result["CLAMP"].categories, ["C", "L", "A", "M", "P"])
+
+    def test_cct_missing_categories_seeded(self):
+        game = self._game_with_cats("CCT", ["Threats"], _cct_entry)
+        result = aggregate([game], player="Alice")
+        self.assertEqual(result["CCT"].categories, ["Checks", "Captures", "Threats"])
+
+    def test_custom_only_present_categories_shown(self):
+        # Custom preset does NOT seed — only categories with data appear.
+        game = self._game_with_cats("Custom", ["Alpha"], _custom_entry)
+        result = aggregate(
+            [game],
+            player="Alice",
+            preset_orders={"Custom": ["Alpha", "Beta", "Gamma"]},
+        )
+        self.assertEqual(result["Custom"].categories, ["Alpha"])
+
+    def test_clamp_seeded_cats_have_zero_counts_in_bins(self):
+        # Seeded categories absent from data must appear in categories list
+        # with zero counts across all bins.
+        game = self._game_with_cats("CLAMP", ["C"], _clamp_entry)
+        result = aggregate([game], player="Alice")
+        series = result["CLAMP"]
+        for absent_cat in ("L", "A", "M", "P"):
+            self.assertIn(absent_cat, series.categories)
+            for b in series.bins:
+                self.assertEqual(b.counts.get(absent_cat, 0), 0)
 
 
 # ---------------------------------------------------------------------------

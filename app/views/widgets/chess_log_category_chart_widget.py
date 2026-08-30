@@ -141,10 +141,10 @@ class ChessLogCategoryChartWidget(QWidget):
 
         categories = self._series.categories
         bins = self._series.bins
-        y_max = max(
-            (b.counts.get(cat, 0) for b in bins for cat in categories),
-            default=1,
-        )
+        totals: Dict[str, int] = {
+            cat: sum(b.counts.get(cat, 0) for b in bins) for cat in categories
+        }
+        y_max = max(totals.values(), default=1)
         y_max = max(1, y_max)
 
         self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h, y_max)
@@ -152,8 +152,8 @@ class ChessLogCategoryChartWidget(QWidget):
         self._draw_x_labels(painter, bins, plot_x0, plot_y1, plot_w)
         self._draw_y_labels(painter, plot_x0, plot_y0, plot_y1, plot_h, y_max)
         self._draw_title(painter, plot_x0, plot_x1)
-        self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, y_max)
-        self._draw_legend(painter, categories, plot_x1 + 8, plot_y0, legend_w - 8)
+        self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, y_max, totals)
+        self._draw_legend(painter, categories, plot_x1 + 8, plot_y0, legend_w - 8, totals)
 
     def _draw_grid(self, p, x0, y0, x1, y1, pw, ph, y_max) -> None:
         grid_pen = QPen(self._grid_color)
@@ -212,8 +212,10 @@ class ChessLogCategoryChartWidget(QWidget):
         )
         p.setFont(self._font)
 
-    def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, y_max) -> None:
+    def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, y_max, totals: Dict[str, int]) -> None:
         for idx, cat in enumerate(categories):
+            if totals.get(cat, 0) == 0:
+                continue
             color = self._cat_color(cat, idx)
             pen = QPen(color)
             pen.setWidth(self._line_width)
@@ -236,19 +238,26 @@ class ChessLogCategoryChartWidget(QWidget):
                 p.setBrush(color)
                 p.drawEllipse(QRectF(x - 3, y - 3, 6, 6))
 
-    def _draw_legend(self, p, categories, lx, ly, lw) -> None:
+    def _draw_legend(self, p, categories, lx, ly, lw, totals: Dict[str, int]) -> None:
         p.setFont(self._font)
         fm = QFontMetrics(self._font)
         row_h = self._font_size + 6
         for idx, cat in enumerate(categories):
+            has_data = totals.get(cat, 0) > 0
             color = self._cat_color(cat, idx)
             y = ly + idx * row_h
-            p.setBrush(color)
+            swatch_color = QColor(color)
+            if not has_data:
+                swatch_color.setAlphaF(0.4)
+            p.setBrush(swatch_color)
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRect(int(lx), int(y + 2), 10, self._font_size)
-            p.setPen(self._text_color)
-            label = cat if cat else "(uncategorized)"
-            p.drawText(int(lx + 14), int(y + self._font_size), label[:18])
+            p.setPen(self._axis_color if not has_data else self._text_color)
+            if not cat:
+                label = "(uncategorized)" if has_data else "(uncategorized) (no data)"
+            else:
+                label = cat if has_data else f"{cat} (no data)"
+            p.drawText(int(lx + 14), int(y + self._font_size), label[:24])
 
     def _cat_color(self, cat: str, idx: int) -> QColor:
         if cat in self._colors:

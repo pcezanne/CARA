@@ -29,7 +29,7 @@ from app.services.player_stats_service import (
     _ordinal_fallback_mode,
     _ordinal_target_bin_count,
 )
-from app.utils.chess_log_preset_order import order_categories
+from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER, order_categories
 
 # Presets included in the charting pipeline
 CHARTED_PRESETS: frozenset[str] = frozenset({"CLAMP", "CCT", "Custom"})
@@ -157,7 +157,10 @@ def _bin_preset(
     chart_cfg: Dict[str, Any],
     custom_order: Optional[List[str]] = None,
 ) -> ChessLogPresetSeries:
-    all_cats: Set[str] = {cat for _, cat in samples}
+    seed_cats: Set[str] = set(CLAMP_ORDER) if preset == "CLAMP" else (
+        set(CCT_ORDER) if preset == "CCT" else set()
+    )
+    all_cats: Set[str] = seed_cats | {cat for _, cat in samples}
     ordinals = [o for o, _ in samples]
     t_min, t_max = min(ordinals), max(ordinals)
     n_bins = _ordinal_target_bin_count(chart_cfg, len(samples))

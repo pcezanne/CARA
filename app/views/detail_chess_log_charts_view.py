@@ -176,7 +176,6 @@ class DetailChessLogChartsView(QWidget):
         player_row.addWidget(player_label)
         self._player_combo = QComboBox()
         self._player_combo.setPlaceholderText("Select player")
-        self._player_combo.addItem("All players")
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.currentIndexChanged.connect(self._on_player_changed)
         player_row.addWidget(self._player_combo, 1)
@@ -286,8 +285,7 @@ class DetailChessLogChartsView(QWidget):
     def _on_player_changed(self, index: int) -> None:
         if not self._controller or index < 0:
             return
-        player = "" if index == 0 else self._player_combo.currentText()
-        self._controller.set_player_selection(player)
+        self._controller.set_player_selection(self._player_combo.currentText())
 
     def _on_generate_clicked(self) -> None:
         if self._controller:
@@ -331,15 +329,16 @@ class DetailChessLogChartsView(QWidget):
         had_selection = self._player_combo.currentIndex() >= 0
         self._player_combo.blockSignals(True)
         self._player_combo.clear()
-        self._player_combo.addItem("All players")
         for p in players:
             self._player_combo.addItem(p)
-        if had_selection:
+        if had_selection and players:
             idx = self._player_combo.findText(current)
             self._player_combo.setCurrentIndex(max(0, idx))
         else:
             self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)
+        if not players:
+            self._set_placeholder_text("No players found in this data.")
 
     def _on_narrative_ready(self, narrative: str, flags: List[str]) -> None:
         self._narrative_edit.setPlainText(narrative)

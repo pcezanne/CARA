@@ -243,18 +243,16 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         self.assertEqual(view._source_combo.count(), len(_SOURCE_LABELS))
 
-    def test_player_combo_starts_with_all_players_and_unselected(self):
+    def test_player_combo_starts_empty_and_unselected(self):
         view = DetailChessLogChartsView(config={})
-        self.assertEqual(view._player_combo.count(), 1)
-        self.assertEqual(view._player_combo.itemText(0), "All players")
+        self.assertEqual(view._player_combo.count(), 0)
         self.assertEqual(view._player_combo.currentIndex(), -1)
 
     def test_players_ready_populates_player_combo(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_players_ready(["Alice", "Bob"])
-        # "All players" + 2 names = 3
-        self.assertEqual(view._player_combo.count(), 3)
+        self.assertEqual(view._player_combo.count(), 2)
 
     def test_players_ready_with_no_prior_selection_stays_unselected(self):
         view = DetailChessLogChartsView(config={})
@@ -266,7 +264,7 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_players_ready(["Alice", "Bob"])
-        view._player_combo.setCurrentIndex(1)  # "Alice" (explicit selection)
+        view._player_combo.setCurrentIndex(0)  # "Alice" is now index 0 (no "All players" row)
         view._on_players_ready(["Alice", "Bob", "Carlos"])
         self.assertEqual(view._player_combo.currentText(), "Alice")
 
@@ -274,9 +272,16 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_players_ready(["Alice", "Bob"])
-        view._player_combo.setCurrentIndex(1)
+        view._player_combo.setCurrentIndex(0)
         view._reset_player_selection()
         self.assertEqual(view._player_combo.currentIndex(), -1)
+
+    def test_players_ready_with_empty_list_shows_no_players_placeholder(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        view._on_players_ready([])
+        self.assertEqual(view._player_combo.count(), 0)
+        self.assertIn("No players", view._placeholder.text())
 
 
 if __name__ == "__main__":

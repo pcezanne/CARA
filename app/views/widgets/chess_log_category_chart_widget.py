@@ -261,10 +261,7 @@ class ChessLogCategoryChartWidget(QWidget):
             p.setPen(Qt.PenStyle.NoPen)
             p.drawRect(int(lx), int(y + 2), 10, self._font_size)
             p.setPen(self._axis_color if not has_data else self._text_color)
-            if not cat:
-                label = "(uncategorized)" if has_data else "(uncategorized) (no data)"
-            else:
-                label = cat if has_data else f"{cat} (no data)"
+            label = "Uncategorized" if not cat else cat
             p.drawText(int(lx + 14), int(y + self._font_size), label[:24])
 
     def _cat_color(self, cat: str, idx: int) -> QColor:

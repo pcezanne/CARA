@@ -10,6 +10,7 @@ from app.services.ai_service import AIService, AIProvider
 from app.services.user_settings_service import UserSettingsService
 from app.services.pgn_formatter_service import PgnFormatterService
 from app.services.logging_service import LoggingService
+from app.utils.ai_provider_config import resolve_default_provider
 
 
 class AIRequestThread(QThread):
@@ -314,32 +315,21 @@ Please provide a brief analysis of this position, including:
     
     def get_default_model(self) -> Optional[str]:
         """Get the default model from settings.
-        
+
         Returns:
             Model string in format "Provider: model" or None if not configured.
         """
-        ai_settings = self.user_settings_service.get_settings().get("ai_models", {})
-        use_openai, use_anthropic, use_custom = self._get_provider_preferences()
-        
-        # Check OpenAI first
-        if use_openai:
-            openai_settings = ai_settings.get("openai", {})
-            if openai_settings.get("api_key") and openai_settings.get("model"):
-                return f"OpenAI: {openai_settings['model']}"
-        
-        # Check Anthropic
-        if use_anthropic:
-            anthropic_settings = ai_settings.get("anthropic", {})
-            if anthropic_settings.get("api_key") and anthropic_settings.get("model"):
-                return f"Anthropic: {anthropic_settings['model']}"
-        
-        # Check Custom (only if enabled)
-        if use_custom:
-            custom_settings = ai_settings.get("custom", {})
-            if custom_settings.get("enabled", False) and custom_settings.get("base_url", "").strip() and custom_settings.get("model"):
-                return f"Custom: {custom_settings['model']}"
-        
-        return None
+        settings = self.user_settings_service.get_settings()
+        result = resolve_default_provider(settings)
+        if result is None:
+            return None
+        provider, model, _api_key, _base_url = result
+        provider_label = {
+            AIProvider.OPENAI: "OpenAI",
+            AIProvider.ANTHROPIC: "Anthropic",
+            AIProvider.CUSTOM: "Custom",
+        }.get(provider, str(provider))
+        return f"{provider_label}: {model}"
     
     def set_selected_model(self, model_string: str) -> None:
         """Set the selected model.

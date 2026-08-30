@@ -171,7 +171,21 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 
 **Entry point**: first-time users should open Chess Log → Chess Log Settings to pick their preset (and, for Custom, populate the picklist). Then right-click a move in the Moves List → "Tag this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
 
-**Out of scope for the `tagging` branch**: detail tab view/edit UI, "highlight tagged moves" toggle, trend charts, AI narrative summary.
+**Out of scope for the `tagging` branch**: "highlight tagged moves" toggle.
+
+### Chess Log Charts (branch: `chess-log-charts`, §5.1 + §5.2)
+
+Reporting and visualization layer for Chess Log — the detail tab (index 9, F10) that lets players see how their mistake mix shifts over time and get an AI narrative summary.
+
+**Presets in scope**: CLAMP, CCT, Custom. **3x3 deferred** — its Why1/2/3 entries aren't a comparable category axis and need separate design.
+
+**Charting**: stacked vertical `ChessLogCategoryChartWidget` instances (one per preset) in a `QScrollArea`. Each is a fresh `QPainter` widget — not a subclass of `MoveQualityOverTimeChartWidget`. The four scaffolding helpers from `player_stats_service.py` (`_game_date_ordinal_for_trends`, `_ordinal_target_bin_count`, `_ordinal_fallback_mode`, `_calendar_bin_center_time_pct`) are reused; the bin-filling functions are fresh count-based implementations in `chess_log_stats_service.py`.
+
+**Narrative**: LLM-gated (same provider config as AI Summary). Prompt assembled from category counts + why-notes + whole-game notes. Response split into narrative text + optional "Also flagged" shallow-note list at the `## Also flagged` sentinel. LLM-not-configured state shows a hint and disables the Generate button — no restart needed after configuring (AI Model Settings close triggers `set_user_settings`).
+
+**AI provider config**: `app/utils/ai_provider_config.py` — shared `is_ai_configured` / `resolve_default_provider` helpers extracted from the inline logic in `AIChatController.get_default_model`. Used by both Chess Log Charts and AI Summary.
+
+**Key files**: `app/services/chess_log_stats_service.py`, `app/services/chess_log_narrative_service.py`, `app/controllers/chess_log_charts_controller.py`, `app/views/detail_chess_log_charts_view.py`, `app/views/widgets/chess_log_category_chart_widget.py`, `app/utils/ai_provider_config.py`.
 
 ## Naming Conventions
 

@@ -70,6 +70,7 @@ class DetailChessLogChartsView(QWidget):
             try:
                 self._controller.charts_updated.disconnect(self._on_charts_updated)
                 self._controller.charts_unavailable.disconnect(self._on_charts_unavailable)
+                self._controller.charts_loading.disconnect(self._on_charts_loading)
                 self._controller.players_ready.disconnect(self._on_players_ready)
                 self._controller.narrative_ready.disconnect(self._on_narrative_ready)
                 self._controller.narrative_failed.disconnect(self._on_narrative_failed)
@@ -83,6 +84,7 @@ class DetailChessLogChartsView(QWidget):
 
         controller.charts_updated.connect(self._on_charts_updated)
         controller.charts_unavailable.connect(self._on_charts_unavailable)
+        controller.charts_loading.connect(self._on_charts_loading)
         controller.players_ready.connect(self._on_players_ready)
         controller.narrative_ready.connect(self._on_narrative_ready)
         controller.narrative_failed.connect(self._on_narrative_failed)
@@ -124,6 +126,10 @@ class DetailChessLogChartsView(QWidget):
         content_layout.addWidget(self._build_selector())
 
         # Placeholder + stacked charts in one container (no inner scroll area)
+        self._loading_label = QLabel("Loading…")
+        self._loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._loading_label.setVisible(False)
+
         self._placeholder = QLabel(
             "No Chess Log moments in the selected data.\n"
             "Tag some via right-click on a move in the Moves List."
@@ -138,6 +144,7 @@ class DetailChessLogChartsView(QWidget):
         self._charts_layout.setSpacing(12)
         self._charts_container.setVisible(False)
 
+        content_layout.addWidget(self._loading_label)
         content_layout.addWidget(self._placeholder)
         content_layout.addWidget(self._charts_container)
         content_layout.addWidget(self._build_narrative_panel())
@@ -272,6 +279,7 @@ class DetailChessLogChartsView(QWidget):
         """)
         self._ai_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._placeholder.setStyleSheet(f"color: {hint_s}; border: none;")
+        self._loading_label.setStyleSheet(f"color: {hint_s}; border: none;")
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -293,7 +301,11 @@ class DetailChessLogChartsView(QWidget):
             self._narrative_edit.setPlainText("Generating…")
             self._controller.request_narrative()
 
+    def _on_charts_loading(self) -> None:
+        self._show_loading()
+
     def _on_charts_updated(self, data: Dict[str, ChessLogPresetSeries]) -> None:
+        self._hide_loading()
         self._clear_charts()
         if not data:
             self._show_placeholder()
@@ -307,6 +319,7 @@ class DetailChessLogChartsView(QWidget):
             self._chart_widgets.append(widget)
 
     def _on_charts_unavailable(self, reason: str) -> None:
+        self._hide_loading()
         self._clear_charts()
         self._show_placeholder()
 
@@ -358,7 +371,17 @@ class DetailChessLogChartsView(QWidget):
             w.deleteLater()
         self._chart_widgets.clear()
 
+    def _show_loading(self) -> None:
+        self._clear_charts()
+        self._loading_label.setVisible(True)
+        self._placeholder.setVisible(False)
+        self._charts_container.setVisible(False)
+
+    def _hide_loading(self) -> None:
+        self._loading_label.setVisible(False)
+
     def _show_placeholder(self) -> None:
+        self._loading_label.setVisible(False)
         self._placeholder.setVisible(True)
         self._charts_container.setVisible(False)
 

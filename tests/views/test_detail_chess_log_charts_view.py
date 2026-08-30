@@ -55,8 +55,8 @@ def _make_stub_controller(ai_configured: bool = False) -> MagicMock:
     ctrl.is_ai_configured.return_value = ai_configured
     # Simulate signal attributes so connect() calls succeed
     for sig in (
-        "charts_updated", "charts_unavailable", "players_ready",
-        "narrative_ready", "narrative_failed", "ai_configured_changed",
+        "charts_updated", "charts_unavailable", "charts_loading",
+        "players_ready", "narrative_ready", "narrative_failed", "ai_configured_changed",
     ):
         mock_signal = MagicMock()
         mock_signal.connect = MagicMock()
@@ -197,6 +197,43 @@ class TestDetailChessLogChartsViewCharts(unittest.TestCase):
         view._on_charts_updated({"CLAMP": _make_series("CLAMP", ["C"])})
         view._on_charts_updated({"CCT": _make_series("CCT", ["Checks"])})
         self.assertEqual(len(view._chart_widgets), 1)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewLoading(unittest.TestCase):
+
+    def _make_view(self) -> DetailChessLogChartsView:
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        return view
+
+    def test_loading_label_present_and_hidden_at_startup(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_loading_label"))
+        self.assertFalse(view._loading_label.isVisible())
+
+    def test_on_charts_loading_shows_loading_label(self):
+        view = self._make_view()
+        view._on_charts_loading()
+        self.assertTrue(view._loading_label.isVisible())
+
+    def test_on_charts_loading_hides_placeholder_and_container(self):
+        view = self._make_view()
+        view._on_charts_loading()
+        self.assertFalse(view._placeholder.isVisible())
+        self.assertFalse(view._charts_container.isVisible())
+
+    def test_on_charts_updated_hides_loading_label(self):
+        view = self._make_view()
+        view._on_charts_loading()
+        view._on_charts_updated({"CLAMP": _make_series("CLAMP", ["C"])})
+        self.assertFalse(view._loading_label.isVisible())
+
+    def test_on_charts_unavailable_hides_loading_label(self):
+        view = self._make_view()
+        view._on_charts_loading()
+        view._on_charts_unavailable("no_data")
+        self.assertFalse(view._loading_label.isVisible())
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

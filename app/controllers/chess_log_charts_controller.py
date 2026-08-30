@@ -161,6 +161,7 @@ class ChessLogChartsController(QObject):
 
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
     charts_unavailable = pyqtSignal(str)   # reason ("no_source", "no_player", "no_data", ...)
+    charts_loading = pyqtSignal()          # aggregation worker about to start; view should clear stale chart
     players_ready = pyqtSignal(list)       # List[str]
     narrative_ready = pyqtSignal(str, list)
     narrative_failed = pyqtSignal(str)
@@ -221,11 +222,13 @@ class ChessLogChartsController(QObject):
 
     def set_player_selection(self, player: str) -> None:
         self._current_player = player or ""
-        self._schedule_charts_refresh()
+        self._selection_debounce.stop()
+        self._selection_debounce.start(self._selection_debounce_ms)
 
     def set_color_filter(self, color_filter: str) -> None:
         self._color_filter = color_filter
-        self._schedule_charts_refresh()
+        self._selection_debounce.stop()
+        self._selection_debounce.start(self._selection_debounce_ms)
 
     def notify_selection_changed(self) -> None:
         """Called when database table selection changes (sources 3/4 only)."""
@@ -267,9 +270,12 @@ class ChessLogChartsController(QObject):
     # ------------------------------------------------------------------
 
     def _on_selection_debounced(self) -> None:
-        if self._source_selection not in (3, 4):
+        if self._source_selection == 0:
             return
-        self._refresh_dropdown_and_charts()
+        if self._source_selection in (3, 4):
+            self._refresh_dropdown_and_charts()
+        else:
+            self._schedule_charts_refresh()
 
     def _refresh_dropdown_and_charts(self) -> None:
         games = self._resolve_games()
@@ -281,6 +287,7 @@ class ChessLogChartsController(QObject):
     ) -> None:
         if self._source_selection == 0:
             return
+        self.charts_loading.emit()
         if games is None:
             games = self._resolve_games()
         self._cancel_agg_worker()

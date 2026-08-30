@@ -309,14 +309,14 @@ class ChessLogChartsController(QObject):
             return []
         if self._source_selection == 1:
             db = self._database_controller.get_active_database()
-            return list(db.get_all_database_models()) if db else []
+            return db.get_all_games() if db else []
         if self._source_selection == 2:
             panel = self._database_controller.get_panel_model()
             if not panel:
                 return []
             result: List[GameData] = []
             for db in panel.get_all_database_models():
-                result.extend(db.get_all_database_models())
+                result.extend(db.get_all_games())
             return result
         if self._source_selection in (3, 4) and self._get_selected_games_callback:
             try:

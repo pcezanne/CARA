@@ -192,6 +192,10 @@ class DetailChessLogChartsView(QWidget):
         flagged_layout = QVBoxLayout(self._flagged_box)
         self._flagged_label = QLabel()
         self._flagged_label.setWordWrap(True)
+        self._flagged_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
         flagged_layout.addWidget(self._flagged_label)
         self._flagged_box.setVisible(False)
         layout.addWidget(self._flagged_box)

@@ -83,7 +83,7 @@ def setup_view_menu(mw, menu_bar: QMenuBar) -> None:
     mw.view_notes_action.triggered.connect(lambda: mw._switch_detail_tab(8))
     view_menu.addAction(mw.view_notes_action)
 
-    mw.view_chess_log_charts_action = QAction("Chess Log Charts", mw)
+    mw.view_chess_log_charts_action = QAction("Chess Log", mw)
     mw.view_chess_log_charts_action.setShortcut(QKeySequence("F10"))
     mw.view_chess_log_charts_action.setCheckable(True)
     mw.view_chess_log_charts_action.triggered.connect(lambda: mw._switch_detail_tab(9))

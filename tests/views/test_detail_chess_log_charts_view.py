@@ -185,6 +185,17 @@ class TestDetailChessLogChartsViewCharts(unittest.TestCase):
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewFlaggedLabel(unittest.TestCase):
+
+    def test_flagged_label_is_selectable(self):
+        from PyQt6.QtCore import Qt
+        view = DetailChessLogChartsView(config={})
+        flags = view._flagged_label.textInteractionFlags()
+        self.assertTrue(flags & Qt.TextInteractionFlag.TextSelectableByMouse)
+        self.assertTrue(flags & Qt.TextInteractionFlag.TextSelectableByKeyboard)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestDetailChessLogChartsViewSelector(unittest.TestCase):
 
     def test_source_combo_has_five_options(self):

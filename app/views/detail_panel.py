@@ -373,7 +373,7 @@ class DetailPanel(QWidget):
         self.chess_log_charts_view = DetailChessLogChartsView(self.config)
         if self._chess_log_charts_controller:
             self.chess_log_charts_view.set_controller(self._chess_log_charts_controller)
-        self.tab_widget.addTab(self.chess_log_charts_view, "Chess Log Charts")
+        self.tab_widget.addTab(self.chess_log_charts_view, "Chess Log")
 
         # Connect manual analysis controller if provided
         if self._manual_analysis_controller:

@@ -28,6 +28,7 @@ from app.controllers.metadata_controller import MetadataController
 from app.controllers.search_controller import SearchController
 from app.controllers.notes_controller import NotesController
 from app.controllers.chess_log_controller import ChessLogController
+from app.controllers.chess_log_charts_controller import ChessLogChartsController
 from app.services.version_check_service import VersionCheckService
 from app.controllers.debug_controller import DebugController
 from app.controllers.menu_options_sync_controller import MenuOptionsSyncController
@@ -176,6 +177,12 @@ class AppController:
         )
         self.bulk_analysis_controller.finished.connect(self._on_bulk_analysis_finished_refresh_player_stats)
         
+        # Initialize Chess Log Charts controller
+        self.chess_log_charts_controller = ChessLogChartsController(
+            config,
+            self.database_controller,
+        )
+
         # Initialize metadata controller (depends on game controller and database controller)
         self.metadata_controller = MetadataController(
             self.game_controller.get_game_model(),
@@ -994,6 +1001,9 @@ class AppController:
         """
         return self.player_stats_controller
     
+    def get_chess_log_charts_controller(self) -> ChessLogChartsController:
+        return self.chess_log_charts_controller
+
     def get_search_controller(self) -> SearchController:
         """Get the search controller.
         

@@ -83,6 +83,12 @@ def setup_view_menu(mw, menu_bar: QMenuBar) -> None:
     mw.view_notes_action.triggered.connect(lambda: mw._switch_detail_tab(8))
     view_menu.addAction(mw.view_notes_action)
 
+    mw.view_chess_log_charts_action = QAction("Chess Log Charts", mw)
+    mw.view_chess_log_charts_action.setShortcut(QKeySequence("F10"))
+    mw.view_chess_log_charts_action.setCheckable(True)
+    mw.view_chess_log_charts_action.triggered.connect(lambda: mw._switch_detail_tab(9))
+    view_menu.addAction(mw.view_chess_log_charts_action)
+
     mw.view_previous_detail_tab_action = QAction("Previous detail tab", mw)
     mw.view_previous_detail_tab_action.triggered.connect(
         lambda: mw._cycle_detail_tab(-1)
@@ -121,4 +127,5 @@ def setup_view_menu(mw, menu_bar: QMenuBar) -> None:
         mw.view_annotations_action,
         mw.view_ai_summary_action,
         mw.view_notes_action,
+        mw.view_chess_log_charts_action,
     ]

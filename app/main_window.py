@@ -1483,6 +1483,7 @@ class MainWindow(QMainWindow):
         if dialog.exec() == QDialog.DialogCode.Accepted:
             self._refresh_ai_summary_models()
             self._refresh_ai_summary_menu_state()
+            self._refresh_chess_log_charts_ai_state()
 
     def _show_chess_log_settings(self) -> None:
         """Show the Chess Log settings dialog (active preset + custom categories)."""
@@ -1927,12 +1928,14 @@ class MainWindow(QMainWindow):
         player_stats_controller = self.controller.get_player_stats_controller()
         metadata_controller = self.controller.get_metadata_controller()
         notes_controller = self.controller.get_notes_controller()
+        chess_log_charts_controller = self.controller.get_chess_log_charts_controller()
         self.detail_panel = DetailPanel(self.config, game_model, game_controller,
                                         notes_controller, engine_model,
                                         manual_analysis_controller, database_model, classification_model,
                                         annotation_controller, board_widget, ai_chat_controller,
                                         game_summary_controller, player_stats_controller,
-                                        metadata_controller)
+                                        metadata_controller,
+                                        chess_log_charts_controller=chess_log_charts_controller)
 
         # Wire per-game tag bubbles widget (board overlay) to models/controllers
         if board_widget is not None and hasattr(board_widget, "game_tags_widget") and board_widget.game_tags_widget:
@@ -2014,6 +2017,15 @@ class MainWindow(QMainWindow):
                 lambda active_only: self.database_panel.get_selected_games(active_only)
             )
             self.database_panel.selection_changed.connect(player_stats_controller.notify_selection_changed)
+
+            # Inject selected-games callback for Chess Log Charts
+            cl_charts_controller = self.controller.get_chess_log_charts_controller()
+            cl_charts_controller.set_get_selected_games_callback(
+                lambda active_only: self.database_panel.get_selected_games(active_only)
+            )
+            self.database_panel.selection_changed.connect(cl_charts_controller.notify_selection_changed)
+            if hasattr(self.detail_panel, "chess_log_charts_view"):
+                self.detail_panel.chess_log_charts_view.set_controller(cl_charts_controller)
 
         # Set moves list model in game analysis controller and on chessboard (for move classification badges)
         if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'moveslist_model'):
@@ -3636,6 +3648,13 @@ class MainWindow(QMainWindow):
             if hasattr(ai_chat_view, 'refresh_model_list'):
                 ai_chat_view.refresh_model_list()
     
+    def _refresh_chess_log_charts_ai_state(self) -> None:
+        """Notify Chess Log Charts controller that AI settings may have changed."""
+        from app.services.user_settings_service import UserSettingsService
+        settings = UserSettingsService.get_instance().get_settings()
+        if hasattr(self, "controller") and hasattr(self.controller, "get_chess_log_charts_controller"):
+            self.controller.get_chess_log_charts_controller().set_user_settings(settings)
+
     def _refresh_ai_summary_menu_state(self) -> None:
         """Refresh the AI Summary menu checkboxes based on current settings."""
         from app.services.user_settings_service import UserSettingsService

@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.views.style import StyleManager
 from app.views.style.line_edit import generate_line_edit_stylesheet
 
@@ -32,19 +33,21 @@ class MomentDialog(QDialog):
     All entries for a single dialog submission belong to one moment in the 3-cap.
     """
 
-    _CLAMP_CHIPS: List[tuple[str, str]] = [
-        ("C", "Checks — missed or overlooked checking moves"),
-        ("L", "Loose Pieces — undefended piece or square"),
-        ("A", "Alignment — pin, skewer, discovered attack, or fork"),
-        ("M", "Mobility — trapped piece or lack of safe squares"),
-        ("P", "Pawn Promotion — promotion race or endgame dynamics"),
+    _CLAMP_TOOLTIPS: List[str] = [
+        "Checks — missed or overlooked checking moves",
+        "Loose Pieces — undefended piece or square",
+        "Alignment — pin, skewer, discovered attack, or fork",
+        "Mobility — trapped piece or lack of safe squares",
+        "Pawn Promotion — promotion race or endgame dynamics",
     ]
+    _CLAMP_CHIPS: List[tuple[str, str]] = list(zip(CLAMP_ORDER, _CLAMP_TOOLTIPS))
 
-    _CCT_CHIPS: List[tuple[str, str]] = [
-        ("Checks", "Checks — a checking move that wasn't considered"),
-        ("Captures", "Captures — a capture that wasn't considered"),
-        ("Threats", "Threats — a non-capturing threat that wasn't considered"),
+    _CCT_TOOLTIPS: List[str] = [
+        "Checks — a checking move that wasn't considered",
+        "Captures — a capture that wasn't considered",
+        "Threats — a non-capturing threat that wasn't considered",
     ]
+    _CCT_CHIPS: List[tuple[str, str]] = list(zip(CCT_ORDER, _CCT_TOOLTIPS))
 
     _3X3_PROMPTS: List[tuple[str, str]] = [
         ("Why1", "Why did I make this move?"),

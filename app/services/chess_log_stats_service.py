@@ -29,6 +29,7 @@ from app.services.player_stats_service import (
     _ordinal_fallback_mode,
     _ordinal_target_bin_count,
 )
+from app.utils.chess_log_preset_order import order_categories
 
 # Presets included in the charting pipeline
 CHARTED_PRESETS: frozenset[str] = frozenset({"CLAMP", "CCT", "Custom"})
@@ -53,7 +54,7 @@ class ChessLogPresetSeries:
     """Complete time-series data for one preset."""
 
     preset: str
-    categories: List[str]             # stable order: named cats A–Z, then "" last
+    categories: List[str]             # canonical order per preset, then "" last
     bins: List[ChessLogCategoryBin]
 
 
@@ -62,23 +63,28 @@ def aggregate(
     player: str,
     color_filter: str = "both",       # "white", "black", or "both"
     chart_cfg: Optional[Dict[str, Any]] = None,
+    preset_orders: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, ChessLogPresetSeries]:
     """Aggregate Chess Log moments into per-preset time series.
 
     Args:
-        games:        Games to scan (from Data Source selection).
-        player:       Player name to scope to (case-insensitive). Empty string
-                      skips player filtering — all moments in all games.
-        color_filter: "white" / "black" / "both" — further scope to games where
-                      the player had that color.
-        chart_cfg:    Optional config dict with ``target_progression_bins`` and
-                      ``ordinal_fallback_mode`` (same keys as Player Stats).
+        games:         Games to scan (from Data Source selection).
+        player:        Player name to scope to (case-insensitive). Empty string
+                       skips player filtering — all moments in all games.
+        color_filter:  "white" / "black" / "both" — further scope to games where
+                       the player had that color.
+        chart_cfg:     Optional config dict with ``target_progression_bins`` and
+                       ``ordinal_fallback_mode`` (same keys as Player Stats).
+        preset_orders: Optional mapping of preset name → authoritative category
+                       ordering. Used for the Custom preset (insertion order from
+                       user settings); CLAMP/CCT use built-in canonical order.
 
     Returns:
         Dict mapping preset name → ChessLogPresetSeries, one entry per preset
         that has at least one moment in the filtered games. Empty if no data.
     """
     chart_cfg = chart_cfg or {}
+    preset_orders = preset_orders or {}
     player_cf = (player or "").casefold().strip()
 
     raw: List[Tuple[int, str, str]] = []  # (ordinal, preset, cat)
@@ -120,7 +126,8 @@ def aggregate(
 
     for preset in sorted(presets_in_data):
         samples = [(o, c) for o, p, c in raw if p == preset]
-        result[preset] = _bin_preset(preset, samples, chart_cfg)
+        custom_order = preset_orders.get(preset)
+        result[preset] = _bin_preset(preset, samples, chart_cfg, custom_order)
 
     return result
 
@@ -148,6 +155,7 @@ def _bin_preset(
     preset: str,
     samples: List[Tuple[int, str]],  # (ordinal, cat)
     chart_cfg: Dict[str, Any],
+    custom_order: Optional[List[str]] = None,
 ) -> ChessLogPresetSeries:
     all_cats: Set[str] = {cat for _, cat in samples}
     ordinals = [o for o, _ in samples]
@@ -159,9 +167,7 @@ def _bin_preset(
         if mode == "quantile"
         else _count_bins_equal_width(samples, n_bins, t_min, t_max)
     )
-    named_cats = sorted(c for c in all_cats if c)
-    has_uncategorized = UNCATEGORIZED in all_cats
-    categories = named_cats + ([UNCATEGORIZED] if has_uncategorized else [])
+    categories = order_categories(preset, list(all_cats), custom_order=custom_order)
     return ChessLogPresetSeries(preset=preset, categories=categories, bins=bins)
 
 

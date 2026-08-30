@@ -230,6 +230,66 @@ class TestMixedPresetHistory(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Canonical preset ordering (Item 7)
+# ---------------------------------------------------------------------------
+
+class TestCanonicalCategoryOrder(unittest.TestCase):
+
+    def _game_with_cats(self, preset: str, cats: list[str], make_entry_fn) -> GameData:
+        paths = {str(i): [make_entry_fn(c)] for i, c in enumerate(cats)}
+        return _make_game(white="Alice", black="Bob", date="2025.06.01",
+                          entries_per_path=paths)
+
+    def test_clamp_canonical_order_regardless_of_tag_order(self):
+        # Tag in reverse canonical order (P, M, A, L, C)
+        game = self._game_with_cats("CLAMP", ["P", "M", "A", "L", "C"], _clamp_entry)
+        result = aggregate([game], player="Alice")
+        cats = result["CLAMP"].categories
+        self.assertEqual(cats, ["C", "L", "A", "M", "P"])
+
+    def test_cct_canonical_order_regardless_of_tag_order(self):
+        game = self._game_with_cats("CCT", ["Threats", "Checks", "Captures"], _cct_entry)
+        result = aggregate([game], player="Alice")
+        cats = result["CCT"].categories
+        self.assertEqual(cats, ["Checks", "Captures", "Threats"])
+
+    def test_clamp_partial_subset_canonical_order(self):
+        game = self._game_with_cats("CLAMP", ["P", "C"], _clamp_entry)
+        result = aggregate([game], player="Alice")
+        cats = result["CLAMP"].categories
+        self.assertEqual(cats, ["C", "P"])
+
+    def test_custom_with_preset_orders_respected(self):
+        game = self._game_with_cats("Custom", ["Zeta", "Alpha", "Mango"], _custom_entry)
+        result = aggregate(
+            [game],
+            player="Alice",
+            preset_orders={"Custom": ["Mango", "Alpha", "Zeta"]},
+        )
+        cats = result["Custom"].categories
+        self.assertEqual(cats, ["Mango", "Alpha", "Zeta"])
+
+    def test_custom_without_preset_orders_alphabetical(self):
+        game = self._game_with_cats("Custom", ["Zeta", "Alpha"], _custom_entry)
+        result = aggregate([game], player="Alice")
+        cats = result["Custom"].categories
+        self.assertEqual(cats, ["Alpha", "Zeta"])
+
+    def test_uncategorized_always_last_in_canonical_order(self):
+        paths = {
+            "0": [_clamp_entry("P")],
+            "1": [_clamp_entry("")],
+            "2": [_clamp_entry("C")],
+        }
+        game = _make_game(white="Alice", black="Bob", date="2025.06.01",
+                          entries_per_path=paths)
+        result = aggregate([game], player="Alice")
+        cats = result["CLAMP"].categories
+        self.assertEqual(cats[-1], "")
+        self.assertEqual(cats[0], "C")
+
+
+# ---------------------------------------------------------------------------
 # Date filtering: games with undateable dates are skipped
 # ---------------------------------------------------------------------------
 

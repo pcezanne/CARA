@@ -59,12 +59,14 @@ class ChessLogAggregationWorker(QThread):
         player: str,
         color_filter: str,
         chart_cfg: Dict[str, Any],
+        preset_orders: Optional[Dict[str, List[str]]] = None,
     ) -> None:
         super().__init__()
         self._games = games
         self._player = player
         self._color_filter = color_filter
         self._chart_cfg = chart_cfg
+        self._preset_orders = preset_orders or {}
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -82,6 +84,7 @@ class ChessLogAggregationWorker(QThread):
                 player=self._player,
                 color_filter=self._color_filter,
                 chart_cfg=self._chart_cfg,
+                preset_orders=self._preset_orders,
             )
         except Exception as exc:
             with QMutexLocker(self._mutex):
@@ -281,11 +284,14 @@ class ChessLogChartsController(QObject):
         if games is None:
             games = self._resolve_games()
         self._cancel_agg_worker()
+        custom_cats = self._user_settings.get("chess_log", {}).get("custom_categories", [])
+        preset_orders = {"Custom": list(custom_cats)} if custom_cats else {}
         worker = ChessLogAggregationWorker(
             games=games,
             player=self._current_player,
             color_filter=self._color_filter,
             chart_cfg=self._config,
+            preset_orders=preset_orders,
         )
         worker.charts_updated.connect(self.charts_updated)
         worker.charts_unavailable.connect(self.charts_unavailable)

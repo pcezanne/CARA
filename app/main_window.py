@@ -2026,6 +2026,7 @@ class MainWindow(QMainWindow):
             self.database_panel.selection_changed.connect(cl_charts_controller.notify_selection_changed)
             if hasattr(self.detail_panel, "chess_log_charts_view"):
                 self.detail_panel.chess_log_charts_view.set_controller(cl_charts_controller)
+                self._refresh_chess_log_charts_ai_state()
 
         # Set moves list model in game analysis controller and on chessboard (for move classification badges)
         if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'moveslist_model'):

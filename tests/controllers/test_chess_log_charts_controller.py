@@ -99,22 +99,29 @@ class TestChessLogChartsControllerSourceSelection(unittest.TestCase):
         ctrl.set_source_selection(0)
         self.assertIn("no_source", received)
 
-    def test_set_source_starts_agg_worker_for_valid_source(self):
+    def test_set_source_emits_no_player_not_agg_worker(self):
+        # Selecting a source without an explicit player must NOT start aggregation.
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         ctrl = self._make_controller(games=[game])
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
         ctrl.set_source_selection(1)
-        self.assertIsNotNone(ctrl._agg_worker)
-        ctrl._cancel_agg_worker()
+        self.assertIsNone(ctrl._agg_worker)
+        self.assertIn("no_player", received)
 
-    def test_set_source_twice_cancels_previous_worker(self):
+    def test_set_source_resets_player_explicit_selected(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._player_explicit_selected = True
+        ctrl.set_source_selection(1)
+        self.assertFalse(ctrl._player_explicit_selected)
+
+    def test_set_source_starts_dropdown_worker(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         ctrl = self._make_controller(games=[game])
         ctrl.set_source_selection(1)
-        first_worker = ctrl._agg_worker
-        ctrl.set_source_selection(1)
-        # Either the worker was replaced or cancelled
-        self.assertIsNotNone(ctrl._agg_worker)
-        ctrl._cancel_agg_worker()
+        self.assertIsNotNone(ctrl._dropdown_worker)
+        ctrl._cancel_dropdown_worker()
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -125,23 +132,39 @@ class TestChessLogChartsControllerPlayerSelection(unittest.TestCase):
         db_ctrl = _make_db_controller(games)
         return ChessLogChartsController(config={}, database_controller=db_ctrl)
 
-    def test_set_player_triggers_refresh(self):
-        game = _make_game(entries_per_path={"0": [_clamp("C")]})
-        ctrl = self._make_controller(games=[game])
-        ctrl._source_selection = 1  # bypass set_source so no prior worker
-        ctrl.set_player_selection("Alice")
-        self.assertIsNotNone(ctrl._agg_worker)
-        ctrl._cancel_agg_worker()
-
-    def test_player_stored_on_controller(self):
+    def test_set_player_sets_explicit_flag_and_stores_name(self):
         ctrl = self._make_controller()
         ctrl.set_player_selection("Bob")
+        self.assertTrue(ctrl._player_explicit_selected)
         self.assertEqual(ctrl._current_player, "Bob")
 
-    def test_empty_player_string_stored(self):
+    def test_empty_player_sets_explicit_flag(self):
+        # "All players" (empty string) is still an explicit user choice.
         ctrl = self._make_controller()
         ctrl.set_player_selection("")
+        self.assertTrue(ctrl._player_explicit_selected)
         self.assertEqual(ctrl._current_player, "")
+
+    def test_on_selection_debounced_without_explicit_player_emits_no_player(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = 1
+        # _player_explicit_selected is False by default
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
+        ctrl._on_selection_debounced()
+        self.assertIn("no_player", received)
+        self.assertIsNone(ctrl._agg_worker)
+
+    def test_on_selection_debounced_with_explicit_player_starts_worker(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl._on_selection_debounced()
+        self.assertIsNotNone(ctrl._agg_worker)
+        ctrl._cancel_agg_worker()
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

@@ -180,6 +180,7 @@ class ChessLogChartsController(QObject):
         self._source_selection: int = 0   # 0=None, 1=Active, 2=All, 3=SelectedActive, 4=SelectedAll
         self._current_player: str = ""
         self._color_filter: str = "both"
+        self._player_explicit_selected: bool = False
         self._get_selected_games_callback: Optional[Callable[[bool], List[GameData]]] = None
 
         self._dropdown_worker: Optional[ChessLogPlayerDropdownWorker] = None
@@ -214,14 +215,20 @@ class ChessLogChartsController(QObject):
     def set_source_selection(self, source: int) -> None:
         """Set the Data Source (0=None, 1=Active, 2=All, 3=SelectedActive, 4=SelectedAll)."""
         self._source_selection = source
+        self._player_explicit_selected = False
         if source == 0:
             self._cancel_agg_worker()
             self.charts_unavailable.emit("no_source")
             return
-        self._refresh_dropdown_and_charts()
+        # Refresh the player dropdown but hold off on aggregation until the
+        # user explicitly picks a player.
+        games = self._resolve_games()
+        self._start_dropdown_worker(games)
+        self.charts_unavailable.emit("no_player")
 
     def set_player_selection(self, player: str) -> None:
         self._current_player = player or ""
+        self._player_explicit_selected = True
         self._selection_debounce.stop()
         self._selection_debounce.start(self._selection_debounce_ms)
 
@@ -271,6 +278,9 @@ class ChessLogChartsController(QObject):
 
     def _on_selection_debounced(self) -> None:
         if self._source_selection == 0:
+            return
+        if not self._player_explicit_selected:
+            self.charts_unavailable.emit("no_player")
             return
         if self._source_selection in (3, 4):
             self._refresh_dropdown_and_charts()

@@ -126,10 +126,7 @@ class DetailChessLogChartsView(QWidget):
         content_layout.addWidget(self._build_selector())
 
         # Placeholder + stacked charts in one container (no inner scroll area)
-        self._placeholder = QLabel(
-            "No Chess Log moments in the selected data.\n"
-            "Tag some via right-click on a move in the Moves List."
-        )
+        self._placeholder = QLabel("Select a player to view Chess Log data.")
         self._placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._placeholder.setWordWrap(True)
         self._placeholder.setVisible(True)
@@ -178,7 +175,9 @@ class DetailChessLogChartsView(QWidget):
         player_label.setMinimumWidth(label_width)
         player_row.addWidget(player_label)
         self._player_combo = QComboBox()
+        self._player_combo.setPlaceholderText("Select player")
         self._player_combo.addItem("All players")
+        self._player_combo.setCurrentIndex(-1)
         self._player_combo.currentIndexChanged.connect(self._on_player_changed)
         player_row.addWidget(self._player_combo, 1)
         outer.addLayout(player_row)
@@ -280,11 +279,12 @@ class DetailChessLogChartsView(QWidget):
     # ------------------------------------------------------------------
 
     def _on_source_changed(self, index: int) -> None:
+        self._reset_player_selection()
         if self._controller:
             self._controller.set_source_selection(index)
 
     def _on_player_changed(self, index: int) -> None:
-        if not self._controller:
+        if not self._controller or index < 0:
             return
         player = "" if index == 0 else self._player_combo.currentText()
         self._controller.set_player_selection(player)
@@ -315,17 +315,30 @@ class DetailChessLogChartsView(QWidget):
 
     def _on_charts_unavailable(self, reason: str) -> None:
         self._clear_charts()
+        if reason == "no_player":
+            self._set_placeholder_text("Select a player to view Chess Log data.")
+        elif reason == "no_source":
+            self._set_placeholder_text("Select a Data Source to view Chess Log data.")
+        else:
+            self._set_placeholder_text(
+                "No Chess Log moments in the selected data.\n"
+                "Tag some via right-click on a move in the Moves List."
+            )
         self._show_placeholder()
 
     def _on_players_ready(self, players: List[str]) -> None:
         current = self._player_combo.currentText()
+        had_selection = self._player_combo.currentIndex() >= 0
         self._player_combo.blockSignals(True)
         self._player_combo.clear()
         self._player_combo.addItem("All players")
         for p in players:
             self._player_combo.addItem(p)
-        idx = self._player_combo.findText(current)
-        self._player_combo.setCurrentIndex(max(0, idx))
+        if had_selection:
+            idx = self._player_combo.findText(current)
+            self._player_combo.setCurrentIndex(max(0, idx))
+        else:
+            self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)
 
     def _on_narrative_ready(self, narrative: str, flags: List[str]) -> None:
@@ -364,6 +377,15 @@ class DetailChessLogChartsView(QWidget):
             self._charts_layout.removeWidget(w)
             w.deleteLater()
         self._chart_widgets.clear()
+
+    def _reset_player_selection(self) -> None:
+        self._player_combo.blockSignals(True)
+        self._player_combo.setCurrentIndex(-1)
+        self._player_combo.blockSignals(False)
+        self._set_placeholder_text("Select a player to view Chess Log data.")
+
+    def _set_placeholder_text(self, text: str) -> None:
+        self._placeholder.setText(text)
 
     def _show_placeholder(self) -> None:
         self._placeholder.setVisible(True)

@@ -243,10 +243,11 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         self.assertEqual(view._source_combo.count(), len(_SOURCE_LABELS))
 
-    def test_player_combo_starts_with_all_players(self):
+    def test_player_combo_starts_with_all_players_and_unselected(self):
         view = DetailChessLogChartsView(config={})
         self.assertEqual(view._player_combo.count(), 1)
         self.assertEqual(view._player_combo.itemText(0), "All players")
+        self.assertEqual(view._player_combo.currentIndex(), -1)
 
     def test_players_ready_populates_player_combo(self):
         view = DetailChessLogChartsView(config={})
@@ -255,13 +256,27 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         # "All players" + 2 names = 3
         self.assertEqual(view._player_combo.count(), 3)
 
-    def test_players_ready_preserves_current_selection(self):
+    def test_players_ready_with_no_prior_selection_stays_unselected(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_players_ready(["Alice", "Bob"])
-        view._player_combo.setCurrentIndex(1)  # "Alice"
+        self.assertEqual(view._player_combo.currentIndex(), -1)
+
+    def test_players_ready_preserves_current_selection_when_made(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        view._on_players_ready(["Alice", "Bob"])
+        view._player_combo.setCurrentIndex(1)  # "Alice" (explicit selection)
         view._on_players_ready(["Alice", "Bob", "Carlos"])
         self.assertEqual(view._player_combo.currentText(), "Alice")
+
+    def test_reset_player_selection_sets_index_minus_one(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        view._on_players_ready(["Alice", "Bob"])
+        view._player_combo.setCurrentIndex(1)
+        view._reset_player_selection()
+        self.assertEqual(view._player_combo.currentIndex(), -1)
 
 
 if __name__ == "__main__":

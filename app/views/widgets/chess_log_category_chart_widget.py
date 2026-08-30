@@ -144,8 +144,7 @@ class ChessLogCategoryChartWidget(QWidget):
         totals: Dict[str, int] = {
             cat: sum(b.counts.get(cat, 0) for b in bins) for cat in categories
         }
-        y_max = max(totals.values(), default=1)
-        y_max = max(1, y_max)
+        y_max = self._compute_y_max(categories, bins)
 
         self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h, y_max)
         self._draw_axes(painter, plot_x0, plot_y0, plot_x1, plot_y1)
@@ -154,6 +153,15 @@ class ChessLogCategoryChartWidget(QWidget):
         self._draw_title(painter, plot_x0, plot_x1)
         self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, y_max, totals)
         self._draw_legend(painter, categories, plot_x1 + 8, plot_y0, legend_w - 8, totals)
+
+    @staticmethod
+    def _compute_y_max(categories: List[str], bins: List) -> int:
+        """Return the largest single-bin count across all (category, bin) pairs."""
+        raw = max(
+            (b.counts.get(cat, 0) for b in bins for cat in categories),
+            default=1,
+        )
+        return max(1, raw)
 
     def _draw_grid(self, p, x0, y0, x1, y1, pw, ph, y_max) -> None:
         grid_pen = QPen(self._grid_color)

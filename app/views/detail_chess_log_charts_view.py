@@ -258,7 +258,6 @@ class DetailChessLogChartsView(QWidget):
                 background-color: {input_s}; color: {text_s};
                 border: 1px solid {border_s}; border-radius: 3px; padding: 2px 6px;
             }}
-            QComboBox::drop-down {{ border: none; }}
             QLabel {{ border: none; color: {text_s}; }}
             QPushButton {{
                 background-color: {input_s}; color: {text_s};

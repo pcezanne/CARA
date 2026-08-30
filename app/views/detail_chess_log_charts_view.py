@@ -72,6 +72,7 @@ class DetailChessLogChartsView(QWidget):
                 self._controller.charts_unavailable.disconnect(self._on_charts_unavailable)
                 self._controller.charts_loading.disconnect(self._on_charts_loading)
                 self._controller.players_ready.disconnect(self._on_players_ready)
+                self._controller.player_selection_cleared.disconnect(self._reset_player_selection)
                 self._controller.narrative_ready.disconnect(self._on_narrative_ready)
                 self._controller.narrative_failed.disconnect(self._on_narrative_failed)
                 self._controller.ai_configured_changed.disconnect(self._on_ai_configured_changed)
@@ -86,6 +87,7 @@ class DetailChessLogChartsView(QWidget):
         controller.charts_unavailable.connect(self._on_charts_unavailable)
         controller.charts_loading.connect(self._on_charts_loading)
         controller.players_ready.connect(self._on_players_ready)
+        controller.player_selection_cleared.connect(self._reset_player_selection)
         controller.narrative_ready.connect(self._on_narrative_ready)
         controller.narrative_failed.connect(self._on_narrative_failed)
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
@@ -333,7 +335,7 @@ class DetailChessLogChartsView(QWidget):
             self._player_combo.addItem(p)
         if had_selection and players:
             idx = self._player_combo.findText(current)
-            self._player_combo.setCurrentIndex(max(0, idx))
+            self._player_combo.setCurrentIndex(idx)  # -1 if not found → stay unselected
         else:
             self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)

@@ -56,7 +56,7 @@ def _make_stub_controller(ai_configured: bool = False) -> MagicMock:
     # Simulate signal attributes so connect() calls succeed
     for sig in (
         "charts_updated", "charts_unavailable", "charts_loading",
-        "players_ready", "narrative_ready", "narrative_failed", "ai_configured_changed",
+        "players_ready", "player_selection_cleared", "narrative_ready", "narrative_failed", "ai_configured_changed",
     ):
         mock_signal = MagicMock()
         mock_signal.connect = MagicMock()

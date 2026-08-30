@@ -259,5 +259,99 @@ class TestChessLogChartsControllerSelectedGames(unittest.TestCase):
         self.assertEqual(ctrl._resolve_games(), [])
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogChartsControllerActiveDatabaseChanged(unittest.TestCase):
+
+    def _make_controller(self, games=None) -> ChessLogChartsController:
+        games = games or []
+        db_ctrl = _make_db_controller(games)
+        return ChessLogChartsController(config={}, database_controller=db_ctrl)
+
+    def _make_controller_with_source(self, source: int) -> ChessLogChartsController:
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = source
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        return ctrl
+
+    def test_active_db_changed_resets_player_flag_for_source_1(self):
+        ctrl = self._make_controller_with_source(1)
+        ctrl._on_active_database_changed(None)
+        self.assertFalse(ctrl._player_explicit_selected)
+
+    def test_active_db_changed_emits_player_selection_cleared_for_source_1(self):
+        ctrl = self._make_controller_with_source(1)
+        cleared = []
+        ctrl.player_selection_cleared.connect(lambda: cleared.append(True))
+        ctrl._on_active_database_changed(None)
+        self.assertEqual(len(cleared), 1)
+
+    def test_active_db_changed_emits_no_player_for_source_1(self):
+        ctrl = self._make_controller_with_source(1)
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
+        ctrl._on_active_database_changed(None)
+        self.assertIn("no_player", received)
+
+    def test_active_db_changed_resets_player_flag_for_source_2(self):
+        ctrl = self._make_controller_with_source(2)
+        ctrl._on_active_database_changed(None)
+        self.assertFalse(ctrl._player_explicit_selected)
+
+    def test_active_db_changed_emits_no_player_for_source_2(self):
+        ctrl = self._make_controller_with_source(2)
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
+        ctrl._on_active_database_changed(None)
+        self.assertIn("no_player", received)
+
+    def test_active_db_changed_no_reset_for_source_3(self):
+        ctrl = self._make_controller_with_source(3)
+        cleared = []
+        ctrl.player_selection_cleared.connect(lambda: cleared.append(True))
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
+        ctrl._on_active_database_changed(None)
+        self.assertTrue(ctrl._player_explicit_selected)
+        self.assertEqual(cleared, [])
+        self.assertEqual(received, [])
+
+    def test_active_db_changed_no_reset_for_source_4(self):
+        ctrl = self._make_controller_with_source(4)
+        cleared = []
+        ctrl.player_selection_cleared.connect(lambda: cleared.append(True))
+        ctrl._on_active_database_changed(None)
+        self.assertTrue(ctrl._player_explicit_selected)
+        self.assertEqual(cleared, [])
+
+    def test_active_db_changed_no_op_for_source_0(self):
+        ctrl = self._make_controller_with_source(0)
+        received = []
+        ctrl.charts_unavailable.connect(received.append)
+        ctrl._on_active_database_changed(None)
+        self.assertTrue(ctrl._player_explicit_selected)
+        self.assertEqual(received, [])
+
+    def test_active_db_changed_starts_dropdown_worker_for_source_1(self):
+        ctrl = self._make_controller_with_source(1)
+        ctrl._on_active_database_changed(None)
+        self.assertIsNotNone(ctrl._dropdown_worker)
+        ctrl._cancel_dropdown_worker()
+
+    def test_active_db_changed_cancels_agg_worker(self):
+        ctrl = self._make_controller_with_source(1)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        # Start a real aggregation worker first
+        ctrl._on_selection_debounced()
+        self.assertIsNotNone(ctrl._agg_worker)
+        # Active DB change should cancel it
+        ctrl._on_active_database_changed(None)
+        self.assertIsNone(ctrl._agg_worker)
+        ctrl._cancel_dropdown_worker()
+
+
 if __name__ == "__main__":
     unittest.main()

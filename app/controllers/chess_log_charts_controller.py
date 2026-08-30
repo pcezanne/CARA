@@ -163,6 +163,7 @@ class ChessLogChartsController(QObject):
     charts_unavailable = pyqtSignal(str)   # reason ("no_source", "no_player", "no_data", ...)
     charts_loading = pyqtSignal()          # aggregation worker about to start; view should clear stale chart
     players_ready = pyqtSignal(list)       # List[str]
+    player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
     narrative_ready = pyqtSignal(str, list)
     narrative_failed = pyqtSignal(str)
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
@@ -191,6 +192,8 @@ class ChessLogChartsController(QObject):
         self._selection_debounce.setSingleShot(True)
         self._selection_debounce.timeout.connect(self._on_selection_debounced)
         self._selection_debounce_ms = 100
+
+        self._connect_to_database_panel_model()
 
     # ------------------------------------------------------------------
     # Public API — called by AppController / MainWindow
@@ -412,3 +415,24 @@ class ChessLogChartsController(QObject):
         except RuntimeError:
             pass
         self._narrative_thread = None
+
+    def _connect_to_database_panel_model(self) -> None:
+        panel_model = self._database_controller.get_panel_model()
+        if not panel_model:
+            return
+        try:
+            panel_model.active_database_changed.disconnect(self._on_active_database_changed)
+        except (RuntimeError, TypeError):
+            pass
+        panel_model.active_database_changed.connect(self._on_active_database_changed)
+
+    def _on_active_database_changed(self, database) -> None:
+        """Reset player selection when the active database changes (sources 1 and 2 only)."""
+        if self._source_selection not in (1, 2):
+            return
+        self._cancel_agg_worker()
+        self._player_explicit_selected = False
+        self.player_selection_cleared.emit()
+        games = self._resolve_games()
+        self._start_dropdown_worker(games)
+        self.charts_unavailable.emit("no_player")

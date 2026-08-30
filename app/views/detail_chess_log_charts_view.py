@@ -1,8 +1,9 @@
 """Chess Log Charts detail-panel tab (§5.1 + §5.2).
 
-Layout (top to bottom):
-  [Data Source + Player selector row]
-  [QScrollArea → stacked ChessLogCategoryChartWidget, one per preset]
+Layout: single QScrollArea wrapping the entire pane, mirroring Player Stats.
+Inside (top to bottom):
+  [Data Source + Player selector rows]
+  [Placeholder label OR stacked ChessLogCategoryChartWidget instances (one per preset)]
   [Narrative panel: Generate button, QTextEdit, "Also flagged" collapsible]
 
 Placeholder text is shown at the chart area when no data is present.
@@ -99,21 +100,30 @@ class DetailChessLogChartsView(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        root.addWidget(self._build_selector())
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setAlignment(
+            Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft
+        )
 
-        # Chart area
-        self._chart_scroll = QScrollArea()
-        self._chart_scroll.setWidgetResizable(True)
-        self._chart_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self._charts_container = QWidget()
-        self._charts_layout = QVBoxLayout(self._charts_container)
-        self._charts_layout.setContentsMargins(0, 0, 0, 0)
-        self._charts_layout.setSpacing(12)
-        self._chart_scroll.setWidget(self._charts_container)
+        content_widget = QWidget()
+        content_widget.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding
+        )
+        content_widget.setMinimumWidth(0)
 
+        content_layout = QVBoxLayout(content_widget)
+        content_layout.setContentsMargins(8, 8, 8, 8)
+        content_layout.setSpacing(8)
+        content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+
+        content_layout.addWidget(self._build_selector())
+
+        # Placeholder + stacked charts in one container (no inner scroll area)
         self._placeholder = QLabel(
             "No Chess Log moments in the selected data.\n"
             "Tag some via right-click on a move in the Moves List."
@@ -122,16 +132,19 @@ class DetailChessLogChartsView(QWidget):
         self._placeholder.setWordWrap(True)
         self._placeholder.setVisible(True)
 
-        chart_frame = QWidget()
-        chart_frame_layout = QVBoxLayout(chart_frame)
-        chart_frame_layout.setContentsMargins(0, 0, 0, 0)
-        chart_frame_layout.setSpacing(0)
-        chart_frame_layout.addWidget(self._placeholder)
-        chart_frame_layout.addWidget(self._chart_scroll)
-        self._chart_scroll.setVisible(False)
+        self._charts_container = QWidget()
+        self._charts_layout = QVBoxLayout(self._charts_container)
+        self._charts_layout.setContentsMargins(0, 0, 0, 0)
+        self._charts_layout.setSpacing(12)
+        self._charts_container.setVisible(False)
 
-        root.addWidget(chart_frame, stretch=3)
-        root.addWidget(self._build_narrative_panel(), stretch=2)
+        content_layout.addWidget(self._placeholder)
+        content_layout.addWidget(self._charts_container)
+        content_layout.addWidget(self._build_narrative_panel())
+        content_layout.addStretch()
+
+        self._scroll_area.setWidget(content_widget)
+        root.addWidget(self._scroll_area)
 
     def _build_selector(self) -> QWidget:
         frame = QFrame()
@@ -286,7 +299,7 @@ class DetailChessLogChartsView(QWidget):
             self._show_placeholder()
             return
         self._placeholder.setVisible(False)
-        self._chart_scroll.setVisible(True)
+        self._charts_container.setVisible(True)
         for preset in sorted(data):
             widget = ChessLogCategoryChartWidget(config=self._config)
             widget.set_series(data[preset], colors=self._cat_colors_for_preset(preset))
@@ -347,7 +360,7 @@ class DetailChessLogChartsView(QWidget):
 
     def _show_placeholder(self) -> None:
         self._placeholder.setVisible(True)
-        self._chart_scroll.setVisible(False)
+        self._charts_container.setVisible(False)
 
     def _refresh_ai_state(self) -> None:
         configured = self._controller and self._controller.is_ai_configured()

@@ -79,6 +79,21 @@ def _make_series(preset: str, cats: list[str], n_bins: int = 1) -> ChessLogPrese
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewLayout(unittest.TestCase):
+
+    def test_has_single_outer_scroll_area(self):
+        from PyQt6.QtWidgets import QScrollArea
+        view = DetailChessLogChartsView(config={})
+        self.assertTrue(hasattr(view, "_scroll_area"))
+        self.assertIsInstance(view._scroll_area, QScrollArea)
+        self.assertTrue(view._scroll_area.widgetResizable())
+
+    def test_no_inner_chart_scroll_attribute(self):
+        view = DetailChessLogChartsView(config={})
+        self.assertFalse(hasattr(view, "_chart_scroll"))
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestDetailChessLogChartsViewPlaceholder(unittest.TestCase):
 
     def _make_view(self, ai=False) -> DetailChessLogChartsView:
@@ -90,15 +105,15 @@ class TestDetailChessLogChartsViewPlaceholder(unittest.TestCase):
         view = self._make_view()
         self.assertTrue(view._placeholder.isVisible())
 
-    def test_chart_scroll_hidden_on_startup(self):
+    def test_charts_container_hidden_on_startup(self):
         view = self._make_view()
-        self.assertFalse(view._chart_scroll.isVisible())
+        self.assertFalse(view._charts_container.isVisible())
 
     def test_charts_unavailable_shows_placeholder(self):
         view = self._make_view()
         view._on_charts_unavailable("no_source")
         self.assertTrue(view._placeholder.isVisible())
-        self.assertFalse(view._chart_scroll.isVisible())
+        self.assertFalse(view._charts_container.isVisible())
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -168,7 +183,7 @@ class TestDetailChessLogChartsViewCharts(unittest.TestCase):
         data = {"CLAMP": _make_series("CLAMP", ["C"])}
         view._on_charts_updated(data)
         self.assertFalse(view._placeholder.isVisible())
-        self.assertTrue(view._chart_scroll.isVisible())
+        self.assertTrue(view._charts_container.isVisible())
 
     def test_charts_updated_with_empty_dict_shows_placeholder(self):
         view = DetailChessLogChartsView(config={})

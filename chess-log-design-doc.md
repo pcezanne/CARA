@@ -1,9 +1,10 @@
 # Chess Log — Product Design Document
 
+**Version:** 1.1
 **Proposed as a new tab/feature addition to CARA (Chess Analysis and Review Application)**
 **Status:** Draft for review
 **Author:** Paul Cezanne
-**Date:** August 2026
+**Date:** August 2026 (last updated August 29, 2026)
 
 ---
 
@@ -71,7 +72,9 @@ The player can switch the active preset at any time. Because of this, a single g
 ### 3.4 The tag pair: what + why
 For CLAMP, CCT, and Custom, each tagged moment is a pair: the **what** (the category or categories selected — e.g. "M" for a trapped rook) and, optionally, the **why** — a short note in the player's own words explaining the category. Example: category **M**, note: *"Rook became trapped when I moved my bishop, cutting off the Rook escape square."*
 
-The why stays optional for these three presets — the category alone is enough to satisfy a tag. For 3x3, the equivalent role is filled by the three guided Whys themselves, which are inherently free text rather than a separate optional note bolted onto a category pick.
+The why stays optional for these three presets — the category alone is enough to satisfy a tag. The reverse is also supported: a moment can be saved with **no category selected at all**, as long as the why-note has content — for cases where none of the active preset's categories genuinely fit the mistake (e.g. a strategic or king-safety error that isn't a tactical CLAMP/CCT concept). This is deliberately *not* a fake "Other" category — the entry saves as genuinely uncategorized rather than being force-fit under a letter that misrepresents it. A moment can't be saved with both no category and no why — one of the two is required. Custom's separate empty-picklist case (no categories defined at all yet) is unaffected by this and still blocks saving with a warning, since that's a configuration gap rather than an honest non-match.
+
+For 3x3, the equivalent role is filled by the three guided Whys themselves, which are inherently free text rather than a separate optional note bolted onto a category pick.
 
 The why half (or the 3x3 Whys) may be the richest data Chess Log collects: the what says *what kind* of mistake recurred; the why says *why*, and an AI reading it across months can surface patterns the player wouldn't spot from tag counts alone.
 
@@ -84,7 +87,7 @@ CARA already has a whole-game note field — Chess Log doesn't add a new one. Wh
 
 1. Before first use (and any time they want to change methods), the player sets their active preset — CLAMP, CCT, 3x3, or Custom — in Chess Log Settings, reachable from the Chess Log menu. Custom users also manage their tag list there.
 2. Player finishes a game and reviews it in CARA, as they already do today.
-3. While stepping through the moves, they tag up to three moments using whichever preset is currently active, with an optional why note on any of them (3x3 answers its Whys as free text directly; the others pair a category pick with an optional note).
+3. While stepping through the moves, they tag up to three moments using whichever preset is currently active, with an optional why note on any of them (3x3 answers its Whys as free text directly; the others pair a category pick with an optional note — or, per §3.4, no category with a required why).
 4. If the game's whole-game note isn't filled in, tagging a moment prompts the player to add one.
 5. Tags and notes accumulate across the library over time — including backfilled older games, an explicit, expected use case. The active preset can change between sessions, so the library may end up with moments tagged under more than one preset.
 6. Whenever the player opens the Chess Log charts view, the trend charts and narrative summary are there — with a brief generation pause, the same way CARA's existing Player Stats view behaves today.
@@ -98,6 +101,7 @@ CARA already has a whole-game note field — Chess Log doesn't add a new one. Wh
 - Uses CARA's existing timeline groupings rather than introducing a new time-window concept.
 - A line chart of tag frequency by category over time, matching CARA's existing charting style.
 - The chart should make **category mix shift** visible, not just total count. A player who traded hanging pieces for endgame promotion mistakes hasn't failed to improve — they've moved on to a harder problem. Total count alone hides that; the per-category breakdown reveals it.
+- Uncategorized moments (per §3.4 — a moment saved with no category, why-note only) should appear as their own visible bucket in the chart, not be silently dropped or folded into an existing category. They're real data — a recurring pattern of "nothing in this preset fits" is itself worth seeing, and may be a signal the active preset doesn't cover something the player keeps running into.
 - Since the active preset can change over time (§3.2), a player's history may mix vocabularies — some moments tagged under CLAMP, others later under 3x3. Charts should present a separate breakdown per preset used (e.g. a CLAMP chart and a 3x3 chart both derivable from the same history) rather than merging incompatible category vocabularies into one chart.
 - Implementation note: CARA already has a time-series charting engine in `player_stats_service.py` (date binning, per-color series, configurable charts) behind its existing accuracy/move-quality trend charts. Chess Log's category-frequency chart should plug into that existing machinery rather than build parallel charting logic.
 

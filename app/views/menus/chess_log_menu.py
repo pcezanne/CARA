@@ -10,6 +10,7 @@ from app.utils.themed_icon import (
     SVG_MENU_SAVE,
     set_menubar_themable_action_icon,
 )
+from app.views.menus.chess_log_charts_menu import ChessLogChartsMenuController
 
 
 def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
@@ -41,3 +42,17 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     mw.highlight_chess_log_moves_action.setChecked(False)
     mw.highlight_chess_log_moves_action.triggered.connect(mw._on_highlight_chess_log_moves_toggled)
     chess_log_menu.addAction(mw.highlight_chess_log_moves_action)
+
+    chess_log_menu.addSeparator()
+
+    _setup_chess_log_charts_submenu(mw, chess_log_menu)
+
+
+def _setup_chess_log_charts_submenu(mw, chess_log_menu) -> None:
+    from app.services.user_settings_service import UserSettingsService
+
+    mw._cl_charts_menu_controller = ChessLogChartsMenuController(mw, mw._apply_menu_styling)
+    mw.chess_log_charts_settings_menu = mw._cl_charts_menu_controller.attach_to_parent_menu(chess_log_menu)
+    UserSettingsService.get_instance().get_model().chess_log_charts_changed.connect(
+        mw._cl_charts_menu_controller.sync_from_settings
+    )

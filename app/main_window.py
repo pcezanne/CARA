@@ -2024,6 +2024,12 @@ class MainWindow(QMainWindow):
                 lambda active_only: self.database_panel.get_selected_games(active_only)
             )
             self.database_panel.selection_changed.connect(cl_charts_controller.notify_selection_changed)
+            from app.services.user_settings_service import UserSettingsService as _USS
+            _USS.get_instance().get_model().chess_log_charts_changed.connect(
+                lambda: cl_charts_controller.set_user_settings(
+                    _USS.get_instance().get_settings()
+                )
+            )
             if hasattr(self.detail_panel, "chess_log_charts_view"):
                 self.detail_panel.chess_log_charts_view.set_controller(cl_charts_controller)
                 self._refresh_chess_log_charts_ai_state()

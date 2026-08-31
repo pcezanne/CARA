@@ -179,4 +179,5 @@ update_version.py
 
 # Test PGN files
 TaggingTestGames.pgn
+TaggingTestGames_synthetic_*.pgn
 

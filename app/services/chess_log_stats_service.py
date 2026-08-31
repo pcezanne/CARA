@@ -51,11 +51,23 @@ class ChessLogCategoryBin:
 
 @dataclass
 class ChessLogPresetSeries:
-    """Complete time-series data for one preset."""
+    """Complete time-series data for one preset.
+
+    Binning fields (set by aggregate):
+        preset, categories, bins
+
+    Rendering fields (set by ChessLogAggregationWorker after aggregate,
+    threaded from controller's live instance fields):
+        x_axis_layout, max_gap_segment_days, line_style, smoothing_strength
+    """
 
     preset: str
     categories: List[str]             # canonical order per preset, then "" last
     bins: List[ChessLogCategoryBin]
+    x_axis_layout: str = "uniform_bins"    # "uniform_bins" / "gap_compressed" / "calendar_linear"
+    max_gap_segment_days: int = 28
+    line_style: str = "smooth"             # "smooth" or "straight"
+    smoothing_strength: float = 1.0
 
 
 def aggregate(
@@ -75,6 +87,8 @@ def aggregate(
                        the player had that color.
         chart_cfg:     Optional config dict with ``target_progression_bins`` and
                        ``ordinal_fallback_mode`` (same keys as Player Stats).
+                       Build via ``chart_cfg_with_chess_log_charts_overrides`` so
+                       the user's ``target_bins`` and ``binning_mode`` are applied.
         preset_orders: Optional mapping of preset name → authoritative category
                        ordering. Used for the Custom preset (insertion order from
                        user settings); CLAMP/CCT use built-in canonical order.
@@ -82,6 +96,9 @@ def aggregate(
     Returns:
         Dict mapping preset name → ChessLogPresetSeries, one entry per preset
         that has at least one moment in the filtered games. Empty if no data.
+        Rendering fields (x_axis_layout, etc.) are at their defaults; the caller
+        (ChessLogAggregationWorker) sets them from live controller fields before
+        emitting.
     """
     chart_cfg = chart_cfg or {}
     preset_orders = preset_orders or {}
@@ -161,6 +178,8 @@ def _bin_preset(
         set(CCT_ORDER) if preset == "CCT" else set()
     )
     all_cats: Set[str] = seed_cats | {cat for _, cat in samples}
+    categories = order_categories(preset, list(all_cats), custom_order=custom_order)
+
     ordinals = [o for o, _ in samples]
     t_min, t_max = min(ordinals), max(ordinals)
     n_bins = _ordinal_target_bin_count(chart_cfg, len(samples))
@@ -170,7 +189,7 @@ def _bin_preset(
         if mode == "quantile"
         else _count_bins_equal_width(samples, n_bins, t_min, t_max)
     )
-    categories = order_categories(preset, list(all_cats), custom_order=custom_order)
+
     return ChessLogPresetSeries(preset=preset, categories=categories, bins=bins)
 
 

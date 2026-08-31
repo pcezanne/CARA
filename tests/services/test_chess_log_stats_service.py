@@ -376,5 +376,98 @@ class TestGetAllPlayers(unittest.TestCase):
         self.assertEqual(get_all_players([]), [])
 
 
+# ---------------------------------------------------------------------------
+# Binning mode routing (chart_cfg.ordinal_fallback_mode)
+# ---------------------------------------------------------------------------
+
+class TestBinningModeRouting(unittest.TestCase):
+    """ordinal_fallback_mode in chart_cfg independently controls quantile vs equal_width."""
+
+    def _make_games(self) -> list:
+        """10 tagged games spread sparsely across a year — unequal-density distribution."""
+        months = [1, 1, 1, 1, 1, 6, 7, 10, 11, 12]  # 5 in Jan, 5 spread
+        games = []
+        for month in months:
+            g = _make_game(
+                white="Alice", black="Bob",
+                date=f"2026.{month:02d}.15",
+                entries_per_path={"0": [_clamp_entry("C")]},
+            )
+            games.append(g)
+        return games
+
+    def test_quantile_mode_produces_equal_count_bins(self):
+        games = self._make_games()
+        cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "quantile",
+               "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        result = aggregate(games, player="Alice", chart_cfg=cfg)
+        bins = result["CLAMP"].bins
+        totals = [b.total for b in bins]
+        # quantile splits evenly (within ±1) across N moments
+        self.assertAlmostEqual(totals[0], totals[-1], delta=1)
+
+    def test_equal_width_mode_places_bins_by_date_span(self):
+        games = self._make_games()
+        cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "equal_width",
+               "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        result = aggregate(games, player="Alice", chart_cfg=cfg)
+        bins = result["CLAMP"].bins
+        # equal_width splits the calendar; dense Jan cluster → all 5 Jan moments in bin 0
+        totals = [b.total for b in bins]
+        self.assertGreater(totals[0], totals[-1])
+
+    def test_binning_mode_does_not_affect_series_rendering_fields(self):
+        games = self._make_games()
+        cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "quantile",
+               "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        result = aggregate(games, player="Alice", chart_cfg=cfg)
+        series = result["CLAMP"]
+        # Rendering fields are defaults — aggregate() doesn't set them
+        self.assertEqual(series.x_axis_layout, "uniform_bins")
+        self.assertEqual(series.max_gap_segment_days, 28)
+        self.assertEqual(series.line_style, "smooth")
+        self.assertAlmostEqual(series.smoothing_strength, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# ChessLogPresetSeries rendering fields
+# ---------------------------------------------------------------------------
+
+class TestPresetSeriesRenderingFields(unittest.TestCase):
+    """aggregate() leaves rendering fields at defaults; callers set them."""
+
+    def _one_game_result(self):
+        game = _make_game(
+            white="Alice", black="Bob",
+            date="2026.01.15",
+            entries_per_path={"0": [_clamp_entry("C")]},
+        )
+        return aggregate([game], player="Alice")
+
+    def test_default_x_axis_layout(self):
+        result = self._one_game_result()
+        self.assertEqual(result["CLAMP"].x_axis_layout, "uniform_bins")
+
+    def test_default_max_gap_segment_days(self):
+        result = self._one_game_result()
+        self.assertEqual(result["CLAMP"].max_gap_segment_days, 28)
+
+    def test_default_line_style(self):
+        result = self._one_game_result()
+        self.assertEqual(result["CLAMP"].line_style, "smooth")
+
+    def test_default_smoothing_strength(self):
+        result = self._one_game_result()
+        self.assertAlmostEqual(result["CLAMP"].smoothing_strength, 1.0)
+
+    def test_rendering_fields_are_mutable(self):
+        result = self._one_game_result()
+        series = result["CLAMP"]
+        series.x_axis_layout = "gap_compressed"
+        series.line_style = "straight"
+        self.assertEqual(series.x_axis_layout, "gap_compressed")
+        self.assertEqual(series.line_style, "straight")
+
+
 if __name__ == "__main__":
     unittest.main()

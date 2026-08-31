@@ -1,12 +1,9 @@
 """Category-frequency-over-time chart widget for Chess Log Charts tab.
 
 Draws a multi-line chart where each line is one category from a single preset.
-X-axis: time (bin.time_pct, 0-100) derived from game dates.
+X-axis: time (bin.time_pct, 0-100) derived from game dates, or uniform bin index
+        depending on the series' x_axis_layout field.
 Y-axis: integer moment count.
-
-Deliberately simpler than MoveQualityOverTimeChartWidget for this first pass:
-no hover cache, no gap compression, no smooth bezier, no calendar tick modes.
-Those can be added later once we have real usage data.
 
 Data entry point: set_series(series, colors)
   series: ChessLogPresetSeries from chess_log_stats_service
@@ -17,12 +14,13 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
 
-from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen
+from PyQt6.QtCore import QPointF, QRectF, Qt
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPainterPath, QPen
 from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from app.services.chess_log_stats_service import ChessLogCategoryBin, ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
+
 
 # Built-in rotating palette used when no config color is supplied.
 _FALLBACK_PALETTE: List[Tuple[int, int, int]] = [
@@ -52,6 +50,52 @@ _DEFAULTS: Dict[str, Any] = {
     "font_family": "Helvetica Neue",
     "font_size": 9,
 }
+
+
+def _smooth_polyline_path(run: List[QPointF], *, strength: float = 1.0) -> Optional[QPainterPath]:
+    """Cubic Bézier chain (Catmull–Rom style) through ``run`` for a flowing line.
+
+    Vertices are preserved as segment endpoints; the curve may bulge slightly past
+    straight chords at sharp turns. ``strength`` scales handle tension:
+    0 ≈ straight segments, ~1 default, >1 more wavy.
+
+    Ported from detail_player_stats_view._smooth_polyline_path.
+    """
+    n = len(run)
+    if n < 2:
+        return None
+    path = QPainterPath(run[0])
+    if n == 2:
+        path.lineTo(run[1])
+        return path
+    if strength < 0.05:
+        for k in range(n - 1):
+            path.lineTo(run[k + 1])
+        return path
+    k = strength / 6.0
+
+    def _pt(i: int) -> QPointF:
+        return run[max(0, min(n - 1, i))]
+
+    for i in range(n - 1):
+        p_im1 = _pt(i - 1) if i > 0 else QPointF(2 * run[0].x() - run[1].x(), 2 * run[0].y() - run[1].y())
+        p_i = run[i]
+        p_ip1 = run[i + 1]
+        p_ip2 = (
+            run[i + 2]
+            if i + 2 < n
+            else QPointF(2 * run[n - 1].x() - run[n - 2].x(), 2 * run[n - 1].y() - run[n - 2].y())
+        )
+        c1 = QPointF(
+            p_i.x() + (p_ip1.x() - p_im1.x()) * k,
+            p_i.y() + (p_ip1.y() - p_im1.y()) * k,
+        )
+        c2 = QPointF(
+            p_ip1.x() - (p_ip2.x() - p_i.x()) * k,
+            p_ip1.y() - (p_ip2.y() - p_i.y()) * k,
+        )
+        path.cubicTo(c1, c2, p_ip1)
+    return path
 
 
 class ChessLogCategoryChartWidget(QWidget):
@@ -184,14 +228,36 @@ class ChessLogCategoryChartWidget(QWidget):
         p.setFont(self._font)
         fm = QFontMetrics(self._font)
         prev_right = -999
-        for b in bins:
-            label = b.lab0[:7] if b.lab0 else ""  # "YYYY-MM"
-            x = x0 + (b.time_pct / 100.0) * pw
+        n = len(bins)
+        for i, b in enumerate(bins):
+            label = b.lab0[:7] if b.lab0 else ""  # "YYYY-MM" for all layout modes
+            # uniform_bins and gap_compressed use equal pixel spacing by bin index;
+            # calendar_linear uses time_pct. Full three-way layout is in _bin_x().
+            x = self._bin_x(i, n, b.time_pct, pw) + x0
             tw = fm.horizontalAdvance(label)
             lx = x - tw / 2
             if lx > prev_right + 4:
                 p.drawText(int(lx), int(y_base + self._font_size + 2), label)
                 prev_right = lx + tw
+
+    def _bin_x(self, bin_index: int, n_bins: int, time_pct: float, pw: float) -> float:
+        """Return the X pixel offset (from plot origin) for a given bin.
+
+        Layout modes (from series.x_axis_layout):
+          - "uniform_bins":   evenly spaced by bin index, ignoring calendar gaps.
+          - "calendar_linear": positioned by calendar median (time_pct).
+          - "gap_compressed": full compressed layout added in a later commit; falls back
+                              to uniform_bins until that rendering code is wired.
+        """
+        if not self._series:
+            return (time_pct / 100.0) * pw
+        layout = self._series.x_axis_layout
+        if layout == "calendar_linear":
+            return (time_pct / 100.0) * pw
+        # uniform_bins and gap_compressed (pending full port): equal spacing
+        if n_bins <= 1:
+            return pw / 2
+        return (bin_index / (n_bins - 1)) * pw
 
     def _draw_y_labels(self, p, x0, y0, y1, ph, y_max) -> None:
         p.setPen(self._text_color)
@@ -221,6 +287,10 @@ class ChessLogCategoryChartWidget(QWidget):
         p.setFont(self._font)
 
     def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, y_max, totals: Dict[str, int]) -> None:
+        use_smooth = self._series and self._series.line_style == "smooth"
+        strength = self._series.smoothing_strength if self._series else 1.0
+        n = len(bins)
+
         for idx, cat in enumerate(categories):
             if totals.get(cat, 0) == 0:
                 continue
@@ -229,22 +299,26 @@ class ChessLogCategoryChartWidget(QWidget):
             pen.setWidth(self._line_width)
             p.setPen(pen)
 
-            points = []
-            for b in bins:
-                x = x0 + (b.time_pct / 100.0) * pw
+            pts: List[QPointF] = []
+            for i, b in enumerate(bins):
+                x = x0 + self._bin_x(i, n, b.time_pct, pw)
                 count = b.counts.get(cat, 0)
                 y = y0 + ph * (1.0 - count / y_max)
-                points.append((x, y))
+                pts.append(QPointF(x, y))
 
-            for i in range(1, len(points)):
-                x1a, y1a = points[i - 1]
-                x2a, y2a = points[i]
-                p.drawLine(int(x1a), int(y1a), int(x2a), int(y2a))
+            if use_smooth and len(pts) >= 2:
+                path = _smooth_polyline_path(pts, strength=strength)
+                if path:
+                    p.drawPath(path)
+            else:
+                for i in range(1, len(pts)):
+                    p.drawLine(int(pts[i - 1].x()), int(pts[i - 1].y()),
+                               int(pts[i].x()), int(pts[i].y()))
 
-            # Dot at each bin
-            for x, y in points:
-                p.setBrush(color)
-                p.drawEllipse(QRectF(x - 3, y - 3, 6, 6))
+            # Dot at each bin (drawn on top of whichever line style was used)
+            p.setBrush(color)
+            for pt in pts:
+                p.drawEllipse(QRectF(pt.x() - 3, pt.y() - 3, 6, 6))
 
     def _draw_legend(self, p, categories, lx, ly, lw, totals: Dict[str, int]) -> None:
         p.setFont(self._font)

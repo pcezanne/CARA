@@ -17,8 +17,19 @@ from typing import Any, Callable, Dict, List, Optional
 from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QTimer, pyqtSignal
 
 from app.models.database_model import GameData
+from app.services.chess_log_charts_user import (
+    CHOICES_BINNING_MODE,
+    CHOICES_LINE_STYLE,
+    CHOICES_MAX_GAP_SEGMENT_DAYS,
+    CHOICES_SMOOTHING_STRENGTH,
+    CHOICES_TARGET_BINS,
+    CHOICES_X_AXIS_LAYOUT,
+    chart_cfg_with_chess_log_charts_overrides,
+    normalize_chess_log_charts_settings,
+)
 from app.services.chess_log_narrative_service import generate_narrative
 from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate, get_all_players
+from app.services.user_settings_service import UserSettingsService
 from app.utils.ai_provider_config import resolve_default_provider
 
 
@@ -48,7 +59,13 @@ class ChessLogPlayerDropdownWorker(QThread):
 
 
 class ChessLogAggregationWorker(QThread):
-    """Run chess_log_stats_service.aggregate() off the UI thread."""
+    """Run chess_log_stats_service.aggregate() off the UI thread.
+
+    Rendering-only fields (x_axis_layout, max_gap_segment_days, line_style,
+    smoothing_strength) are stamped onto every ChessLogPresetSeries returned
+    by aggregate() before the result is emitted, so the widget can read them
+    directly from the series without knowing controller state.
+    """
 
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
     charts_unavailable = pyqtSignal(str)   # reason string
@@ -60,6 +77,10 @@ class ChessLogAggregationWorker(QThread):
         color_filter: str,
         chart_cfg: Dict[str, Any],
         preset_orders: Optional[Dict[str, List[str]]] = None,
+        x_axis_layout: str = "uniform_bins",
+        max_gap_segment_days: int = 28,
+        line_style: str = "smooth",
+        smoothing_strength: float = 1.0,
     ) -> None:
         super().__init__()
         self._games = games
@@ -67,6 +88,10 @@ class ChessLogAggregationWorker(QThread):
         self._color_filter = color_filter
         self._chart_cfg = chart_cfg
         self._preset_orders = preset_orders or {}
+        self._x_axis_layout = x_axis_layout
+        self._max_gap_segment_days = max_gap_segment_days
+        self._line_style = line_style
+        self._smoothing_strength = smoothing_strength
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -95,6 +120,12 @@ class ChessLogAggregationWorker(QThread):
             if self._cancelled:
                 return
         if result:
+            # Stamp rendering fields onto each series before emit.
+            for series in result.values():
+                series.x_axis_layout = self._x_axis_layout
+                series.max_gap_segment_days = self._max_gap_segment_days
+                series.line_style = self._line_style
+                series.smoothing_strength = self._smoothing_strength
             self.charts_updated.emit(result)
         else:
             self.charts_unavailable.emit("no_data")
@@ -184,6 +215,14 @@ class ChessLogChartsController(QObject):
         self._player_explicit_selected: bool = False
         self._get_selected_games_callback: Optional[Callable[[bool], List[GameData]]] = None
 
+        _charts_defaults = normalize_chess_log_charts_settings({})
+        self._target_bins: int = _charts_defaults["target_bins"]
+        self._binning_mode: str = _charts_defaults["binning_mode"]
+        self._x_axis_layout: str = _charts_defaults["x_axis_layout"]
+        self._max_gap_segment_days: int = _charts_defaults["max_gap_segment_days"]
+        self._line_style: str = _charts_defaults["line_style"]
+        self._smoothing_strength: float = _charts_defaults["smoothing_strength"]
+
         self._dropdown_worker: Optional[ChessLogPlayerDropdownWorker] = None
         self._agg_worker: Optional[ChessLogAggregationWorker] = None
         self._narrative_thread: Optional[ChessLogNarrativeThread] = None
@@ -212,8 +251,94 @@ class ChessLogChartsController(QObject):
         if was_configured != is_configured:
             self.ai_configured_changed.emit(is_configured)
 
+        old = (
+            self._target_bins, self._binning_mode, self._x_axis_layout,
+            self._max_gap_segment_days, self._line_style, self._smoothing_strength,
+        )
+        charts = normalize_chess_log_charts_settings(
+            user_settings.get("chess_log", {}).get("charts", {})
+        )
+        self._target_bins = charts["target_bins"]
+        self._binning_mode = charts["binning_mode"]
+        self._x_axis_layout = charts["x_axis_layout"]
+        self._max_gap_segment_days = charts["max_gap_segment_days"]
+        self._line_style = charts["line_style"]
+        self._smoothing_strength = charts["smoothing_strength"]
+
+        new = (
+            self._target_bins, self._binning_mode, self._x_axis_layout,
+            self._max_gap_segment_days, self._line_style, self._smoothing_strength,
+        )
+        if old != new:
+            self._selection_debounce.stop()
+            self._selection_debounce.start(self._selection_debounce_ms)
+
     def is_ai_configured(self) -> bool:
         return resolve_default_provider(self._user_settings) is not None
+
+    # --- getters ---
+
+    def get_target_bins(self) -> int:
+        return self._target_bins
+
+    def get_binning_mode(self) -> str:
+        return self._binning_mode
+
+    def get_x_axis_layout(self) -> str:
+        return self._x_axis_layout
+
+    def get_max_gap_segment_days(self) -> int:
+        return self._max_gap_segment_days
+
+    def get_line_style(self) -> str:
+        return self._line_style
+
+    def get_smoothing_strength(self) -> float:
+        return self._smoothing_strength
+
+    # --- setters (menu-driven) ---
+
+    def set_target_bins(self, n: int) -> None:
+        if n not in CHOICES_TARGET_BINS:
+            return
+        self._target_bins = n
+        self._persist_chart_settings()
+        self._kick_debounce()
+
+    def set_binning_mode(self, mode: str) -> None:
+        if mode not in CHOICES_BINNING_MODE:
+            return
+        self._binning_mode = mode
+        self._persist_chart_settings()
+        self._kick_debounce()
+
+    def set_x_axis_layout(self, layout: str) -> None:
+        if layout not in CHOICES_X_AXIS_LAYOUT:
+            return
+        self._x_axis_layout = layout
+        self._persist_chart_settings()
+        self._kick_debounce()
+
+    def set_max_gap_segment_days(self, days: int) -> None:
+        if days not in CHOICES_MAX_GAP_SEGMENT_DAYS:
+            return
+        self._max_gap_segment_days = days
+        self._persist_chart_settings()
+        self._kick_debounce()
+
+    def set_line_style(self, style: str) -> None:
+        if style not in CHOICES_LINE_STYLE:
+            return
+        self._line_style = style
+        self._persist_chart_settings()
+        self._kick_debounce()
+
+    def set_smoothing_strength(self, strength: float) -> None:
+        if strength not in CHOICES_SMOOTHING_STRENGTH:
+            return
+        self._smoothing_strength = strength
+        self._persist_chart_settings()
+        self._kick_debounce()
 
     def set_source_selection(self, source: int) -> None:
         """Set the Data Source (0=None, 1=Active, 2=All, 3=SelectedActive, 4=SelectedAll)."""
@@ -232,20 +357,17 @@ class ChessLogChartsController(QObject):
     def set_player_selection(self, player: str) -> None:
         self._current_player = player or ""
         self._player_explicit_selected = True
-        self._selection_debounce.stop()
-        self._selection_debounce.start(self._selection_debounce_ms)
+        self._kick_debounce()
 
     def set_color_filter(self, color_filter: str) -> None:
         self._color_filter = color_filter
-        self._selection_debounce.stop()
-        self._selection_debounce.start(self._selection_debounce_ms)
+        self._kick_debounce()
 
     def notify_selection_changed(self) -> None:
         """Called when database table selection changes (sources 3/4 only)."""
         if self._source_selection not in (3, 4):
             return
-        self._selection_debounce.stop()
-        self._selection_debounce.start(self._selection_debounce_ms)
+        self._kick_debounce()
 
     def request_narrative(self) -> None:
         """Start the narrative generation worker (idempotent: cancels running thread)."""
@@ -279,6 +401,10 @@ class ChessLogChartsController(QObject):
     # Internal helpers
     # ------------------------------------------------------------------
 
+    def _kick_debounce(self) -> None:
+        self._selection_debounce.stop()
+        self._selection_debounce.start(self._selection_debounce_ms)
+
     def _on_selection_debounced(self) -> None:
         if self._source_selection == 0:
             return
@@ -306,12 +432,19 @@ class ChessLogChartsController(QObject):
         self._cancel_agg_worker()
         custom_cats = self._user_settings.get("chess_log", {}).get("custom_categories", [])
         preset_orders = {"Custom": list(custom_cats)} if custom_cats else {}
+        chart_cfg = chart_cfg_with_chess_log_charts_overrides(
+            self._config, self._target_bins, self._binning_mode
+        )
         worker = ChessLogAggregationWorker(
             games=games,
             player=self._current_player,
             color_filter=self._color_filter,
-            chart_cfg=self._config,
+            chart_cfg=chart_cfg,
             preset_orders=preset_orders,
+            x_axis_layout=self._x_axis_layout,
+            max_gap_segment_days=self._max_gap_segment_days,
+            line_style=self._line_style,
+            smoothing_strength=self._smoothing_strength,
         )
         worker.charts_updated.connect(self.charts_updated)
         worker.charts_unavailable.connect(self.charts_unavailable)
@@ -352,6 +485,21 @@ class ChessLogChartsController(QObject):
             except Exception:
                 return []
         return []
+
+    def _persist_chart_settings(self) -> None:
+        try:
+            UserSettingsService.get_instance().update_chess_log_settings({
+                "charts": {
+                    "target_bins": self._target_bins,
+                    "binning_mode": self._binning_mode,
+                    "x_axis_layout": self._x_axis_layout,
+                    "max_gap_segment_days": self._max_gap_segment_days,
+                    "line_style": self._line_style,
+                    "smoothing_strength": self._smoothing_strength,
+                }
+            })
+        except Exception:
+            pass
 
     def _cancel_agg_worker(self) -> None:
         if self._agg_worker:

@@ -28,6 +28,7 @@ class UserSettingsModel(QObject):
     player_stats_activity_heatmap_changed = pyqtSignal()  # Player Stats activity heatmap display prefs
     player_stats_accuracy_distribution_changed = pyqtSignal()  # Player Stats accuracy histogram prefs
     player_stats_error_patterns_changed = pyqtSignal()  # Player Stats error-pattern coverage cutoff
+    chess_log_charts_changed = pyqtSignal()             # Chess Log Charts binning / X-axis prefs
 
     def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the user settings model.
@@ -490,6 +491,7 @@ class UserSettingsModel(QObject):
         """Replace Chess Log settings."""
         self._settings["chess_log"] = settings.copy()
         self.settings_changed.emit()
+        self.chess_log_charts_changed.emit()
 
     def get_recent_pgn_databases(self) -> list:
         """Get recent PGN database file paths (most recent first)."""

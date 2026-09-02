@@ -376,9 +376,7 @@ class ChessLogCategoryChartWidget(QWidget):
         n = len(bins)
         for i, b in enumerate(bins):
             label = b.lab0[:7] if b.lab0 else ""  # "YYYY-MM" for all layout modes
-            # uniform_bins and gap_compressed use equal pixel spacing by bin index;
-            # calendar_linear uses lab0 start date. Full three-way layout is in _bin_x().
-            x = self._bin_x(i, n, b.time_pct, pw, b.lab0) + x0
+            x = self._bin_x(i, n, b.time_pct, pw) + x0
             tw = fm.horizontalAdvance(label)
             lx = x - tw / 2
             if lx > prev_right + 4:
@@ -391,30 +389,39 @@ class ChessLogCategoryChartWidget(QWidget):
         n_bins: int,
         time_pct: float,
         pw: float,
-        lab0: Optional[str] = None,
     ) -> float:
         """Return the X pixel offset (from plot origin) for a given bin.
 
         Layout modes (from series.x_axis_layout):
-          - "uniform_bins":   evenly spaced by bin index, ignoring calendar gaps.
-          - "calendar_linear": positioned by the bin's start date (lab0). Using the
-                              start date rather than the center prevents quantile bins
-                              that straddle a gap from appearing inside the gap — a
-                              straddling bin spanning May–July renders at its first
-                              game date (May), leaving the June gap visually open.
-                              Falls back to time_pct when lab0 is not supplied.
-          - "gap_compressed": full compressed layout added in a later commit; falls back
-                              to uniform_bins until that rendering code is wired.
+          - "uniform_bins":    evenly spaced by bin index, ignoring calendar gaps.
+          - "calendar_linear": each bin positioned at its calendar center
+                               (midpoint of lab0–lab1 ordinals) via _ordinal_to_chart_x.
+                               Uses series.t_min/t_max for the full date range so the
+                               axis spans the actual data extent. Matches Player Stats'
+                               behavior: ticks and data both use _ordinal_to_chart_x.
+          - "gap_compressed":  full GapCompressedTimeLayout port is a TODO; falls back
+                               to uniform_bins until that rendering code is wired.
         """
         if not self._series:
             return (time_pct / 100.0) * pw
         layout = self._series.x_axis_layout
         if layout == "calendar_linear":
-            if lab0 is not None and self._series.bins:
-                t_min = date.fromisoformat(self._series.bins[0].lab0).toordinal()
-                t_max = date.fromisoformat(self._series.bins[-1].lab1).toordinal()
-                span = max(1, t_max - t_min)
-                return ((date.fromisoformat(lab0).toordinal() - t_min) / span) * pw
+            bins = self._series.bins
+            if bin_index < len(bins):
+                b = bins[bin_index]
+                try:
+                    o0 = date.fromisoformat(b.lab0).toordinal()
+                    o1 = date.fromisoformat(b.lab1).toordinal()
+                    center = (o0 + o1) // 2
+                    t_min = self._series.t_min
+                    t_max = self._series.t_max
+                    if t_min is None:
+                        t_min = date.fromisoformat(bins[0].lab0).toordinal()
+                    if t_max is None:
+                        t_max = date.fromisoformat(bins[-1].lab1).toordinal()
+                    return _ordinal_to_chart_x(center, t_min, t_max, 0.0, pw)
+                except (ValueError, TypeError):
+                    pass
             return (time_pct / 100.0) * pw
         # uniform_bins and gap_compressed (pending full port): equal spacing
         if n_bins <= 1:
@@ -463,7 +470,7 @@ class ChessLogCategoryChartWidget(QWidget):
 
             pts: List[QPointF] = []
             for i, b in enumerate(bins):
-                x = x0 + self._bin_x(i, n, b.time_pct, pw, b.lab0)
+                x = x0 + self._bin_x(i, n, b.time_pct, pw)
                 count = b.counts.get(cat, 0)
                 y = y0 + ph * (1.0 - count / y_max)
                 pts.append(QPointF(x, y))

@@ -309,12 +309,30 @@ class TestBinXLayout(unittest.TestCase):
     def _widget(self) -> ChessLogCategoryChartWidget:
         return ChessLogCategoryChartWidget(config={})
 
-    def test_calendar_linear_without_lab0_falls_back_to_time_pct(self):
+    def test_calendar_linear_positions_bin_at_calendar_center(self):
+        from datetime import date as _d
+        # Single-game bin: lab0=lab1="2026-06-15". Center ordinal = lab0 ordinal.
+        # t_min = t_max = that ordinal → clamped to left edge.
+        # Use a series with two distinct bins so t_min != t_max.
+        from app.services.chess_log_stats_service import ChessLogCategoryBin as _Bin, ChessLogPresetSeries as _S
+        o_a = _d(2026, 1, 1).toordinal()
+        o_b = _d(2026, 7, 1).toordinal()
+        bins = [
+            _Bin(time_pct=0.0, total=1, lab0="2026-01-01", lab1="2026-01-31", counts={"C": 1}),
+            _Bin(time_pct=100.0, total=1, lab0="2026-07-01", lab1="2026-07-31", counts={"C": 1}),
+        ]
+        series = _S(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear",
+                    t_min=o_a, t_max=_d(2026, 7, 31).toordinal())
         w = self._widget()
-        w._series = _make_series(x_axis_layout="calendar_linear")
-        # Without lab0 supplied, falls back to time_pct / 100 * pw
-        x = w._bin_x(0, 2, 50.0, 400.0)
-        self.assertAlmostEqual(x, 200.0)
+        w._series = series
+        pw = 1000.0
+        # Bin 0: center = (Jan 1 + Jan 31) // 2 ≈ Jan 16
+        o0_center = (o_a + _d(2026, 1, 31).toordinal()) // 2
+        t_min = o_a
+        t_max = _d(2026, 7, 31).toordinal()
+        expected = _ordinal_to_chart_x(o0_center, t_min, t_max, 0.0, pw)
+        actual = w._bin_x(0, 2, 0.0, pw)
+        self.assertAlmostEqual(actual, expected, delta=1.0)
 
     def test_uniform_bins_first_index_is_zero(self):
         w = self._widget()
@@ -346,17 +364,18 @@ class TestBinXLayout(unittest.TestCase):
     def test_calendar_linear_not_evenly_spaced_for_gappy_data(self):
         """Regression: Calendar Linear must produce a visible gap for April+July data.
 
-        Uses realistic lab0/lab1 dates per bin (5 April days, 5 July days, no May-June).
-        Calendar Linear uses lab0 for each bin's x-position, so the April cluster
-        renders at 0-18% of chart width and the July cluster at 82-100%, leaving a
-        large visible gap in between.  Uniform Bins would spread them evenly at 0-100%.
+        Uses single-game bins (lab0=lab1) so center-of-bin = game date. The April
+        cluster renders in the left ~20% of the chart and the July cluster in the
+        right ~20%, leaving a large visible May–June gap between them. Uniform Bins
+        would spread them evenly regardless of calendar position.
         """
+        from datetime import date as _d
         from app.services.chess_log_stats_service import (
             ChessLogCategoryBin as _Bin,
             ChessLogPresetSeries as _Series,
         )
-        # 5 April days + 5 July days, each as a single-game bin (lab0=lab1=game date).
-        # Apr 1–21 (every 5 days), Jul 1–21 (every 5 days): 111-day total span.
+        # 5 April + 5 July single-game bins. Apr 1–21 span = 20 days, Jul 1–21 span = 20 days.
+        # Total ordinal span: Apr 1 → Jul 21 = 111 days.
         april_dates = ["2026-04-01", "2026-04-06", "2026-04-11", "2026-04-16", "2026-04-21"]
         july_dates  = ["2026-07-01", "2026-07-06", "2026-07-11", "2026-07-16", "2026-07-21"]
 
@@ -364,16 +383,18 @@ class TestBinXLayout(unittest.TestCase):
             _Bin(time_pct=0.0, total=1, lab0=d, lab1=d, counts={"C": 1})
             for d in april_dates + july_dates
         ]
-        series_cal = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear")
+        t_min = _d.fromisoformat("2026-04-01").toordinal()
+        t_max = _d.fromisoformat("2026-07-21").toordinal()
+        series_cal = _Series(preset="CLAMP", categories=["C"], bins=bins,
+                             x_axis_layout="calendar_linear", t_min=t_min, t_max=t_max)
         series_uni = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="uniform_bins")
 
         w = self._widget()
         pw = 900.0
         n = len(bins)
 
-        # Calendar Linear: _bin_x uses lab0 ordinal; pass b.lab0 as in the widget.
         w._series = series_cal
-        cal_xs = [w._bin_x(i, n, bins[i].time_pct, pw, bins[i].lab0) for i in range(n)]
+        cal_xs = [w._bin_x(i, n, bins[i].time_pct, pw) for i in range(n)]
 
         w._series = series_uni
         uni_xs = [w._bin_x(i, n, bins[i].time_pct, pw) for i in range(n)]
@@ -383,10 +404,11 @@ class TestBinXLayout(unittest.TestCase):
         for g in uni_gaps:
             self.assertAlmostEqual(g, pw / (n - 1), places=1, msg="Uniform Bins should be evenly spaced")
 
-        # Calendar Linear: April cluster in first ~20%, July cluster in last ~20%
-        # Apr 1–21 span = 20 / 111 = 18%; Jul 1–21 start at 91 / 111 = 82%
-        cal_gap_between_clusters = cal_xs[5] - cal_xs[4]   # Jul 1 - Apr 21
-        cal_gap_within_april = cal_xs[1] - cal_xs[0]       # Apr 6 - Apr 1
+        # Calendar Linear: April cluster in first ~20%, July cluster in last ~82–100%.
+        # Single-game bins → center = lab0 = lab1, so Apr 1 → ~0%, Apr 21 → ~18%.
+        # Jul 1 → ~82%, Jul 21 → ~100%.
+        cal_gap_between_clusters = cal_xs[5] - cal_xs[4]   # Jul 1 − Apr 21 in pixels
+        cal_gap_within_april = cal_xs[1] - cal_xs[0]       # Apr 6 − Apr 1 in pixels
         self.assertGreater(
             cal_gap_between_clusters, cal_gap_within_april * 8,
             f"Calendar Linear gap between clusters ({cal_gap_between_clusters:.1f}px) "
@@ -397,45 +419,47 @@ class TestBinXLayout(unittest.TestCase):
         max_diff = max(abs(cal_xs[i] - uni_xs[i]) for i in range(n))
         self.assertGreater(max_diff, pw * 0.1, "Calendar Linear and Uniform Bins should produce visibly different positions")
 
-    def test_straddling_bin_renders_at_lab0_not_center(self):
-        """Regression: a quantile bin spanning Apr→Jul must NOT render in June.
+    def test_calendar_linear_positions_straddling_bin_at_center(self):
+        """Calendar Linear uses bin center, matching Player Stats' coordinate system.
 
-        Root cause of the calendar gap bug: with quantile binning, a bin straddling
-        the May-June gap (lab0=Apr-end, lab1=Jul-start) has a center in June.
-        Rendering at center hides the gap.  Rendering at lab0 (start date) keeps
-        the bin in the April cluster, leaving the June gap visually open.
+        A quantile bin spanning Apr 30–Jul 1 has its center near Jun 1. The widget
+        correctly renders it at that center (≈day 61 of the Apr–Jul span). Empty
+        months remain visible via the calendar gridlines drawn by _draw_calendar_axis,
+        NOT by shifting data points to avoid the gap. This is the Player Stats pattern.
         """
         from app.services.chess_log_stats_service import (
             ChessLogCategoryBin as _Bin,
             ChessLogPresetSeries as _Series,
         )
-        # Three bins: pure April, straddling Apr-Jul, pure July.
-        # t_min = Apr 1, t_max = Jul 30 → span = 119 days.
+        from datetime import date as _d
+        # Three bins: pure April, straddling Apr–Jul, pure July.
+        # t_min = Apr 1 ordinal, t_max = Jul 30 ordinal → span = 119 days.
+        o_apr1 = _d(2026, 4, 1).toordinal()
+        o_jul30 = _d(2026, 7, 30).toordinal()
         bins = [
             _Bin(time_pct=0.0, total=3, lab0="2026-04-01", lab1="2026-04-28", counts={"C": 3}),
-            _Bin(time_pct=0.0, total=2, lab0="2026-04-30", lab1="2026-07-01", counts={"C": 2}),  # straddles
+            _Bin(time_pct=0.0, total=2, lab0="2026-04-30", lab1="2026-07-01", counts={"C": 2}),
             _Bin(time_pct=0.0, total=3, lab0="2026-07-02", lab1="2026-07-30", counts={"C": 3}),
         ]
-        series = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear")
+        series = _Series(preset="CLAMP", categories=["C"], bins=bins,
+                         x_axis_layout="calendar_linear", t_min=o_apr1, t_max=o_jul30)
         w = self._widget()
         w._series = series
-        pw = 1200.0  # 10px per day for span of 120 days (Apr 1–Jul 30)
+        pw = 1200.0  # 10px per day for 120-day span (Apr 1–Jul 30)
 
-        xs = [w._bin_x(i, 3, bins[i].time_pct, pw, bins[i].lab0) for i in range(3)]
+        xs = [w._bin_x(i, 3, bins[i].time_pct, pw) for i in range(3)]
 
-        # Straddling bin: lab0=Apr 30 = day 29 → 29/120 * 1200 = 290px exactly
-        # Center would be (Apr 30 + Jul 1) / 2 = ~Jun 1 = day 61 → 610px (in the gap!)
-        self.assertAlmostEqual(xs[1], 290.0, delta=1.0,
-            msg="Straddling bin (Apr 30–Jul 1) must render at Apr 30 position, not Jun center")
+        # Straddling bin center: (Apr 30 + Jul 1) / 2 ≈ Jun 1 (day ~61)
+        o_straddle_center = (_d(2026, 4, 30).toordinal() + _d(2026, 7, 1).toordinal()) // 2
+        expected_straddle_x = _ordinal_to_chart_x(o_straddle_center, o_apr1, o_jul30, 0.0, pw)
+        self.assertAlmostEqual(xs[1], expected_straddle_x, delta=2.0,
+            msg="Straddling bin must render at calendar center, not at lab0")
 
-        # Gap from straddling bin (Apr 30 = 290px) to July bin (Jul 2 = day 92 = 920px) = 630px
-        # Within-April gap: Apr 1 (0px) to Apr 30 (290px) = 290px
-        # The post-straddle gap must be larger than within-April, showing June is empty.
-        gap_to_july = xs[2] - xs[1]
-        gap_within_april = xs[1] - xs[0]
-        self.assertGreater(gap_to_july, gap_within_april,
-            f"Gap from straddling bin to July ({gap_to_july:.0f}px) "
-            f"must exceed within-April gap ({gap_within_april:.0f}px)")
+        # Verify center IS near June (day 61 ≈ 610px), not at April (day 29 ≈ 290px)
+        self.assertGreater(xs[1], 500.0,
+            "Straddling bin center should be in June territory (>500px), not April")
+        self.assertLess(xs[1], 750.0,
+            "Straddling bin center should be in June territory (<750px), not July")
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

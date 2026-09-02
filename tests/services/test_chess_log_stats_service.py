@@ -469,5 +469,147 @@ class TestPresetSeriesRenderingFields(unittest.TestCase):
         self.assertEqual(series.line_style, "straight")
 
 
+class TestCalendarLinearTimePct(unittest.TestCase):
+    """Regression: time_pct must be calendar-proportional, not bin-rank-based.
+
+    Root cause of the Calendar Linear == Uniform Bins visual bug: if time_pct
+    were based on bin index rather than actual calendar position, switching from
+    Uniform Bins to Calendar Linear would produce an identical rendering.
+
+    Tests pass chart_cfg with min_games_per_ordinal_bin=1 so that 10 test games
+    produce 10 bins (one per game) rather than 3 (the default min_per=3 collapses
+    sparse test data and can produce bins that straddle the April-July gap).
+    """
+
+    _CHART_CFG = {
+        "target_progression_bins": 10,
+        "min_games_per_ordinal_bin": 1,
+        "max_ordinal_bins": 120,
+        "ordinal_fallback_mode": "quantile",
+    }
+
+    def _gappy_games(self) -> list:
+        """5 moments in April 2026, 5 in July 2026, nothing in May/June."""
+        games = []
+        april_dates = ["2026.04.01", "2026.04.08", "2026.04.15", "2026.04.22", "2026.04.29"]
+        july_dates  = ["2026.07.01", "2026.07.08", "2026.07.15", "2026.07.22", "2026.07.29"]
+        for d in april_dates + july_dates:
+            games.append(_make_game(
+                white="Alice", black="Bob", date=d,
+                entries_per_path={"0": [_clamp_entry("C")]},
+            ))
+        return games
+
+    def test_april_bins_have_low_time_pct(self):
+        result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
+        bins = result["CLAMP"].bins
+        april_bins = [b for b in bins if b.lab0 < "2026-05"]
+        self.assertTrue(len(april_bins) > 0)
+        for b in april_bins:
+            self.assertLess(b.time_pct, 30.0, f"April bin has time_pct={b.time_pct:.1f}%, expected < 30%")
+
+    def test_july_bins_have_high_time_pct(self):
+        result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
+        bins = result["CLAMP"].bins
+        july_bins = [b for b in bins if b.lab0 >= "2026-07"]
+        self.assertTrue(len(july_bins) > 0)
+        for b in july_bins:
+            self.assertGreater(b.time_pct, 70.0, f"July bin has time_pct={b.time_pct:.1f}%, expected > 70%")
+
+    def test_large_gap_in_time_pct_between_clusters(self):
+        """The gap between last April bin and first July bin must exceed 50pp."""
+        result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
+        bins = sorted(result["CLAMP"].bins, key=lambda b: b.time_pct)
+        april_bins = [b for b in bins if b.lab0 < "2026-05"]
+        july_bins  = [b for b in bins if b.lab0 >= "2026-07"]
+        self.assertTrue(april_bins and july_bins)
+        last_april_pct = max(b.time_pct for b in april_bins)
+        first_july_pct = min(b.time_pct for b in july_bins)
+        gap = first_july_pct - last_april_pct
+        self.assertGreater(gap, 50.0, f"Gap between clusters is only {gap:.1f}pp — time_pct may be rank-based")
+
+    def test_time_pct_not_evenly_spaced(self):
+        """time_pct values must NOT be uniformly distributed for gappy data."""
+        result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
+        bins = sorted(result["CLAMP"].bins, key=lambda b: b.time_pct)
+        pcts = [b.time_pct for b in bins]
+        gaps = [pcts[i + 1] - pcts[i] for i in range(len(pcts) - 1)]
+        max_gap = max(gaps)
+        avg_gap = sum(gaps) / len(gaps)
+        # Calendar-proportional data has a large gap (May/June) relative to average spacing
+        self.assertGreater(
+            max_gap, avg_gap * 3,
+            f"Max inter-bin gap ({max_gap:.1f}pp) not >> avg ({avg_gap:.1f}pp) — may be evenly spaced"
+        )
+
+
+# ---------------------------------------------------------------------------
+# ChessLogPresetSeries t_min / t_max date extent (Commit 1 — calendar axis)
+# ---------------------------------------------------------------------------
+
+class TestSeriesDateExtent(unittest.TestCase):
+    """aggregate() populates t_min/t_max with the raw ordinal range."""
+
+    def _games_with_dates(self, dates: list[str]) -> list:
+        return [
+            _make_game(
+                white="Alice", black="Bob",
+                date=d.replace("-", "."),
+                entries_per_path={"0": [_clamp_entry("C")]},
+            )
+            for d in dates
+        ]
+
+    def test_single_game_t_min_equals_t_max(self):
+        from datetime import date
+        games = self._games_with_dates(["2026-06-15"])
+        result = aggregate(games, player="Alice")
+        series = result["CLAMP"]
+        expected = date.fromisoformat("2026-06-15").toordinal()
+        self.assertEqual(series.t_min, expected)
+        self.assertEqual(series.t_max, expected)
+
+    def test_t_min_is_earliest_game_ordinal(self):
+        from datetime import date
+        games = self._games_with_dates(["2026-04-01", "2026-07-15", "2026-12-31"])
+        result = aggregate(games, player="Alice")
+        series = result["CLAMP"]
+        self.assertEqual(series.t_min, date.fromisoformat("2026-04-01").toordinal())
+
+    def test_t_max_is_latest_game_ordinal(self):
+        from datetime import date
+        games = self._games_with_dates(["2026-04-01", "2026-07-15", "2026-12-31"])
+        result = aggregate(games, player="Alice")
+        series = result["CLAMP"]
+        self.assertEqual(series.t_max, date.fromisoformat("2026-12-31").toordinal())
+
+    def test_t_min_t_max_independent_of_binning_mode(self):
+        from datetime import date
+        dates = ["2026-01-01", "2026-01-15", "2026-06-01", "2026-12-31"]
+        games = self._games_with_dates(dates)
+        cfg_q = {"ordinal_fallback_mode": "quantile", "target_progression_bins": 2,
+                 "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        cfg_e = {"ordinal_fallback_mode": "equal_width", "target_progression_bins": 2,
+                 "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        r_q = aggregate(games, player="Alice", chart_cfg=cfg_q)
+        r_e = aggregate(games, player="Alice", chart_cfg=cfg_e)
+        self.assertEqual(r_q["CLAMP"].t_min, r_e["CLAMP"].t_min)
+        self.assertEqual(r_q["CLAMP"].t_max, r_e["CLAMP"].t_max)
+        self.assertEqual(r_q["CLAMP"].t_min, date.fromisoformat("2026-01-01").toordinal())
+        self.assertEqual(r_q["CLAMP"].t_max, date.fromisoformat("2026-12-31").toordinal())
+
+    def test_equal_width_skipped_bins_do_not_affect_t_min_t_max(self):
+        """equal_width may skip empty bins; t_min/t_max must still be the raw data extremes."""
+        from datetime import date
+        dates = ["2026-01-01", "2026-12-31"]
+        games = self._games_with_dates(dates)
+        cfg = {"ordinal_fallback_mode": "equal_width", "target_progression_bins": 10,
+               "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
+        result = aggregate(games, player="Alice", chart_cfg=cfg)
+        series = result["CLAMP"]
+        self.assertEqual(series.t_min, date.fromisoformat("2026-01-01").toordinal())
+        self.assertEqual(series.t_max, date.fromisoformat("2026-12-31").toordinal())
+
+
 if __name__ == "__main__":
     unittest.main()

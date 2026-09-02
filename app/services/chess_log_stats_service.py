@@ -68,6 +68,8 @@ class ChessLogPresetSeries:
     max_gap_segment_days: int = 28
     line_style: str = "smooth"             # "smooth" or "straight"
     smoothing_strength: float = 1.0
+    t_min: Optional[int] = None           # day ordinal of the earliest game; None on legacy call sites
+    t_max: Optional[int] = None           # day ordinal of the latest game
 
 
 def aggregate(
@@ -190,7 +192,8 @@ def _bin_preset(
         else _count_bins_equal_width(samples, n_bins, t_min, t_max)
     )
 
-    return ChessLogPresetSeries(preset=preset, categories=categories, bins=bins)
+    return ChessLogPresetSeries(preset=preset, categories=categories, bins=bins,
+                               t_min=t_min, t_max=t_max)
 
 
 def _make_bin(

@@ -34,8 +34,15 @@ if _QT_AVAILABLE:
     from PyQt6.QtWidgets import QApplication
     _app = QApplication.instance() or QApplication(sys.argv)
 
+from datetime import date as _date
+
 from app.services.chess_log_stats_service import ChessLogCategoryBin, ChessLogPresetSeries
-from app.views.widgets.chess_log_category_chart_widget import ChessLogCategoryChartWidget
+from app.views.widgets.chess_log_category_chart_widget import (
+    ChessLogCategoryChartWidget,
+    _calendar_axis_ticks,
+    _effective_calendar_mode,
+    _ordinal_to_chart_x,
+)
 
 
 def _bin(**counts: int) -> ChessLogCategoryBin:
@@ -79,6 +86,140 @@ def _make_series(
 # ---------------------------------------------------------------------------
 # Pure Python — no Qt needed
 # ---------------------------------------------------------------------------
+
+class TestCalendarAxisHelpers(unittest.TestCase):
+    """Module-level helpers ported from Player Stats — pure Python, no Qt."""
+
+    # --- _ordinal_to_chart_x ---
+
+    def test_ordinal_to_chart_x_at_min_gives_left(self):
+        omin = _date(2026, 1, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        self.assertAlmostEqual(_ordinal_to_chart_x(omin, omin, omax, 50.0, 950.0), 50.0)
+
+    def test_ordinal_to_chart_x_at_max_gives_right(self):
+        omin = _date(2026, 1, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        self.assertAlmostEqual(_ordinal_to_chart_x(omax, omin, omax, 50.0, 950.0), 950.0)
+
+    def test_ordinal_to_chart_x_midpoint(self):
+        omin = _date(2026, 1, 1).toordinal()
+        omax = _date(2026, 1, 1).toordinal() + 100
+        omid = omin + 50
+        x = _ordinal_to_chart_x(omid, omin, omax, 0.0, 100.0)
+        self.assertAlmostEqual(x, 50.0)
+
+    def test_ordinal_to_chart_x_same_function_for_tick_and_bin(self):
+        """A tick and a bin at the same ordinal produce the same x-coordinate."""
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        o_march_1 = _date(2026, 3, 1).toordinal()
+        x_tick = _ordinal_to_chart_x(o_march_1, omin, omax, 0.0, 1200.0)
+        x_bin = _ordinal_to_chart_x(o_march_1, omin, omax, 0.0, 1200.0)
+        self.assertAlmostEqual(x_tick, x_bin)
+
+    # --- _effective_calendar_mode ---
+
+    def test_mode_day_for_short_span(self):
+        omin = _date(2026, 6, 1).toordinal()
+        omax = _date(2026, 6, 20).toordinal()  # 19 days
+        self.assertEqual(_effective_calendar_mode(omin, omax), "day")
+
+    def test_mode_week_for_medium_span(self):
+        omin = _date(2026, 1, 1).toordinal()
+        omax = _date(2026, 3, 15).toordinal()  # ~73 days
+        self.assertEqual(_effective_calendar_mode(omin, omax), "week")
+
+    def test_mode_month_for_synthetic_file_span(self):
+        # Synthetic file: Feb–Dec 2026 ≈ 303 days — within month range (120–960)
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        self.assertEqual(_effective_calendar_mode(omin, omax), "month")
+
+    def test_mode_year_for_long_span(self):
+        omin = _date(2020, 1, 1).toordinal()
+        omax = _date(2024, 12, 31).toordinal()  # ~5 years
+        self.assertEqual(_effective_calendar_mode(omin, omax), "year")
+
+    # --- _calendar_axis_ticks month mode ---
+
+    def test_month_mode_feb_dec_produces_correct_major_ticks(self):
+        # omin=Feb 8: Feb 1 is before omin so no Feb tick; Mar–Dec gives 10 ticks.
+        omin = _date(2026, 2, 8).toordinal()   # first game date from synthetic file
+        omax = _date(2026, 12, 24).toordinal()  # last game date from synthetic file
+        mode = _effective_calendar_mode(omin, omax)
+        self.assertEqual(mode, "month")
+        ticks = _calendar_axis_ticks(omin, omax, mode)
+        majors = [(o, lbl) for o, is_major, lbl in ticks if is_major]
+        # Mar 1 through Dec 1 all fall within [omin, omax] → 10 major ticks.
+        # Feb 1 < omin so February is skipped (same behaviour as Player Stats).
+        self.assertEqual(len(majors), 10, f"Expected 10 major ticks (Mar–Dec), got {len(majors)}: {majors}")
+
+    def test_month_mode_aligned_start_produces_full_range_of_ticks(self):
+        # omin=Feb 1: Feb 1 == omin → February tick IS included → 11 ticks.
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "month")
+        majors = [(o, lbl) for o, is_major, lbl in ticks if is_major]
+        self.assertEqual(len(majors), 11, f"Expected 11 major ticks (Feb–Dec), got {len(majors)}: {majors}")
+
+    def test_month_mode_major_labels_are_month_year_format(self):
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 4, 30).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "month")
+        major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
+        self.assertIn("Feb '26", major_labels)
+        self.assertIn("Mar '26", major_labels)
+        self.assertIn("Apr '26", major_labels)
+
+    def test_month_mode_tick_ordinals_are_first_of_month(self):
+        omin = _date(2026, 3, 15).toordinal()
+        omax = _date(2026, 6, 20).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "month")
+        for o, is_major, _ in ticks:
+            if is_major:
+                d = _date.fromordinal(o)
+                self.assertEqual(d.day, 1,
+                    f"Major tick at {d} is not the 1st of month")
+
+    def test_empty_months_produce_no_major_ticks(self):
+        # Jan 2026 is between Dec 2025 and Feb 2026; if data only spans Feb–Apr,
+        # there must be no January tick.
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 4, 30).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "month")
+        major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
+        self.assertNotIn("Jan '26", major_labels)
+        self.assertNotIn("May '26", major_labels)
+
+    def test_ticks_are_sorted_by_ordinal(self):
+        omin = _date(2026, 2, 1).toordinal()
+        omax = _date(2026, 12, 31).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ordinals = [o for o, _, _ in ticks]
+        self.assertEqual(ordinals, sorted(ordinals))
+
+    def test_year_mode_produces_year_labels(self):
+        omin = _date(2021, 6, 1).toordinal()
+        omax = _date(2024, 6, 30).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "year")
+        major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
+        self.assertIn("2022", major_labels)
+        self.assertIn("2023", major_labels)
+        self.assertIn("2024", major_labels)
+
+    def test_day_mode_produces_labeled_ticks(self):
+        omin = _date(2026, 6, 1).toordinal()
+        omax = _date(2026, 6, 10).toordinal()
+        ticks = _calendar_axis_ticks(omin, omax, "day")
+        self.assertTrue(len(ticks) >= 2)
+        # All day-mode ticks are major
+        self.assertTrue(all(is_major for _, is_major, _ in ticks))
+
+    def test_empty_range_returns_no_ticks(self):
+        omin = _date(2026, 6, 1).toordinal()
+        self.assertEqual(_calendar_axis_ticks(omin, omin, "month"), [])
+
 
 class TestComputeYMax(unittest.TestCase):
 
@@ -168,10 +309,10 @@ class TestBinXLayout(unittest.TestCase):
     def _widget(self) -> ChessLogCategoryChartWidget:
         return ChessLogCategoryChartWidget(config={})
 
-    def test_calendar_linear_uses_time_pct(self):
+    def test_calendar_linear_without_lab0_falls_back_to_time_pct(self):
         w = self._widget()
         w._series = _make_series(x_axis_layout="calendar_linear")
-        # time_pct=50 → x = 0.5 * pw
+        # Without lab0 supplied, falls back to time_pct / 100 * pw
         x = w._bin_x(0, 2, 50.0, 400.0)
         self.assertAlmostEqual(x, 200.0)
 
@@ -201,6 +342,100 @@ class TestBinXLayout(unittest.TestCase):
         # Before full port, gap_compressed behaves like uniform_bins
         x = w._bin_x(0, 4, 10.0, 300.0)
         self.assertAlmostEqual(x, 0.0)
+
+    def test_calendar_linear_not_evenly_spaced_for_gappy_data(self):
+        """Regression: Calendar Linear must produce a visible gap for April+July data.
+
+        Uses realistic lab0/lab1 dates per bin (5 April days, 5 July days, no May-June).
+        Calendar Linear uses lab0 for each bin's x-position, so the April cluster
+        renders at 0-18% of chart width and the July cluster at 82-100%, leaving a
+        large visible gap in between.  Uniform Bins would spread them evenly at 0-100%.
+        """
+        from app.services.chess_log_stats_service import (
+            ChessLogCategoryBin as _Bin,
+            ChessLogPresetSeries as _Series,
+        )
+        # 5 April days + 5 July days, each as a single-game bin (lab0=lab1=game date).
+        # Apr 1–21 (every 5 days), Jul 1–21 (every 5 days): 111-day total span.
+        april_dates = ["2026-04-01", "2026-04-06", "2026-04-11", "2026-04-16", "2026-04-21"]
+        july_dates  = ["2026-07-01", "2026-07-06", "2026-07-11", "2026-07-16", "2026-07-21"]
+
+        bins = [
+            _Bin(time_pct=0.0, total=1, lab0=d, lab1=d, counts={"C": 1})
+            for d in april_dates + july_dates
+        ]
+        series_cal = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear")
+        series_uni = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="uniform_bins")
+
+        w = self._widget()
+        pw = 900.0
+        n = len(bins)
+
+        # Calendar Linear: _bin_x uses lab0 ordinal; pass b.lab0 as in the widget.
+        w._series = series_cal
+        cal_xs = [w._bin_x(i, n, bins[i].time_pct, pw, bins[i].lab0) for i in range(n)]
+
+        w._series = series_uni
+        uni_xs = [w._bin_x(i, n, bins[i].time_pct, pw) for i in range(n)]
+
+        # Uniform Bins must be evenly spaced regardless of dates
+        uni_gaps = [uni_xs[i + 1] - uni_xs[i] for i in range(n - 1)]
+        for g in uni_gaps:
+            self.assertAlmostEqual(g, pw / (n - 1), places=1, msg="Uniform Bins should be evenly spaced")
+
+        # Calendar Linear: April cluster in first ~20%, July cluster in last ~20%
+        # Apr 1–21 span = 20 / 111 = 18%; Jul 1–21 start at 91 / 111 = 82%
+        cal_gap_between_clusters = cal_xs[5] - cal_xs[4]   # Jul 1 - Apr 21
+        cal_gap_within_april = cal_xs[1] - cal_xs[0]       # Apr 6 - Apr 1
+        self.assertGreater(
+            cal_gap_between_clusters, cal_gap_within_april * 8,
+            f"Calendar Linear gap between clusters ({cal_gap_between_clusters:.1f}px) "
+            f"should be >> within-cluster gap ({cal_gap_within_april:.1f}px)"
+        )
+
+        # Calendar Linear positions must differ significantly from Uniform Bins
+        max_diff = max(abs(cal_xs[i] - uni_xs[i]) for i in range(n))
+        self.assertGreater(max_diff, pw * 0.1, "Calendar Linear and Uniform Bins should produce visibly different positions")
+
+    def test_straddling_bin_renders_at_lab0_not_center(self):
+        """Regression: a quantile bin spanning Apr→Jul must NOT render in June.
+
+        Root cause of the calendar gap bug: with quantile binning, a bin straddling
+        the May-June gap (lab0=Apr-end, lab1=Jul-start) has a center in June.
+        Rendering at center hides the gap.  Rendering at lab0 (start date) keeps
+        the bin in the April cluster, leaving the June gap visually open.
+        """
+        from app.services.chess_log_stats_service import (
+            ChessLogCategoryBin as _Bin,
+            ChessLogPresetSeries as _Series,
+        )
+        # Three bins: pure April, straddling Apr-Jul, pure July.
+        # t_min = Apr 1, t_max = Jul 30 → span = 119 days.
+        bins = [
+            _Bin(time_pct=0.0, total=3, lab0="2026-04-01", lab1="2026-04-28", counts={"C": 3}),
+            _Bin(time_pct=0.0, total=2, lab0="2026-04-30", lab1="2026-07-01", counts={"C": 2}),  # straddles
+            _Bin(time_pct=0.0, total=3, lab0="2026-07-02", lab1="2026-07-30", counts={"C": 3}),
+        ]
+        series = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear")
+        w = self._widget()
+        w._series = series
+        pw = 1200.0  # 10px per day for span of 120 days (Apr 1–Jul 30)
+
+        xs = [w._bin_x(i, 3, bins[i].time_pct, pw, bins[i].lab0) for i in range(3)]
+
+        # Straddling bin: lab0=Apr 30 = day 29 → 29/120 * 1200 = 290px exactly
+        # Center would be (Apr 30 + Jul 1) / 2 = ~Jun 1 = day 61 → 610px (in the gap!)
+        self.assertAlmostEqual(xs[1], 290.0, delta=1.0,
+            msg="Straddling bin (Apr 30–Jul 1) must render at Apr 30 position, not Jun center")
+
+        # Gap from straddling bin (Apr 30 = 290px) to July bin (Jul 2 = day 92 = 920px) = 630px
+        # Within-April gap: Apr 1 (0px) to Apr 30 (290px) = 290px
+        # The post-straddle gap must be larger than within-April, showing June is empty.
+        gap_to_july = xs[2] - xs[1]
+        gap_within_april = xs[1] - xs[0]
+        self.assertGreater(gap_to_july, gap_within_april,
+            f"Gap from straddling bin to July ({gap_to_july:.0f}px) "
+            f"must exceed within-April gap ({gap_within_april:.0f}px)")
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

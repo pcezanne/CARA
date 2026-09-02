@@ -337,7 +337,10 @@ class ChessLogCategoryChartWidget(QWidget):
 
         self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h, y_max)
         self._draw_axes(painter, plot_x0, plot_y0, plot_x1, plot_y1)
-        self._draw_x_labels(painter, bins, plot_x0, plot_y1, plot_w)
+        if self._series.x_axis_layout == "calendar_linear":
+            self._draw_calendar_axis(painter, plot_x0, plot_y0, plot_x1, plot_y1)
+        else:
+            self._draw_x_labels(painter, bins, plot_x0, plot_y1, plot_w)
         self._draw_y_labels(painter, plot_x0, plot_y0, plot_y1, plot_h, y_max)
         self._draw_title(painter, plot_x0, plot_x1)
         self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, y_max, totals)
@@ -367,6 +370,56 @@ class ChessLogCategoryChartWidget(QWidget):
         p.setPen(ax_pen)
         p.drawLine(int(x0), int(y0), int(x0), int(y1))  # Y axis
         p.drawLine(int(x0), int(y1), int(x1), int(y1))  # X axis
+
+    def _draw_calendar_axis(self, p, x0: float, y0: float, x1: float, y1: float) -> None:
+        """Draw vertical calendar gridlines and month labels for calendar_linear mode.
+
+        Ported from detail_player_stats_view paintEvent axis block (lines 1460–1567).
+        Uses _ordinal_to_chart_x and _calendar_axis_ticks so ticks and data points
+        share an identical coordinate system by construction.
+        """
+        if not self._series or not self._series.bins:
+            return
+        t_min = self._series.t_min
+        t_max = self._series.t_max
+        if t_min is None:
+            try:
+                t_min = date.fromisoformat(self._series.bins[0].lab0).toordinal()
+            except (ValueError, TypeError):
+                return
+        if t_max is None:
+            try:
+                t_max = date.fromisoformat(self._series.bins[-1].lab1).toordinal()
+            except (ValueError, TypeError):
+                return
+        if t_max <= t_min:
+            return
+
+        mode = _effective_calendar_mode(t_min, t_max)
+        ticks = _calendar_axis_ticks(t_min, t_max, mode)
+
+        major_pen = QPen(self._axis_color, 1)
+        minor_pen = QPen(self._grid_color, 1)
+
+        for o, is_major, _lbl in ticks:
+            x = _ordinal_to_chart_x(o, t_min, t_max, x0, x1)
+            p.setPen(major_pen if is_major else minor_pen)
+            p.drawLine(int(x), int(y0), int(x), int(y1))
+
+        p.setPen(self._text_color)
+        p.setFont(self._font)
+        fm = QFontMetrics(self._font)
+        min_spacing = fm.horizontalAdvance("MMM '00") + 4
+        last_label_x = -1e9
+        for o, is_major, lbl in ticks:
+            if not lbl or not is_major:
+                continue
+            x = _ordinal_to_chart_x(o, t_min, t_max, x0, x1)
+            if x - last_label_x < min_spacing:
+                continue
+            tw = fm.horizontalAdvance(lbl)
+            p.drawText(int(x - tw / 2), int(y1 + self._font_size + 2), lbl)
+            last_label_x = x
 
     def _draw_x_labels(self, p, bins, x0, y_base, pw) -> None:
         p.setPen(self._text_color)

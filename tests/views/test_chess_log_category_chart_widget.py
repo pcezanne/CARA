@@ -463,6 +463,126 @@ class TestBinXLayout(unittest.TestCase):
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestCalendarAxisPainting(unittest.TestCase):
+    """Qt-gated: _draw_calendar_axis paints vertical gridlines at tick positions."""
+
+    def _calendar_series(self):
+        from datetime import date as _d
+        from app.services.chess_log_stats_service import ChessLogCategoryBin as _Bin, ChessLogPresetSeries as _S
+        t_min = _d(2026, 2, 1).toordinal()
+        t_max = _d(2026, 12, 31).toordinal()
+        bins = [
+            _Bin(time_pct=0.0, total=3, lab0="2026-04-01", lab1="2026-06-30", counts={"C": 3}),
+            _Bin(time_pct=100.0, total=3, lab0="2026-09-01", lab1="2026-11-30", counts={"C": 3}),
+        ]
+        return _S(preset="CLAMP", categories=["C"], bins=bins,
+                  x_axis_layout="calendar_linear", t_min=t_min, t_max=t_max)
+
+    def _render_to_image(self, widget, width=1200, height=220):
+        from PyQt6.QtGui import QImage, QPainter
+        widget.resize(width, height)
+        img = QImage(width, height, QImage.Format.Format_ARGB32)
+        p = QPainter(img)
+        widget.render(p)
+        p.end()
+        return img
+
+    def test_calendar_linear_renders_without_error(self):
+        w = ChessLogCategoryChartWidget(config={})
+        w.set_series(self._calendar_series())
+        self._render_to_image(w)  # must not raise
+
+    def test_calendar_linear_paints_vertical_lines_at_tick_positions(self):
+        """Each calendar month must produce a vertical line of non-background pixels."""
+        from datetime import date as _d
+        from PyQt6.QtGui import QColor
+
+        w = ChessLogCategoryChartWidget(config={})
+        series = self._calendar_series()
+        w.set_series(series)
+
+        width, height = 1200, 220
+        img = self._render_to_image(w, width, height)
+
+        # Background color (as set in _DEFAULTS)
+        bg = QColor(28, 28, 33)
+        bg_rgb = (bg.red(), bg.green(), bg.blue())
+
+        # Compute plot geometry (mirrors ChessLogCategoryChartWidget.__init__)
+        pad_t, pad_r, pad_b, pad_l = 40, 16, 28, 48
+        legend_w = 120
+        plot_x0 = pad_l
+        plot_x1 = width - pad_r - legend_w
+        plot_y0 = pad_t + 5  # +5 to avoid the title area drawing over gridlines
+
+        t_min = series.t_min
+        t_max = series.t_max
+
+        # Check 3 months (May, Jul, Sep) that are well inside the data range and
+        # far from plot edges so gridlines are unambiguous.
+        months_to_check = [5, 7, 9]
+        for month in months_to_check:
+            o = _d(2026, month, 1).toordinal()
+            expected_x = int(_ordinal_to_chart_x(o, t_min, t_max, plot_x0, plot_x1))
+            # Scan a ±3px window in the plot-area height for any non-background pixel
+            found = False
+            for dx in range(-3, 4):
+                px = expected_x + dx
+                if px < 0 or px >= width:
+                    continue
+                for y in range(plot_y0, plot_y0 + 100):  # scan upper half of plot
+                    pixel = img.pixel(px, y)
+                    c = QColor(pixel)
+                    if (c.red(), c.green(), c.blue()) != bg_rgb:
+                        found = True
+                        break
+                if found:
+                    break
+            self.assertTrue(
+                found,
+                f"Month {month}: expected a vertical gridline near x={expected_x} "
+                f"(t_min={t_min}, t_max={t_max}, plot_x0={plot_x0}, plot_x1={plot_x1})"
+            )
+
+    def test_uniform_bins_does_not_draw_month_labels(self):
+        """Regression: uniform_bins mode must not activate _draw_calendar_axis."""
+        from app.services.chess_log_stats_service import ChessLogPresetSeries as _S
+        from datetime import date as _d
+        from PyQt6.QtGui import QColor
+
+        w = ChessLogCategoryChartWidget(config={})
+        bins = self._calendar_series().bins
+        t_min = _d(2026, 2, 1).toordinal()
+        t_max = _d(2026, 12, 31).toordinal()
+        series = _S(preset="CLAMP", categories=["C"], bins=bins,
+                    x_axis_layout="uniform_bins", t_min=t_min, t_max=t_max)
+        w.set_series(series)
+        width, height = 1200, 220
+        img = self._render_to_image(w, width, height)
+
+        # For uniform_bins, month gridlines at March 1 (≈85px from left)
+        # should NOT appear — the gridline is only there for calendar_linear.
+        pad_l, pad_r, legend_w = 48, 16, 120
+        plot_x0 = pad_l
+        plot_x1 = width - pad_r - legend_w
+        o_mar = _d(2026, 3, 1).toordinal()
+        expected_x = int(_ordinal_to_chart_x(o_mar, t_min, t_max, plot_x0, plot_x1))
+
+        bg = QColor(28, 28, 33)
+        bg_rgb = (bg.red(), bg.green(), bg.blue())
+
+        # The axis-color pixel at the March gridline position should NOT be painted in uniform mode.
+        # We check the middle of the plot height and verify the pixel is still background color.
+        axis_col = (140, 140, 150)
+        mid_y = 40 + 30  # inside plot area, away from y-axis gridlines
+        pixel_at_march = QColor(img.pixel(expected_x, mid_y))
+        march_rgb = (pixel_at_march.red(), pixel_at_march.green(), pixel_at_march.blue())
+        # Not asserting exact background (data line may be there), just assert axis_col absent
+        self.assertNotEqual(march_rgb, axis_col,
+            "uniform_bins should not paint axis-color gridline at March position")
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestLineStyleBranching(unittest.TestCase):
     """Widget reads series.line_style to choose between smooth/straight rendering."""
 

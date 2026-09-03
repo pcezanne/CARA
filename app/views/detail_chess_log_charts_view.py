@@ -164,6 +164,8 @@ class DetailChessLogChartsView(QWidget):
         source_label.setMinimumWidth(label_width)
         source_row.addWidget(source_label)
         self._source_combo = QComboBox()
+        self._source_combo.setEditable(True)
+        self._source_combo.lineEdit().setReadOnly(True)
         for label in _SOURCE_LABELS:
             self._source_combo.addItem(label)
         self._source_combo.currentIndexChanged.connect(self._on_source_changed)
@@ -177,6 +179,8 @@ class DetailChessLogChartsView(QWidget):
         player_label.setMinimumWidth(label_width)
         player_row.addWidget(player_label)
         self._player_combo = QComboBox()
+        self._player_combo.setEditable(True)
+        self._player_combo.lineEdit().setReadOnly(True)
         self._player_combo.setPlaceholderText("Select player")
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.currentIndexChanged.connect(self._on_player_changed)
@@ -257,6 +261,10 @@ class DetailChessLogChartsView(QWidget):
             QComboBox {{
                 background-color: {input_s}; color: {text_s};
                 border: 1px solid {border_s}; border-radius: 3px; padding: 2px 6px;
+            }}
+            QComboBox QLineEdit {{
+                background-color: {input_s}; color: {text_s};
+                border: none; padding: 0px 2px;
             }}
             QLabel {{ border: none; color: {text_s}; }}
             QPushButton {{

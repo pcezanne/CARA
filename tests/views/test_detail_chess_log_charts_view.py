@@ -239,6 +239,22 @@ class TestDetailChessLogChartsViewFlaggedLabel(unittest.TestCase):
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestDetailChessLogChartsViewSelector(unittest.TestCase):
 
+    def test_combo_boxes_use_triangle_only_click_mechanism(self):
+        """Both combos must be editable with a read-only QLineEdit.
+
+        This is the same mechanism Player Stats uses: setEditable(True) causes Qt
+        to split the widget into a text area (QLineEdit) and a triangle button.
+        setReadOnly(True) on the embedded QLineEdit means clicking the text area
+        does nothing — only the triangle button opens the dropdown.
+        """
+        view = DetailChessLogChartsView(config={})
+        for attr in ("_source_combo", "_player_combo"):
+            combo = getattr(view, attr)
+            self.assertTrue(combo.isEditable(), f"{attr} must be editable (triangle-only)")
+            le = combo.lineEdit()
+            self.assertIsNotNone(le, f"{attr} must have an embedded QLineEdit")
+            self.assertTrue(le.isReadOnly(), f"{attr} QLineEdit must be read-only")
+
     def test_source_combo_has_five_options(self):
         view = DetailChessLogChartsView(config={})
         self.assertEqual(view._source_combo.count(), len(_SOURCE_LABELS))

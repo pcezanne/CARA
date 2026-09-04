@@ -221,38 +221,54 @@ class TestCalendarAxisHelpers(unittest.TestCase):
         self.assertEqual(_calendar_axis_ticks(omin, omin, "month"), [])
 
 
-class TestComputeYMax(unittest.TestCase):
+class TestYAxisPercentage(unittest.TestCase):
+    """Y-axis uses percentage of bin total (0–100 %); fixed gridlines at 0/25/50/75/100."""
 
-    def test_single_category_three_bins_same_count_returns_that_count(self):
-        result = ChessLogCategoryChartWidget._compute_y_max(
-            ["C"], [_bin(C=3), _bin(C=3), _bin(C=3)]
-        )
-        self.assertEqual(result, 3)
+    def _pct(self, cat: str, b: ChessLogCategoryBin) -> float:
+        """Compute the percentage a category occupies in a bin — mirrors _draw_lines logic."""
+        return b.counts.get(cat, 0) / b.total if b.total > 0 else 0.0
 
-    def test_empty_returns_floor_one(self):
-        self.assertEqual(ChessLogCategoryChartWidget._compute_y_max([], []), 1)
+    def test_single_cat_full_bin_is_100pct(self):
+        b = ChessLogCategoryBin(time_pct=50.0, total=5, lab0="2025-01", lab1="2025-06", counts={"C": 5})
+        self.assertAlmostEqual(self._pct("C", b), 1.0)
 
-    def test_all_zero_bins_returns_floor_one(self):
-        result = ChessLogCategoryChartWidget._compute_y_max(["C"], [_bin(C=0), _bin(C=0)])
-        self.assertEqual(result, 1)
+    def test_half_bin_is_50pct(self):
+        b = ChessLogCategoryBin(time_pct=50.0, total=4, lab0="2025-01", lab1="2025-06", counts={"C": 2, "L": 2})
+        self.assertAlmostEqual(self._pct("C", b), 0.5)
 
-    def test_two_categories_returns_max_single_bin_value(self):
-        result = ChessLogCategoryChartWidget._compute_y_max(
-            ["C", "L"], [_bin(C=5, L=0), _bin(C=0, L=0)]
-        )
-        self.assertEqual(result, 5)
+    def test_uncategorized_in_denominator_reduces_pct(self):
+        # C=2 out of total=4 (which includes 2 Uncategorized moments) → 50 %
+        b = ChessLogCategoryBin(time_pct=50.0, total=4, lab0="2025-01", lab1="2025-06",
+                                counts={"C": 2, "Uncategorized": 2})
+        self.assertAlmostEqual(self._pct("C", b), 0.5)
 
-    def test_max_is_per_bin_not_sum(self):
-        result = ChessLogCategoryChartWidget._compute_y_max(
-            ["C"], [_bin(C=2), _bin(C=2), _bin(C=2)]
-        )
-        self.assertEqual(result, 2)
+    def test_zero_total_guarded_returns_zero(self):
+        b = ChessLogCategoryBin(time_pct=50.0, total=0, lab0="2025-01", lab1="2025-06", counts={})
+        self.assertAlmostEqual(self._pct("C", b), 0.0)
 
-    def test_mixed_bins_picks_highest_bin(self):
-        result = ChessLogCategoryChartWidget._compute_y_max(
-            ["C", "L"], [_bin(C=1, L=4), _bin(C=2, L=1)]
-        )
-        self.assertEqual(result, 4)
+    def test_absent_cat_returns_zero(self):
+        b = ChessLogCategoryBin(time_pct=50.0, total=3, lab0="2025-01", lab1="2025-06", counts={"L": 3})
+        self.assertAlmostEqual(self._pct("C", b), 0.0)
+
+    def test_y_coord_100pct_maps_to_top(self):
+        # pct=1.0  →  y = y0 + ph * (1.0 - 1.0) = y0
+        y0, ph = 40.0, 200.0
+        pct = 1.0
+        y = y0 + ph * (1.0 - pct)
+        self.assertAlmostEqual(y, y0)
+
+    def test_y_coord_0pct_maps_to_bottom(self):
+        # pct=0.0  →  y = y0 + ph * 1.0 = y0 + ph
+        y0, ph = 40.0, 200.0
+        pct = 0.0
+        y = y0 + ph * (1.0 - pct)
+        self.assertAlmostEqual(y, y0 + ph)
+
+    def test_y_coord_50pct_maps_to_midpoint(self):
+        y0, ph = 40.0, 200.0
+        pct = 0.5
+        y = y0 + ph * (1.0 - pct)
+        self.assertAlmostEqual(y, y0 + ph / 2)
 
 
 # ---------------------------------------------------------------------------

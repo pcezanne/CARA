@@ -3,7 +3,7 @@
 Draws a multi-line chart where each line is one category from a single preset.
 X-axis: time (bin.time_pct, 0-100) derived from game dates, or uniform bin index
         depending on the series' x_axis_layout field.
-Y-axis: integer moment count.
+Y-axis: percentage of bin total (0–100 %).
 
 Data entry point: set_series(series, colors)
   series: ChessLogPresetSeries from chess_log_stats_service
@@ -333,35 +333,23 @@ class ChessLogCategoryChartWidget(QWidget):
         totals: Dict[str, int] = {
             cat: sum(b.counts.get(cat, 0) for b in bins) for cat in categories
         }
-        y_max = self._compute_y_max(categories, bins)
-
-        self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h, y_max)
+        self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h)
         self._draw_axes(painter, plot_x0, plot_y0, plot_x1, plot_y1)
         if self._series.x_axis_layout == "calendar_linear":
             self._draw_calendar_axis(painter, plot_x0, plot_y0, plot_x1, plot_y1)
         else:
             self._draw_x_labels(painter, bins, plot_x0, plot_y1, plot_w)
-        self._draw_y_labels(painter, plot_x0, plot_y0, plot_y1, plot_h, y_max)
+        self._draw_y_labels(painter, plot_x0, plot_y0, plot_y1, plot_h)
         self._draw_title(painter, plot_x0, plot_x1)
-        self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, y_max, totals)
+        self._draw_lines(painter, categories, bins, plot_x0, plot_y0, plot_w, plot_h, totals)
         self._draw_legend(painter, categories, plot_x1 + 8, plot_y0, legend_w - 8, totals)
 
-    @staticmethod
-    def _compute_y_max(categories: List[str], bins: List) -> int:
-        """Return the largest single-bin count across all (category, bin) pairs."""
-        raw = max(
-            (b.counts.get(cat, 0) for b in bins for cat in categories),
-            default=1,
-        )
-        return max(1, raw)
-
-    def _draw_grid(self, p, x0, y0, x1, y1, pw, ph, y_max) -> None:
+    def _draw_grid(self, p, x0, y0, x1, y1, pw, ph) -> None:
         grid_pen = QPen(self._grid_color)
         grid_pen.setWidth(1)
         p.setPen(grid_pen)
-        n_lines = max(2, min(6, y_max))
-        for i in range(n_lines + 1):
-            y = y1 - (i / n_lines) * ph
+        for i in range(5):  # 0%, 25%, 50%, 75%, 100%
+            y = y1 - (i / 4) * ph
             p.drawLine(int(x0), int(y), int(x1), int(y))
 
     def _draw_axes(self, p, x0, y0, x1, y1) -> None:
@@ -481,16 +469,14 @@ class ChessLogCategoryChartWidget(QWidget):
             return pw / 2
         return (bin_index / (n_bins - 1)) * pw
 
-    def _draw_y_labels(self, p, x0, y0, y1, ph, y_max) -> None:
+    def _draw_y_labels(self, p, x0, y0, y1, ph) -> None:
         p.setPen(self._text_color)
         p.setFont(self._font)
         fm = QFontMetrics(self._font)
-        n_lines = max(2, min(6, y_max))
-        for i in range(n_lines + 1):
-            val = round(y_max * i / n_lines)
-            label = str(val)
+        for pct in (0, 25, 50, 75, 100):
+            label = f"{pct}%"
             tw = fm.horizontalAdvance(label)
-            y = y1 - (i / n_lines) * ph
+            y = y1 - (pct / 100.0) * ph
             p.drawText(int(x0 - tw - 4), int(y + self._font_size / 2), label)
 
     def _draw_title(self, p, x0, x1) -> None:
@@ -508,7 +494,7 @@ class ChessLogCategoryChartWidget(QWidget):
         )
         p.setFont(self._font)
 
-    def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, y_max, totals: Dict[str, int]) -> None:
+    def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, totals: Dict[str, int]) -> None:
         use_smooth = self._series and self._series.line_style == "smooth"
         strength = self._series.smoothing_strength if self._series else 1.0
         n = len(bins)
@@ -524,8 +510,8 @@ class ChessLogCategoryChartWidget(QWidget):
             pts: List[QPointF] = []
             for i, b in enumerate(bins):
                 x = x0 + self._bin_x(i, n, b.time_pct, pw)
-                count = b.counts.get(cat, 0)
-                y = y0 + ph * (1.0 - count / y_max)
+                pct = b.counts.get(cat, 0) / b.total if b.total > 0 else 0.0
+                y = y0 + ph * (1.0 - pct)
                 pts.append(QPointF(x, y))
 
             if use_smooth and len(pts) >= 2:

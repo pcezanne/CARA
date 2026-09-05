@@ -148,6 +148,12 @@ class DetailChessLogChartsView(QWidget):
         root.addWidget(self._scroll_area)
 
     def _build_selector(self) -> QWidget:
+        from PyQt6.QtGui import QFont
+        selector_font = QFont(
+            resolve_font_family("Helvetica Neue"),
+            int(scale_font_size(11)),
+        )
+
         frame = QFrame()
         frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         outer = QVBoxLayout(frame)
@@ -155,15 +161,17 @@ class DetailChessLogChartsView(QWidget):
         outer.setSpacing(4)
 
         label_names = ("Data Source:", "Player:")
-        fm = QFontMetrics(self.font())
+        fm = QFontMetrics(selector_font)
         label_width = max(fm.horizontalAdvance(s) for s in label_names) + 8
 
         source_row = QHBoxLayout()
         source_row.setSpacing(8)
         source_label = QLabel("Data Source:")
+        source_label.setFont(selector_font)
         source_label.setMinimumWidth(label_width)
         source_row.addWidget(source_label)
         self._source_combo = QComboBox()
+        self._source_combo.setFont(selector_font)
         self._source_combo.setEditable(True)
         self._source_combo.lineEdit().setReadOnly(True)
         for label in _SOURCE_LABELS:
@@ -176,9 +184,11 @@ class DetailChessLogChartsView(QWidget):
         player_row = QHBoxLayout()
         player_row.setSpacing(8)
         player_label = QLabel("Player:")
+        player_label.setFont(selector_font)
         player_label.setMinimumWidth(label_width)
         player_row.addWidget(player_label)
         self._player_combo = QComboBox()
+        self._player_combo.setFont(selector_font)
         self._player_combo.setEditable(True)
         self._player_combo.lineEdit().setReadOnly(True)
         self._player_combo.setPlaceholderText("Select player")
@@ -294,7 +304,9 @@ class DetailChessLogChartsView(QWidget):
     def _on_player_changed(self, index: int) -> None:
         if not self._controller or index < 0:
             return
-        self._controller.set_player_selection(self._player_combo.currentText())
+        raw_name = self._player_combo.itemData(index)
+        if raw_name:
+            self._controller.set_player_selection(raw_name)
 
     def _on_generate_clicked(self) -> None:
         if self._controller:
@@ -333,15 +345,15 @@ class DetailChessLogChartsView(QWidget):
             )
         self._show_placeholder()
 
-    def _on_players_ready(self, players: List[str]) -> None:
-        current = self._player_combo.currentText()
+    def _on_players_ready(self, players: List) -> None:
+        current_raw = self._player_combo.itemData(self._player_combo.currentIndex())
         had_selection = self._player_combo.currentIndex() >= 0
         self._player_combo.blockSignals(True)
         self._player_combo.clear()
-        for p in players:
-            self._player_combo.addItem(p)
+        for name, count in players:
+            self._player_combo.addItem(f"{name} ({count} tagged)", name)
         if had_selection and players:
-            idx = self._player_combo.findText(current)
+            idx = self._player_combo.findData(current_raw)
             self._player_combo.setCurrentIndex(idx)  # -1 if not found → stay unselected
         else:
             self._player_combo.setCurrentIndex(-1)

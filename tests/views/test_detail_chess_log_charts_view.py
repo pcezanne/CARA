@@ -267,27 +267,40 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
     def test_players_ready_populates_player_combo(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
-        view._on_players_ready(["Alice", "Bob"])
+        view._on_players_ready([("Alice", 5), ("Bob", 3)])
         self.assertEqual(view._player_combo.count(), 2)
 
     def test_players_ready_with_no_prior_selection_stays_unselected(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
-        view._on_players_ready(["Alice", "Bob"])
+        view._on_players_ready([("Alice", 5), ("Bob", 3)])
         self.assertEqual(view._player_combo.currentIndex(), -1)
 
     def test_players_ready_preserves_current_selection_when_made(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
-        view._on_players_ready(["Alice", "Bob"])
-        view._player_combo.setCurrentIndex(0)  # "Alice" is now index 0 (no "All players" row)
-        view._on_players_ready(["Alice", "Bob", "Carlos"])
-        self.assertEqual(view._player_combo.currentText(), "Alice")
+        view._on_players_ready([("Alice", 5), ("Bob", 3)])
+        view._player_combo.setCurrentIndex(0)  # Alice selected; itemData = "Alice"
+        view._on_players_ready([("Alice", 5), ("Bob", 3), ("Carlos", 2)])
+        # Raw name preserved via itemData, even though display text includes count suffix
+        self.assertEqual(view._player_combo.itemData(view._player_combo.currentIndex()), "Alice")
+
+    def test_display_text_includes_tagged_count(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        view._on_players_ready([("Alice", 7)])
+        self.assertIn("7 tagged", view._player_combo.itemText(0))
+
+    def test_item_data_is_raw_name(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        view._on_players_ready([("Alice", 7)])
+        self.assertEqual(view._player_combo.itemData(0), "Alice")
 
     def test_reset_player_selection_sets_index_minus_one(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
-        view._on_players_ready(["Alice", "Bob"])
+        view._on_players_ready([("Alice", 5), ("Bob", 3)])
         view._player_combo.setCurrentIndex(0)
         view._reset_player_selection()
         self.assertEqual(view._player_combo.currentIndex(), -1)

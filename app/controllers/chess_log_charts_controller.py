@@ -36,7 +36,7 @@ from app.utils.ai_provider_config import resolve_default_provider
 class ChessLogPlayerDropdownWorker(QThread):
     """Populate the player dropdown from the current game set."""
 
-    players_ready = pyqtSignal(list)   # List[str]
+    players_ready = pyqtSignal(list)   # List[Tuple[str, int]]
 
     def __init__(self, games: List[GameData]) -> None:
         super().__init__()
@@ -193,7 +193,7 @@ class ChessLogChartsController(QObject):
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
     charts_unavailable = pyqtSignal(str)   # reason ("no_source", "no_player", "no_data", ...)
     charts_loading = pyqtSignal()          # aggregation worker about to start; view should clear stale chart
-    players_ready = pyqtSignal(list)       # List[str]
+    players_ready = pyqtSignal(list)       # List[Tuple[str, int]]
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
     narrative_ready = pyqtSignal(str, list)
     narrative_failed = pyqtSignal(str)

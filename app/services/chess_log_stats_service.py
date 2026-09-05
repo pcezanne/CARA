@@ -23,6 +23,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
+from app.utils.chess_log_color_scoping import color_from_path_key
 from app.services.player_stats_service import (
     _calendar_bin_center_time_pct,
     _game_date_ordinal_for_trends,
@@ -151,19 +152,40 @@ def aggregate(
     return result
 
 
-def get_all_players(games: List[GameData]) -> List[str]:
-    """Return a deduplicated sorted list of player names from the given games.
+def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
+    """Return (name, tagged_game_count) for players with >= 2 games where they personally tagged moments.
 
-    Mirrors the player-list logic Player Stats uses for its player dropdown.
-    Empty/whitespace names are excluded.
+    Mirrors Player Stats' filtering/sorting mechanism exactly — threshold >= 2,
+    sort by qualifying-count descending then name ascending — but counts games
+    where the player's OWN COLOR has at least one tagged moment (not merely any
+    game where has_chess_log_tags=True, which would credit both players equally
+    even if only one side's moves were tagged).
+
+    Cost: one ChessLogStorageService.load_tags() call per tagged game. Same
+    per-game cost as aggregate(). Runs in a background worker; acceptable for
+    typical datasets (dozens to low hundreds of tagged games).
     """
-    names: Set[str] = set()
+    tagged_counts: Dict[str, int] = {}
     for game in games:
-        if game.white and game.white.strip():
-            names.add(game.white.strip())
-        if game.black and game.black.strip():
-            names.add(game.black.strip())
-    return sorted(names, key=str.casefold)
+        if not getattr(game, "has_chess_log_tags", False):
+            continue
+        paths_data = ChessLogStorageService.load_tags(game)
+        if not paths_data:
+            continue
+        # Determine which colors have at least one tagged path in this game.
+        tagged_colors: Set[str] = set()
+        for path_key in paths_data:
+            color = color_from_path_key(path_key)
+            if color:
+                tagged_colors.add(color)
+        # Credit only the player whose color has tagged moments in this game.
+        for name, color in ((game.white, "white"), (game.black, "black")):
+            if name and name.strip() and color in tagged_colors:
+                n = name.strip()
+                tagged_counts[n] = tagged_counts.get(n, 0) + 1
+    qualified = [(name, count) for name, count in tagged_counts.items() if count >= 2]
+    qualified.sort(key=lambda x: (-x[1], x[0]))
+    return qualified
 
 
 # ---------------------------------------------------------------------------

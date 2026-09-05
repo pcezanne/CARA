@@ -358,22 +358,135 @@ class TestDateFiltering(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestGetAllPlayers(unittest.TestCase):
+    """get_all_players mirrors Player Stats: threshold >= 2 tagged games, sort by count desc then name.
 
-    def test_returns_sorted_unique_names(self):
+    Path key conventions (from pgn_variation_path.py):
+      "0"   → length 1 (odd)  → White just moved
+      "0.0" → length 2 (even) → Black just moved
+    """
+
+    # White's move tagged, Black's move tagged, or both.
+    _WHITE_TAG = {"0": [_clamp_entry("C")]}
+    _BLACK_TAG = {"0.0": [_clamp_entry("C")]}
+    _BOTH_TAG  = {"0": [_clamp_entry("C")], "0.0": [_clamp_entry("C")]}
+
+    def _white_tagged(self, white="Alice", black="Bob", date="2025.01.15"):
+        """Game where only White's move is tagged."""
+        return _make_game(white=white, black=black, date=date, entries_per_path=self._WHITE_TAG)
+
+    def _black_tagged(self, white="Alice", black="Bob", date="2025.01.15"):
+        """Game where only Black's move is tagged."""
+        return _make_game(white=white, black=black, date=date, entries_per_path=self._BLACK_TAG)
+
+    def _both_tagged(self, white="Alice", black="Bob", date="2025.01.15"):
+        """Game where both colors have tagged moves."""
+        return _make_game(white=white, black=black, date=date, entries_per_path=self._BOTH_TAG)
+
+    def _untagged(self, white="Alice", black="Bob", date="2025.01.15"):
+        return _make_game(white=white, black=black, date=date)
+
+    def _names(self, games):
+        return [name for name, _ in get_all_players(games)]
+
+    # --- per-color correctness (the bug being fixed) ---
+
+    def test_only_white_tagged_credits_white_not_black(self):
+        # NotThePainter (White) tags their own moves; kpepin (Black) tags nothing.
         games = [
-            _make_game(white="Alice", black="Carlos"),
-            _make_game(white="Bob", black="Alice"),
+            self._white_tagged("NotThePainter", "kpepin", "2025.01.01"),
+            self._white_tagged("NotThePainter", "kpepin", "2025.02.01"),
         ]
-        players = get_all_players(games)
-        self.assertEqual(players, ["Alice", "Bob", "Carlos"])
+        names = self._names(games)
+        self.assertIn("NotThePainter", names)
+        self.assertNotIn("kpepin", names)  # kpepin's moves were never tagged
+
+    def test_only_black_tagged_credits_black_not_white(self):
+        games = [
+            self._black_tagged("Alice", "Bob", "2025.01.01"),
+            self._black_tagged("Alice", "Bob", "2025.02.01"),
+        ]
+        names = self._names(games)
+        self.assertIn("Bob", names)
+        self.assertNotIn("Alice", names)
+
+    def test_both_colors_tagged_credits_both(self):
+        games = [
+            self._both_tagged("Alice", "Bob", "2025.01.01"),
+            self._both_tagged("Alice", "Bob", "2025.02.01"),
+        ]
+        names = self._names(games)
+        self.assertIn("Alice", names)
+        self.assertIn("Bob", names)
+
+    def test_untagged_game_credits_neither(self):
+        games = [self._untagged("Alice", "Bob")] * 5
+        self.assertEqual(get_all_players(games), [])
+
+    # --- threshold filter ---
+
+    def test_player_with_one_tagged_game_excluded(self):
+        games = [self._white_tagged("Alice", "Bob")]
+        self.assertNotIn("Alice", self._names(games))
+
+    def test_player_with_two_tagged_games_included(self):
+        games = [
+            self._white_tagged("Alice", "Opp1", "2025.01.01"),
+            self._white_tagged("Alice", "Opp2", "2025.02.01"),
+        ]
+        self.assertIn("Alice", self._names(games))
+
+    def test_untagged_games_do_not_count_toward_threshold(self):
+        # 1 white-tagged + 1 untagged → still only 1 qualifying → excluded
+        games = [
+            self._white_tagged("Alice", "Bob", "2025.01.01"),
+            self._untagged("Alice", "Carlos", "2025.02.01"),
+        ]
+        self.assertNotIn("Alice", self._names(games))
 
     def test_empty_names_excluded(self):
-        games = [_make_game(white="", black="Alice")]
-        players = get_all_players(games)
-        self.assertEqual(players, ["Alice"])
+        # White name is empty; only Alice (Black) has tagged moves
+        games = [
+            self._black_tagged(white="", black="Alice", date="2025.01.01"),
+            self._black_tagged(white="", black="Alice", date="2025.02.01"),
+        ]
+        self.assertNotIn("", self._names(games))
+        self.assertIn("Alice", self._names(games))
 
     def test_no_games_returns_empty(self):
         self.assertEqual(get_all_players([]), [])
+
+    def test_returns_tuples_of_name_and_count(self):
+        games = [
+            self._white_tagged("Alice", "Opp1", "2025.01.01"),
+            self._white_tagged("Alice", "Opp2", "2025.02.01"),
+        ]
+        result = get_all_players(games)
+        self.assertEqual(result[0], ("Alice", 2))
+
+    # --- sort order ---
+
+    def test_sorted_by_count_descending(self):
+        # Alice (White) has 3 tagged games; Bob (White) has 2.
+        games = [
+            self._white_tagged("Alice", "Opp1", "2025.01.01"),
+            self._white_tagged("Alice", "Opp2", "2025.02.01"),
+            self._white_tagged("Alice", "Opp3", "2025.03.01"),
+            self._white_tagged("Bob", "Opp4", "2025.04.01"),
+            self._white_tagged("Bob", "Opp5", "2025.05.01"),
+        ]
+        names = self._names(games)
+        self.assertEqual(names.index("Alice"), 0)
+        self.assertEqual(names.index("Bob"), 1)
+
+    def test_ties_broken_by_name_ascending(self):
+        games = [
+            self._white_tagged("Alice", "Opp1", "2025.01.01"),
+            self._white_tagged("Alice", "Opp2", "2025.02.01"),
+            self._white_tagged("Carlos", "Opp3", "2025.03.01"),
+            self._white_tagged("Carlos", "Opp4", "2025.04.01"),
+        ]
+        names = self._names(games)
+        self.assertLess(names.index("Alice"), names.index("Carlos"))
 
 
 # ---------------------------------------------------------------------------

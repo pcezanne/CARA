@@ -44,15 +44,19 @@ if _QT_AVAILABLE:
         ChessLogCategoryBin,
         ChessLogPresetSeries,
     )
+    from PyQt6.QtWidgets import QCheckBox, QSpinBox
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_stub_controller(ai_configured: bool = False) -> MagicMock:
+def _make_stub_controller(ai_configured: bool = False, models=None, timeout: int = 60) -> MagicMock:
     ctrl = MagicMock()
     ctrl.is_ai_configured.return_value = ai_configured
+    ctrl.get_available_models.return_value = models or []
+    ctrl.get_default_narrative_model.return_value = (models[0] if models else None)
+    ctrl.get_narrative_timeout_seconds.return_value = timeout
     # Simulate signal attributes so connect() calls succeed
     for sig in (
         "charts_updated", "charts_unavailable", "charts_loading",
@@ -311,6 +315,125 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view._on_players_ready([])
         self.assertEqual(view._player_combo.count(), 0)
         self.assertIn("No players", view._placeholder.text())
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
+    """Tests for the model/timeout/tokens/checkbox controls added in Items 4 and 6."""
+
+    def _make_view(self, ai: bool = False, models=None, timeout: int = 60) -> "DetailChessLogChartsView":
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller(ai_configured=ai, models=models, timeout=timeout))
+        return view
+
+    # --- Checkbox (Item 6) ---
+
+    def test_include_flags_checkbox_exists(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_include_flags_check"))
+        self.assertIsInstance(view._include_flags_check, QCheckBox)
+
+    def test_include_flags_checkbox_checked_by_default(self):
+        view = self._make_view()
+        self.assertTrue(view._include_flags_check.isChecked())
+
+    def test_include_flags_unchecked_calls_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._controller.set_narrative_include_flags = MagicMock()
+        view._include_flags_check.setChecked(False)
+        view._controller.set_narrative_include_flags.assert_called_once_with(False)
+
+    def test_include_flags_checked_calls_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._include_flags_check.setChecked(False)  # uncheck first
+        view._controller.set_narrative_include_flags = MagicMock()
+        view._include_flags_check.setChecked(True)
+        view._controller.set_narrative_include_flags.assert_called_once_with(True)
+
+    # --- Model combo (Item 4) ---
+
+    def test_model_combo_exists(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_model_combo"))
+        self.assertIsInstance(view._model_combo, QComboBox)
+
+    def test_model_combo_disabled_when_unconfigured(self):
+        view = self._make_view(ai=False)
+        self.assertFalse(view._model_combo.isEnabled())
+
+    def test_model_combo_enabled_when_configured(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        self.assertTrue(view._model_combo.isEnabled())
+
+    def test_model_combo_populated_from_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o", "gpt-4-turbo"])
+        self.assertEqual(view._model_combo.count(), 2)
+        self.assertEqual(view._model_combo.itemText(0), "gpt-4o")
+        self.assertEqual(view._model_combo.itemText(1), "gpt-4-turbo")
+
+    def test_model_combo_selects_default_model(self):
+        view = self._make_view(ai=True, models=["gpt-3.5-turbo", "gpt-4o"])
+        view._controller.get_default_narrative_model.return_value = "gpt-4o"
+        view._refresh_ai_state()
+        self.assertEqual(view._model_combo.currentText(), "gpt-4o")
+
+    def test_model_combo_change_calls_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o", "gpt-4-turbo"])
+        view._controller.set_narrative_model_override = MagicMock()
+        view._model_combo.setCurrentIndex(1)
+        view._controller.set_narrative_model_override.assert_called_with("gpt-4-turbo")
+
+    # --- Timeout spinner (Item 4) ---
+
+    def test_timeout_spin_exists(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_timeout_spin"))
+        self.assertIsInstance(view._timeout_spin, QSpinBox)
+
+    def test_timeout_spin_disabled_when_unconfigured(self):
+        view = self._make_view(ai=False)
+        self.assertFalse(view._timeout_spin.isEnabled())
+
+    def test_timeout_spin_initialized_from_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o"], timeout=120)
+        self.assertEqual(view._timeout_spin.value(), 120)
+
+    def test_timeout_spin_change_calls_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._controller.set_narrative_timeout_seconds = MagicMock()
+        view._timeout_spin.setValue(90)
+        view._controller.set_narrative_timeout_seconds.assert_called_with(90)
+
+    def test_timeout_spin_range(self):
+        view = self._make_view()
+        self.assertEqual(view._timeout_spin.minimum(), 10)
+        self.assertEqual(view._timeout_spin.maximum(), 600)
+
+    # --- Tokens spinner (Item 4) ---
+
+    def test_tokens_spin_exists(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_tokens_spin"))
+        self.assertIsInstance(view._tokens_spin, QSpinBox)
+
+    def test_tokens_spin_disabled_when_unconfigured(self):
+        view = self._make_view(ai=False)
+        self.assertFalse(view._tokens_spin.isEnabled())
+
+    def test_tokens_spin_default_value(self):
+        view = self._make_view()
+        self.assertEqual(view._tokens_spin.value(), 2000)
+
+    def test_tokens_spin_range(self):
+        view = self._make_view()
+        self.assertEqual(view._tokens_spin.minimum(), 256)
+        self.assertEqual(view._tokens_spin.maximum(), 16000)
+
+    def test_tokens_spin_change_calls_controller(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._controller.set_narrative_token_limit = MagicMock()
+        view._tokens_spin.setValue(4000)
+        view._controller.set_narrative_token_limit.assert_called_with(4000)
 
 
 if __name__ == "__main__":

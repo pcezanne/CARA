@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFrame,
     QGroupBox,
@@ -25,6 +26,7 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -205,6 +207,12 @@ class DetailChessLogChartsView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
+        # Checkbox: include also-flagged step in the prompt (default checked).
+        self._include_flags_check = QCheckBox("Also flag shallow notes")
+        self._include_flags_check.setChecked(True)
+        self._include_flags_check.stateChanged.connect(self._on_include_flags_changed)
+        layout.addWidget(self._include_flags_check)
+
         btn_row = QHBoxLayout()
         self._generate_btn = QPushButton("Generate Narrative Summary")
         self._generate_btn.clicked.connect(self._on_generate_clicked)
@@ -219,6 +227,41 @@ class DetailChessLogChartsView(QWidget):
         self._ai_hint.setWordWrap(True)
         self._ai_hint.setVisible(True)
         layout.addWidget(self._ai_hint)
+
+        # Model / timeout / tokens row (mirrors AI Summary's input row, no reactive layout).
+        model_row = QHBoxLayout()
+        model_row.setSpacing(8)
+
+        model_label = QLabel("Model:")
+        model_row.addWidget(model_label)
+        self._model_combo = QComboBox()
+        self._model_combo.setEditable(False)
+        self._model_combo.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._model_combo.currentTextChanged.connect(self._on_narrative_model_changed)
+        model_row.addWidget(self._model_combo, 1)
+
+        timeout_label = QLabel("Timeout (s):")
+        model_row.addWidget(timeout_label)
+        self._timeout_spin = QSpinBox()
+        self._timeout_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self._timeout_spin.setRange(10, 600)
+        self._timeout_spin.setValue(60)
+        self._timeout_spin.setFixedWidth(56)
+        self._timeout_spin.valueChanged.connect(self._on_narrative_timeout_changed)
+        model_row.addWidget(self._timeout_spin)
+
+        tokens_label = QLabel("Tokens:")
+        model_row.addWidget(tokens_label)
+        self._tokens_spin = QSpinBox()
+        self._tokens_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
+        self._tokens_spin.setRange(256, 16000)
+        self._tokens_spin.setSingleStep(100)
+        self._tokens_spin.setValue(2000)
+        self._tokens_spin.setFixedWidth(70)
+        self._tokens_spin.valueChanged.connect(self._on_narrative_tokens_changed)
+        model_row.addWidget(self._tokens_spin)
+
+        layout.addLayout(model_row)
 
         self._narrative_edit = QTextEdit()
         self._narrative_edit.setReadOnly(True)
@@ -377,6 +420,22 @@ class DetailChessLogChartsView(QWidget):
     def _on_ai_configured_changed(self, configured: bool) -> None:
         self._refresh_ai_state()
 
+    def _on_include_flags_changed(self, state: int) -> None:
+        if self._controller:
+            self._controller.set_narrative_include_flags(bool(state))
+
+    def _on_narrative_model_changed(self, text: str) -> None:
+        if self._controller:
+            self._controller.set_narrative_model_override(text or None)
+
+    def _on_narrative_timeout_changed(self, value: int) -> None:
+        if self._controller:
+            self._controller.set_narrative_timeout_seconds(value)
+
+    def _on_narrative_tokens_changed(self, value: int) -> None:
+        if self._controller:
+            self._controller.set_narrative_token_limit(value)
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
@@ -412,6 +471,30 @@ class DetailChessLogChartsView(QWidget):
         self._charts_container.setVisible(False)
 
     def _refresh_ai_state(self) -> None:
-        configured = self._controller and self._controller.is_ai_configured()
-        self._generate_btn.setEnabled(bool(configured))
+        configured = bool(self._controller and self._controller.is_ai_configured())
+        self._generate_btn.setEnabled(configured)
         self._ai_hint.setVisible(not configured)
+        self._include_flags_check.setEnabled(configured)
+        self._model_combo.setEnabled(configured)
+        self._timeout_spin.setEnabled(configured)
+        self._tokens_spin.setEnabled(configured)
+
+        if configured and self._controller:
+            models = self._controller.get_available_models()
+            default_model = self._controller.get_default_narrative_model() or ""
+            timeout = self._controller.get_narrative_timeout_seconds()
+
+            # Repopulate combo without firing model-changed signal.
+            self._model_combo.blockSignals(True)
+            self._model_combo.clear()
+            for m in models:
+                self._model_combo.addItem(m)
+            if default_model:
+                idx = self._model_combo.findText(default_model)
+                self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self._model_combo.blockSignals(False)
+
+            # Sync timeout from shared setting without triggering valueChanged persist.
+            self._timeout_spin.blockSignals(True)
+            self._timeout_spin.setValue(timeout)
+            self._timeout_spin.blockSignals(False)

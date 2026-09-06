@@ -33,7 +33,7 @@ _SYSTEM_PROMPT = (
     "Write in second person ('you', 'your')."
 )
 
-_USER_TEMPLATE = """\
+_USER_PREAMBLE = """\
 Below is a summary of the moments I have tagged across my recent games in CARA's Chess Log.
 
 ## Category counts by preset
@@ -50,33 +50,39 @@ Below is a summary of the moments I have tagged across my recent games in CARA's
 
 ---
 
-Please write two things:
-
-1. **Narrative summary** (2–4 paragraphs): a reflective synthesis of the patterns you \
-see — what recurring themes emerge, where I seem to be making progress, and what \
-areas still need attention.  Reference specific categories and quote a few of my \
-own words where they are illuminating.
-
-2. **Shallow notes** (optional): list any why-notes that merely restate the category \
-label without adding insight (e.g. "I made a mistake" under a Mistake category, \
-or "I calculated badly" under Calculation).  If none are shallow, omit this section. \
-Format as a bullet list under the heading "## Also flagged".
-
-Keep the narrative concise and actionable.
 """
+
+_NARRATIVE_STEP = (
+    "1. **Narrative summary** (2–4 paragraphs): a reflective synthesis of the patterns you "
+    "see — what recurring themes emerge, where I seem to be making progress, and what "
+    "areas still need attention.  Reference specific categories and quote a few of my "
+    "own words where they are illuminating."
+)
+
+_ALSO_FLAGGED_STEP = (
+    "\n\n2. **Shallow notes** (optional): list any why-notes that merely restate the category "
+    "label without adding insight (e.g. “I made a mistake” under a Mistake category, "
+    "or “I calculated badly” under Calculation).  If none are shallow, omit this section. "
+    'Format as a bullet list under the heading "## Also flagged".'
+)
+
+_CLOSING = "\n\nKeep the narrative concise and actionable.\n"
 
 
 def build_prompt(
     games: List[GameData],
     player: str = "",
     color_filter: str = "both",
+    include_also_flagged: bool = True,
 ) -> str:
     """Assemble the LLM prompt from the given games.
 
     Args:
-        games:        Games to draw data from (already filtered to the desired scope).
-        player:       Player name for scoping (empty = all players).
-        color_filter: "white" / "black" / "both".
+        games:                Games to draw data from (already filtered to the desired scope).
+        player:               Player name for scoping (empty = all players).
+        color_filter:         "white" / "black" / "both".
+        include_also_flagged: When False, omit the "Shallow notes / Also flagged" step from
+                              the prompt so the LLM only writes the narrative summary.
 
     Returns:
         Formatted prompt string ready to send as the user message.
@@ -114,11 +120,16 @@ def build_prompt(
     why_notes_block = _format_why_notes(why_notes)
     game_notes_block = _format_game_notes(game_notes)
 
-    return _USER_TEMPLATE.format(
+    preamble = _USER_PREAMBLE.format(
         category_counts_block=category_counts_block,
         why_notes_block=why_notes_block,
         game_notes_block=game_notes_block,
     )
+    if include_also_flagged:
+        instruction = "Please write two things:\n\n" + _NARRATIVE_STEP + _ALSO_FLAGGED_STEP + _CLOSING
+    else:
+        instruction = "Please write:\n\n" + _NARRATIVE_STEP + _CLOSING
+    return preamble + instruction
 
 
 def generate_narrative(
@@ -130,18 +141,24 @@ def generate_narrative(
     player: str = "",
     color_filter: str = "both",
     config: Optional[Dict[str, Any]] = None,
+    timeout_seconds: int = 60,
+    token_limit: Optional[int] = None,
+    include_also_flagged: bool = True,
 ) -> Tuple[bool, str, List[str]]:
     """Generate a narrative summary from the given games.
 
     Args:
-        games:             Games in scope (already filtered to the desired Data Source).
-        provider:          AIProvider string ("openai", "anthropic", "custom").
-        model:             Model ID.
-        api_key:           API key.
-        base_url_override: Custom endpoint base URL (None for OpenAI/Anthropic).
-        player:            Player filter (empty = all players).
-        color_filter:      "white" / "black" / "both".
-        config:            Optional config dict forwarded to AIService.
+        games:                Games in scope (already filtered to the desired Data Source).
+        provider:             AIProvider string ("openai", "anthropic", "custom").
+        model:                Model ID.
+        api_key:              API key.
+        base_url_override:    Custom endpoint base URL (None for OpenAI/Anthropic).
+        player:               Player filter (empty = all players).
+        color_filter:         "white" / "black" / "both".
+        config:               Optional config dict forwarded to AIService.
+        timeout_seconds:      Request timeout passed to AIService.send_message.
+        token_limit:          Max tokens passed to AIService.send_message (None = AIService default).
+        include_also_flagged: When False, omit the shallow-note step from the prompt.
 
     Returns:
         (success, narrative_text, shallow_flags)
@@ -156,7 +173,12 @@ def generate_narrative(
     if not has_data:
         return False, "No Chess Log data found to summarise.", []
 
-    prompt = build_prompt(games, player=player, color_filter=color_filter)
+    prompt = build_prompt(
+        games,
+        player=player,
+        color_filter=color_filter,
+        include_also_flagged=include_also_flagged,
+    )
 
     service = AIService(config=config)
     messages = [{"role": "user", "content": prompt}]
@@ -167,6 +189,8 @@ def generate_narrative(
         messages=messages,
         system_prompt=_SYSTEM_PROMPT,
         base_url_override=base_url_override,
+        token_limit=token_limit,
+        timeout_seconds=timeout_seconds,
     )
     if not success:
         return False, response, []

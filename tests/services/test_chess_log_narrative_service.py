@@ -160,6 +160,23 @@ class TestBuildPromptShallowFlagInstruction(unittest.TestCase):
         self.assertIn("shallow", prompt.lower())
         self.assertIn("Also flagged", prompt)
 
+    def test_include_also_flagged_false_omits_step2(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game], include_also_flagged=False)
+        self.assertNotIn("Also flagged", prompt)
+        self.assertNotIn("shallow", prompt.lower())
+
+    def test_include_also_flagged_false_still_has_narrative_step(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game], include_also_flagged=False)
+        self.assertIn("Narrative summary", prompt)
+
+    def test_include_also_flagged_true_is_default(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt_default = build_prompt([game])
+        prompt_explicit = build_prompt([game], include_also_flagged=True)
+        self.assertEqual(prompt_default, prompt_explicit)
+
 
 # ---------------------------------------------------------------------------
 # _parse_response
@@ -321,6 +338,63 @@ class TestGenerateNarrative(unittest.TestCase):
         self.assertFalse(success)
         self.assertIn("No Chess Log data", message)
         self.assertEqual(flags, [])
+
+    @patch("app.services.chess_log_narrative_service.AIService")
+    def test_timeout_passed_to_send_message(self, MockAIService):
+        mock_service = MagicMock()
+        mock_service.send_message.return_value = (True, "Good work.")
+        MockAIService.return_value = mock_service
+
+        generate_narrative(
+            games=[self._game_with_clamp()],
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url_override=None,
+            timeout_seconds=120,
+        )
+
+        call_kwargs = mock_service.send_message.call_args[1]
+        self.assertEqual(call_kwargs.get("timeout_seconds"), 120)
+
+    @patch("app.services.chess_log_narrative_service.AIService")
+    def test_token_limit_passed_to_send_message(self, MockAIService):
+        mock_service = MagicMock()
+        mock_service.send_message.return_value = (True, "Good work.")
+        MockAIService.return_value = mock_service
+
+        generate_narrative(
+            games=[self._game_with_clamp()],
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url_override=None,
+            token_limit=4000,
+        )
+
+        call_kwargs = mock_service.send_message.call_args[1]
+        self.assertEqual(call_kwargs.get("token_limit"), 4000)
+
+    @patch("app.services.chess_log_narrative_service.AIService")
+    def test_include_also_flagged_false_omits_step2_in_sent_prompt(self, MockAIService):
+        mock_service = MagicMock()
+        mock_service.send_message.return_value = (True, "Solid work.")
+        MockAIService.return_value = mock_service
+
+        generate_narrative(
+            games=[self._game_with_clamp()],
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url_override=None,
+            include_also_flagged=False,
+        )
+
+        call_args = mock_service.send_message.call_args
+        messages = call_args[1].get("messages") or call_args[0][3]
+        user_message = next(m["content"] for m in messages if m["role"] == "user")
+        self.assertNotIn("Also flagged", user_message)
+        self.assertNotIn("shallow", user_message.lower())
 
 
 if __name__ == "__main__":

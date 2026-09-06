@@ -4,7 +4,7 @@ Monkeypatches AIService.send_message to capture the prompt that was assembled
 and to return controlled responses without making live API calls.
 
 Assertions focus on prompt *content* — that the required pieces are present —
-and on response *parsing* — that narrative / shallow-flag splitting is correct.
+and on response *parsing* — that _parse_response always returns empty flags.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.chess_log_narrative_service import (
+    _PRESET_GLOSSARIES,
     build_prompt,
     generate_narrative,
     _parse_response,
@@ -60,7 +61,7 @@ def _cct(cat: str, why: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------
-# build_prompt
+# build_prompt — category counts
 # ---------------------------------------------------------------------------
 
 class TestBuildPromptCategoryCounts(unittest.TestCase):
@@ -94,6 +95,10 @@ class TestBuildPromptCategoryCounts(unittest.TestCase):
         self.assertIn("no moments tagged", prompt)
 
 
+# ---------------------------------------------------------------------------
+# build_prompt — why-notes
+# ---------------------------------------------------------------------------
+
 class TestBuildPromptWhyNotes(unittest.TestCase):
 
     def test_why_note_present_in_prompt(self):
@@ -118,6 +123,10 @@ class TestBuildPromptWhyNotes(unittest.TestCase):
         self.assertIn("CLAMP/L", prompt)
 
 
+# ---------------------------------------------------------------------------
+# build_prompt — whole-game notes
+# ---------------------------------------------------------------------------
+
 class TestBuildPromptGameNotes(unittest.TestCase):
 
     def test_game_note_present_in_prompt(self):
@@ -130,6 +139,10 @@ class TestBuildPromptGameNotes(unittest.TestCase):
         prompt = build_prompt([game])
         self.assertIn("no whole-game notes", prompt)
 
+
+# ---------------------------------------------------------------------------
+# build_prompt — player filter
+# ---------------------------------------------------------------------------
 
 class TestBuildPromptPlayerFilter(unittest.TestCase):
 
@@ -152,30 +165,115 @@ class TestBuildPromptPlayerFilter(unittest.TestCase):
         self.assertIn("carlos note", prompt)
 
 
-class TestBuildPromptShallowFlagInstruction(unittest.TestCase):
+# ---------------------------------------------------------------------------
+# build_prompt — glossary
+# ---------------------------------------------------------------------------
 
-    def test_shallow_flag_instruction_present(self):
+class TestBuildPromptGlossary(unittest.TestCase):
+
+    def test_clamp_glossary_emitted_when_clamp_data_present(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         prompt = build_prompt([game])
-        self.assertIn("shallow", prompt.lower())
-        self.assertIn("Also flagged", prompt)
+        self.assertIn("Checks", prompt)
+        self.assertIn("Loose Pieces and Squares", prompt)
+        self.assertIn("Alignments", prompt)
+        self.assertIn("Mobility Restrictions", prompt)
+        self.assertIn("Passed Pawns", prompt)
 
-    def test_include_also_flagged_false_omits_step2(self):
+    def test_clamp_glossary_uses_verbatim_source_text(self):
+        # Guards against future paraphrase drift by pinning distinctive phrases
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
-        prompt = build_prompt([game], include_also_flagged=False)
-        self.assertNotIn("Also flagged", prompt)
-        self.assertNotIn("shallow", prompt.lower())
+        prompt = build_prompt([game])
+        self.assertIn("knight's reach", prompt)
+        self.assertIn("handing them one", prompt)
+        self.assertIn("boxed in by their candidate move", prompt)
 
-    def test_include_also_flagged_false_still_has_narrative_step(self):
-        game = _make_game(entries_per_path={"0": [_clamp("C")]})
-        prompt = build_prompt([game], include_also_flagged=False)
-        self.assertIn("Narrative summary", prompt)
+    def test_no_glossary_when_no_data(self):
+        game = _make_game()  # no tags → no preset in data
+        prompt = build_prompt([game])
+        self.assertNotIn("## Glossary", prompt)
 
-    def test_include_also_flagged_true_is_default(self):
+    def test_glossary_only_for_presets_in_data(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
-        prompt_default = build_prompt([game])
-        prompt_explicit = build_prompt([game], include_also_flagged=True)
-        self.assertEqual(prompt_default, prompt_explicit)
+        prompt = build_prompt([game])
+        self.assertIn("## Glossary — CLAMP", prompt)
+        self.assertNotIn("## Glossary — CCT", prompt)
+        self.assertNotIn("## Glossary — 3x3", prompt)
+        self.assertNotIn("## Glossary — Custom", prompt)
+
+    def test_glossary_registry_extensible(self):
+        self.assertIsInstance(_PRESET_GLOSSARIES, dict)
+        self.assertIn("CLAMP", _PRESET_GLOSSARIES)
+        self.assertTrue(len(_PRESET_GLOSSARIES["CLAMP"]) > 0)
+        # TODO placeholders for future presets must be present so future authors
+        # know exactly where to plug in verbatim text (not invent it)
+        self.assertIn("CCT", _PRESET_GLOSSARIES)
+        self.assertIn("3x3", _PRESET_GLOSSARIES)
+        self.assertIn("Custom", _PRESET_GLOSSARIES)
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — trend counts
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptTrendCounts(unittest.TestCase):
+
+    def test_category_counts_by_preset_are_trend_binned(self):
+        # 8 games across 8 different months → multiple time bins
+        dates_and_cats = [
+            ("2025.02.01", "C"), ("2025.03.01", "L"),
+            ("2025.04.01", "A"), ("2025.05.01", "M"),
+            ("2025.06.01", "P"), ("2025.07.01", "C"),
+            ("2025.08.01", "L"), ("2025.09.01", "A"),
+        ]
+        games = [
+            _make_game(date=d, entries_per_path={"0": [_clamp(cat)]})
+            for d, cat in dates_and_cats
+        ]
+        prompt = build_prompt(games)
+        # Multiple "Bin N (" headers confirm trend structure, not flat totals
+        self.assertGreaterEqual(prompt.count("Bin "), 2)
+
+    def test_trend_falls_back_gracefully_when_aggregator_empty(self):
+        # PGN "????.??.??" → _game_date_ordinal_for_trends returns None
+        # → aggregate skips the game → series_map empty → fallback to flat counts
+        game = _make_game(date="????.??.??", entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game])  # must not raise
+        self.assertIn("trend data unavailable", prompt)
+        self.assertIn("CLAMP", prompt)
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — note normalization
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptNoteNormalization(unittest.TestCase):
+
+    def test_note_normalization_instruction_present(self):
+        game = _make_game(notes="Played aggressively but missed the counterplay.")
+        prompt = build_prompt([game])
+        self.assertIn("illustrative color only", prompt)
+
+    def test_note_normalization_precedes_whole_game_notes_section(self):
+        game = _make_game(notes="Some game note.")
+        prompt = build_prompt([game])
+        norm_idx = prompt.lower().find("illustrative color only")
+        notes_idx = prompt.find("## Whole-game notes")
+        self.assertGreater(notes_idx, norm_idx,
+                           "note-normalization instruction must come before ## Whole-game notes")
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — narrative instruction
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptNarrativeInstruction(unittest.TestCase):
+
+    def test_narrative_step_asks_for_three_to_five_paragraphs(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game])
+        self.assertIn("3–5 paragraphs", prompt)   # en-dash: 3–5
+        self.assertNotIn("2–4 paragraphs", prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -189,33 +287,17 @@ class TestParseResponse(unittest.TestCase):
         self.assertEqual(narrative, "Great reflection on your games.")
         self.assertEqual(flags, [])
 
-    def test_sentinel_splits_narrative_and_flags(self):
-        response = (
-            "You show progress in calculation.\n\n"
+    def test_parse_response_always_returns_empty_flags(self):
+        # Even when the LLM still outputs an "Also flagged" section, flags == []
+        response_with_sentinel = (
+            "You show progress.\n\n"
             "## Also flagged\n"
             "- 'I blundered' under Blunder: restates the category\n"
-            "- 'Made a mistake' under Mistake: same\n"
         )
-        narrative, flags = _parse_response(response)
-        self.assertIn("progress in calculation", narrative)
-        self.assertEqual(len(flags), 2)
-        self.assertIn("restates the category", flags[0])
-
-    def test_sentinel_case_insensitive(self):
-        response = "Good work.\n\n## ALSO FLAGGED\n- shallow note here\n"
-        narrative, flags = _parse_response(response)
-        self.assertIn("Good work", narrative)
-        self.assertEqual(len(flags), 1)
-
-    def test_empty_flagged_section_returns_no_flags(self):
-        response = "Solid work.\n\n## Also flagged\n"
-        _, flags = _parse_response(response)
-        self.assertEqual(flags, [])
-
-    def test_bullet_styles_star_and_dash(self):
-        response = "Narrative.\n\n## Also flagged\n- dash item\n* star item\n"
-        _, flags = _parse_response(response)
-        self.assertEqual(len(flags), 2)
+        for response in ("Plain narrative.", response_with_sentinel):
+            with self.subTest(response=response[:30]):
+                _, flags = _parse_response(response)
+                self.assertEqual(flags, [])
 
 
 # ---------------------------------------------------------------------------
@@ -231,7 +313,7 @@ class TestGenerateNarrative(unittest.TestCase):
         })
 
     @patch("app.services.chess_log_narrative_service.AIService")
-    def test_success_returns_narrative_and_flags(self, MockAIService):
+    def test_success_returns_narrative_and_empty_flags(self, MockAIService):
         response_text = (
             "You have been logging Calculation mistakes frequently.\n\n"
             "## Also flagged\n"
@@ -251,7 +333,8 @@ class TestGenerateNarrative(unittest.TestCase):
 
         self.assertTrue(success)
         self.assertIn("Calculation", narrative)
-        self.assertEqual(len(flags), 1)
+        # Shallow-note flagging removed: flags always empty
+        self.assertEqual(flags, [])
 
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_api_failure_returns_false(self, MockAIService):
@@ -374,27 +457,6 @@ class TestGenerateNarrative(unittest.TestCase):
 
         call_kwargs = mock_service.send_message.call_args[1]
         self.assertEqual(call_kwargs.get("token_limit"), 4000)
-
-    @patch("app.services.chess_log_narrative_service.AIService")
-    def test_include_also_flagged_false_omits_step2_in_sent_prompt(self, MockAIService):
-        mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "Solid work.")
-        MockAIService.return_value = mock_service
-
-        generate_narrative(
-            games=[self._game_with_clamp()],
-            provider="openai",
-            model="gpt-4o",
-            api_key="sk-test",
-            base_url_override=None,
-            include_also_flagged=False,
-        )
-
-        call_args = mock_service.send_message.call_args
-        messages = call_args[1].get("messages") or call_args[0][3]
-        user_message = next(m["content"] for m in messages if m["role"] == "user")
-        self.assertNotIn("Also flagged", user_message)
-        self.assertNotIn("shallow", user_message.lower())
 
 
 if __name__ == "__main__":

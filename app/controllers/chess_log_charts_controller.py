@@ -147,6 +147,9 @@ class ChessLogNarrativeThread(QThread):
         player: str,
         color_filter: str,
         config: Optional[Dict[str, Any]],
+        timeout_seconds: int = 60,
+        token_limit: Optional[int] = None,
+        include_also_flagged: bool = True,
     ) -> None:
         super().__init__()
         self._games = games
@@ -157,6 +160,9 @@ class ChessLogNarrativeThread(QThread):
         self._player = player
         self._color_filter = color_filter
         self._config = config
+        self._timeout_seconds = timeout_seconds
+        self._token_limit = token_limit
+        self._include_also_flagged = include_also_flagged
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -177,6 +183,9 @@ class ChessLogNarrativeThread(QThread):
             player=self._player,
             color_filter=self._color_filter,
             config=self._config,
+            timeout_seconds=self._timeout_seconds,
+            token_limit=self._token_limit,
+            include_also_flagged=self._include_also_flagged,
         )
         with QMutexLocker(self._mutex):
             if self._cancelled:
@@ -227,6 +236,11 @@ class ChessLogChartsController(QObject):
         self._agg_worker: Optional[ChessLogAggregationWorker] = None
         self._narrative_thread: Optional[ChessLogNarrativeThread] = None
 
+        # Narrative-panel ephemeral settings (not persisted except timeout).
+        self._narrative_token_limit: int = 2000
+        self._narrative_include_flags: bool = True
+        self._narrative_model_override: Optional[str] = None
+
         self._selection_debounce = QTimer(self)
         self._selection_debounce.setSingleShot(True)
         self._selection_debounce.timeout.connect(self._on_selection_debounced)
@@ -275,6 +289,61 @@ class ChessLogChartsController(QObject):
 
     def is_ai_configured(self) -> bool:
         return resolve_default_provider(self._user_settings) is not None
+
+    # --- narrative panel controls ---
+
+    def get_narrative_timeout_seconds(self) -> int:
+        """Return the shared AI Summary timeout (persisted in user_settings)."""
+        return int(self._user_settings.get("ai_summary", {}).get("request_timeout_seconds", 60))
+
+    def set_narrative_timeout_seconds(self, seconds: int) -> None:
+        """Persist the timeout to the shared ai_summary.request_timeout_seconds key."""
+        try:
+            UserSettingsService.get_instance().update_ai_summary_settings(
+                {"request_timeout_seconds": seconds}
+            )
+        except Exception:
+            pass
+        self._user_settings.setdefault("ai_summary", {})["request_timeout_seconds"] = seconds
+
+    def set_narrative_token_limit(self, limit: int) -> None:
+        self._narrative_token_limit = limit
+
+    def set_narrative_include_flags(self, include: bool) -> None:
+        self._narrative_include_flags = include
+
+    def set_narrative_model_override(self, model: Optional[str]) -> None:
+        """Set a specific model to use for narrative generation (None = provider default)."""
+        self._narrative_model_override = model or None
+
+    def get_available_models(self) -> List[str]:
+        """Return model IDs available for the active provider (same filtering as AI Summary)."""
+        ai_settings = self._user_settings.get("ai_models", {})
+        ai_summary = self._user_settings.get("ai_summary", {})
+        use_openai = bool(ai_summary.get("use_openai_models", True))
+        use_anthropic = bool(ai_summary.get("use_anthropic_models", False))
+        use_custom = bool(ai_summary.get("use_custom_models", False))
+        if sum([use_openai, use_anthropic, use_custom]) != 1:
+            use_openai, use_anthropic, use_custom = True, False, False
+
+        if use_openai:
+            s = ai_settings.get("openai", {})
+            if s.get("api_key"):
+                return list(s.get("models", []) or [])
+        if use_anthropic:
+            s = ai_settings.get("anthropic", {})
+            if s.get("api_key"):
+                return list(s.get("models", []) or [])
+        if use_custom:
+            s = ai_settings.get("custom", {})
+            if s.get("enabled", False) and (s.get("base_url") or "").strip():
+                return list(s.get("models", []) or [])
+        return []
+
+    def get_default_narrative_model(self) -> Optional[str]:
+        """Return the default model ID for the active provider, or None if unconfigured."""
+        provider_tuple = resolve_default_provider(self._user_settings)
+        return provider_tuple[1] if provider_tuple else None
 
     # --- getters ---
 
@@ -375,7 +444,8 @@ class ChessLogChartsController(QObject):
         if not provider_tuple:
             self.narrative_failed.emit("No AI provider configured.")
             return
-        provider, model, api_key, base_url = provider_tuple
+        provider, default_model, api_key, base_url = provider_tuple
+        model = self._narrative_model_override or default_model
         games = self._resolve_games()
         if not games:
             self.narrative_failed.emit("No games in scope.")
@@ -390,6 +460,9 @@ class ChessLogChartsController(QObject):
             player=self._current_player,
             color_filter=self._color_filter,
             config=self._config,
+            timeout_seconds=self.get_narrative_timeout_seconds(),
+            token_limit=self._narrative_token_limit,
+            include_also_flagged=self._narrative_include_flags,
         )
         thread.narrative_ready.connect(self.narrative_ready)
         thread.narrative_failed.connect(self.narrative_failed)

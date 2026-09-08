@@ -30,7 +30,9 @@ _MAX_GAME_NOTES = 10
 _SYSTEM_PROMPT = (
     "You are a chess coach helping a player reflect on their self-annotated game moments. "
     "Be specific, encouraging, and concrete. Avoid generic advice. "
-    "Write in second person ('you', 'your')."
+    "Write in second person ('you', 'your'). "
+    "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
+    "Write in plain, direct sentences. Avoid decorative devices like em-dashes for dramatic pause and tidy aphoristic closers ('X is the mechanism, Y is the consequence') — but don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
 )
 
 # Registry of per-preset glossary text.

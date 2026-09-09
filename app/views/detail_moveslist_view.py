@@ -535,6 +535,17 @@ class DetailMovesListView(QWidget):
         if self._moveslist_model:
             self._moveslist_model.notify_chess_log_changed()
 
+    def _on_show_tags(self) -> None:
+        """Open the Show Tags dialog for the current game."""
+        if not self._chess_log_controller or not self._game_model:
+            return
+        game_data = self._game_model.active_game
+        if game_data is None:
+            return
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        dlg = ShowTagsDialog(self.config, game_data, self._chess_log_controller, self)
+        dlg.exec()
+
     def _on_moves_table_context_menu(self, pos: QPoint) -> None:
         """Show context menu for copy actions at the cell under the cursor."""
         from app.views.style import StyleManager
@@ -586,6 +597,8 @@ class DetailMovesListView(QWidget):
                 lambda _checked=False, r=row: self._open_move_comment_editor(r)
             )
 
+        menu.addSeparator()
+
         tag_moment_action = menu.addAction("Tag this moment…")
         can_tag = (
             self._chess_log_controller is not None
@@ -600,6 +613,18 @@ class DetailMovesListView(QWidget):
         tag_moment_action.triggered.connect(
             lambda _checked=False, idx=index: self._on_tag_moment(idx)
         )
+
+        show_tags_action = menu.addAction("Show Tags")
+        can_show = (
+            self._chess_log_controller is not None
+            and self._game_model is not None
+            and self._game_model.active_game is not None
+            and self._chess_log_controller.game_has_any_tags()
+        )
+        show_tags_action.setEnabled(can_show)
+        if not can_show:
+            show_tags_action.setToolTip("No tagged moments in this game.")
+        show_tags_action.triggered.connect(self._on_show_tags)
 
         menu.addSeparator()
         menu.addAction("Copy Table as CSV (Visual Columns)").triggered.connect(self._copy_table_csv_visual)

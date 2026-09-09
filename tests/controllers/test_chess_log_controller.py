@@ -300,5 +300,62 @@ class TestCacheReloadOnGameChange(unittest.TestCase):
         self.assertIsNone(ctrl._cached_game_id)
 
 
+class TestGameHasAnyTags(unittest.TestCase):
+    def test_true_when_cache_has_entries(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]}
+        self.assertTrue(ctrl.game_has_any_tags())
+
+    def test_false_when_cache_empty(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {}
+        self.assertFalse(ctrl.game_has_any_tags())
+
+    def test_false_when_cache_only_has_empty_lists(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {"0": [], "0.0": []}
+        self.assertFalse(ctrl.game_has_any_tags())
+
+
+class TestReplaceEntriesAtPath(unittest.TestCase):
+    def test_replaces_only_named_preset(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [
+                ChessLogStorageService.make_entry("CLAMP", "M"),
+                ChessLogStorageService.make_entry("Custom", "Time trouble"),
+            ]
+        }
+        ctrl.replace_entries_at_path(
+            "0", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "new"}]
+        )
+        entries = ctrl._cached_paths_data["0"]
+        clamp = [e for e in entries if e["preset"] == "CLAMP"]
+        custom = [e for e in entries if e["preset"] == "Custom"]
+        self.assertEqual(len(clamp), 1)
+        self.assertEqual(clamp[0]["cat"], "C")
+        self.assertEqual(len(custom), 1)
+        self.assertEqual(custom[0]["cat"], "Time trouble")
+
+    def test_new_path_creates_entry(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {}
+        ctrl.replace_entries_at_path(
+            "9", "CCT", [{"preset": "CCT", "cat": "Threats", "why": "missed"}]
+        )
+        self.assertIn("9", ctrl._cached_paths_data)
+        self.assertEqual(ctrl._cached_paths_data["9"][0]["cat"], "Threats")
+
+
 if __name__ == "__main__":
     unittest.main()

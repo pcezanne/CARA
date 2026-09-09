@@ -139,6 +139,39 @@ class ChessLogController:
             self._mark_database_unsaved(game)
         return ok
 
+    def game_has_any_tags(self) -> bool:
+        """Return True if the current game has any tagged entries across any preset."""
+        data = self.get_tags_for_current_game()
+        return any(data.values())
+
+    def replace_entries_at_path(
+        self,
+        path_key: str,
+        preset: str,
+        entries: List[Dict[str, Any]],
+        view=None,
+    ) -> None:
+        """Replace all entries for *preset* at *path_key* in the in-memory cache.
+
+        Analogous to add_moment_at_active_path but takes an explicit path_key
+        instead of the game model's active path.  Only the named preset's entries
+        at that path are replaced; other presets at the same path are preserved.
+        In-memory only — call save_tags_for_current_game() to persist to PGN.
+        """
+        tagged = [
+            ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", ""))
+            for e in entries
+        ]
+        if path_key in self._cached_paths_data:
+            kept = [e for e in self._cached_paths_data[path_key] if e.get("preset") != preset]
+            merged = kept + tagged
+            if merged:
+                self._cached_paths_data[path_key] = merged
+            else:
+                del self._cached_paths_data[path_key]
+        elif tagged:
+            self._cached_paths_data[path_key] = tagged
+
     def has_unsaved_changes(self) -> bool:
         """Return True if in-memory cache differs from what's stored in the PGN."""
         game = self._game_controller.get_game_model().active_game

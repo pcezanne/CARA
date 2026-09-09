@@ -422,7 +422,7 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
 
     def test_tokens_spin_default_value(self):
         view = self._make_view()
-        self.assertEqual(view._tokens_spin.value(), 2000)
+        self.assertEqual(view._tokens_spin.value(), 4000)
 
     def test_tokens_spin_range(self):
         view = self._make_view()

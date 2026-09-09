@@ -237,7 +237,7 @@ class ChessLogChartsController(QObject):
         self._narrative_thread: Optional[ChessLogNarrativeThread] = None
 
         # Narrative-panel ephemeral settings (not persisted except timeout).
-        self._narrative_token_limit: int = 2000
+        self._narrative_token_limit: int = 4000
         self._narrative_include_flags: bool = True
         self._narrative_model_override: Optional[str] = None
 

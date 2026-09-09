@@ -177,7 +177,7 @@ class AIService:
             if provider == AIProvider.OPENAI:
                 return self._send_openai_message(model, api_key, messages, system_prompt, token_limit, timeout_seconds=timeout_seconds)
             elif provider == AIProvider.ANTHROPIC:
-                return self._send_anthropic_message(model, api_key, messages, system_prompt, timeout_seconds=timeout_seconds)
+                return self._send_anthropic_message(model, api_key, messages, system_prompt, token_limit=token_limit, timeout_seconds=timeout_seconds)
             elif provider == AIProvider.CUSTOM and base_url_override:
                 chat_url = base_url_override.rstrip("/") + "/chat/completions"
                 return self._send_openai_message(
@@ -481,6 +481,7 @@ class AIService:
         api_key: str,
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
+        token_limit: Optional[int] = None,
         timeout_seconds: int = 60
     ) -> Tuple[bool, str]:
         """Send message to Anthropic API.
@@ -516,7 +517,7 @@ class AIService:
         
         payload = {
             "model": model,
-            "max_tokens": 2000,
+            "max_tokens": token_limit if token_limit is not None else 2000,
             "messages": anthropic_messages
         }
         
@@ -563,11 +564,29 @@ class AIService:
             return False, error_message
         
         data = response.json()
-        content = data.get("content", [{}])[0].get("text", "")
-        
+        content_blocks = data.get("content", [])
+        content = next(
+            (block.get("text", "") for block in content_blocks if block.get("type") == "text"),
+            ""
+        )
+
+        stop_reason = data.get("stop_reason", "")
+
         if not content:
-            return False, "Empty response from API"
-        
+            if stop_reason == "max_tokens":
+                return False, (
+                    "Response was truncated at the token limit before generating any text. "
+                    "Try increasing the Tokens limit in the narrative controls."
+                )
+            block_types = [b.get("type") for b in content_blocks]
+            return False, f"Empty response from API (stop_reason: {stop_reason!r}, block types: {block_types})"
+
+        if stop_reason == "max_tokens":
+            content = content + (
+                "\n\n[Response was cut off — the model reached the output token limit. "
+                "Try increasing the Tokens limit in the narrative controls.]"
+            )
+
         return True, content
     
     @staticmethod

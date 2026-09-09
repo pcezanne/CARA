@@ -171,6 +171,23 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 
 **Entry point**: first-time users should open Chess Log → Chess Log Settings to pick their preset (and, for Custom, populate the picklist). Then right-click a move in the Moves List → "Tag this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
 
+**Moves-list context menu structure** (right-click on any move):
+1. Column profile (submenu)
+2. --- separator ---
+3. Copy value
+4. Edit Comments (conditional — only when clicking a Comment cell)
+5. --- separator ---
+6. Tag this moment…
+7. **Show Tags** — opens a scrollable read-only-first dialog listing every tagged (move, preset) pair in the current game, sorted by ply ascending then preset in canonical order (CLAMP → CCT → 3x3 → Custom). Enabled iff the game has at least one tagged entry. Disabled with tooltip "No tagged moments in this game." when the game has zero tags.
+8. --- separator ---
+9. Copy Table as CSV / TSV (4 actions)
+
+**Show Tags dialog** (`app/views/dialogs/show_tags_dialog.py`, class `ShowTagsDialog`): each row represents one (move, preset) pair. Three columns: board miniature (played move arrow only — best-move rendering deferred, no existing two-arrow widget), category checkboxes (blank for 3x3), and why-note text. Click **Edit** to enable in-place editing; **OK** persists changes to the in-memory cache only (same two-step save pattern as Tag This Moment — user must still Ctrl+Alt+L to write to PGN). **Cancel** discards edits. Best-move arrow deferred — `MiniChessBoardWidget` only supports one arrow; adding a two-arrow variant is a future design pass.
+
+**`ChessLogController` helpers added** for Show Tags:
+- `game_has_any_tags() -> bool` — True iff `_cached_paths_data` has any non-empty entry list.
+- `replace_entries_at_path(path_key, preset, entries, view=None)` — replaces all entries for the given preset at that path; preserves other presets at the same path. In-memory only, same as `add_moment_at_active_path`.
+
 **Out of scope for the `tagging` branch**: "highlight tagged moves" toggle.
 
 ### Chess Log Charts (branch: `chess-log-charts`, §5.1 + §5.2)

@@ -256,7 +256,7 @@ class DetailChessLogChartsView(QWidget):
         self._tokens_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self._tokens_spin.setRange(256, 16000)
         self._tokens_spin.setSingleStep(100)
-        self._tokens_spin.setValue(2000)
+        self._tokens_spin.setValue(4000)
         self._tokens_spin.setFixedWidth(70)
         self._tokens_spin.valueChanged.connect(self._on_narrative_tokens_changed)
         model_row.addWidget(self._tokens_spin)
@@ -268,6 +268,10 @@ class DetailChessLogChartsView(QWidget):
         self._narrative_edit.setPlaceholderText(
             "Click 'Generate Narrative Summary' to get an AI-written reflection on your Chess Log moments."
         )
+        self._narrative_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._narrative_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._narrative_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self._narrative_edit.document().contentsChanged.connect(self._fit_narrative_height)
         layout.addWidget(self._narrative_edit)
 
         self._flagged_box = QGroupBox("Also flagged")
@@ -439,6 +443,17 @@ class DetailChessLogChartsView(QWidget):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _fit_narrative_height(self) -> None:
+        """Resize _narrative_edit to its document height so the outer scroll area handles overflow."""
+        doc = self._narrative_edit.document()
+        width = self._narrative_edit.viewport().width()
+        if width > 0:
+            doc.setTextWidth(width)
+        h = int(doc.size().height())
+        margins = self._narrative_edit.contentsMargins()
+        total = h + margins.top() + margins.bottom() + 4
+        self._narrative_edit.setMinimumHeight(max(total, 60))
 
     def _cat_colors_for_preset(self, preset: str) -> Dict[str, "QColor"]:
         from PyQt6.QtGui import QColor

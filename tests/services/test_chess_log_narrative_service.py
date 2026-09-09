@@ -16,6 +16,8 @@ from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.chess_log_narrative_service import (
     _PRESET_GLOSSARIES,
+    _bin_month_label,
+    _format_trend_counts,
     build_prompt,
     generate_narrative,
     _parse_response,
@@ -72,8 +74,11 @@ class TestBuildPromptCategoryCounts(unittest.TestCase):
         })
         prompt = build_prompt([game])
         self.assertIn("CLAMP", prompt)
-        self.assertIn("C:", prompt)
-        self.assertIn("L:", prompt)
+        # New format: percentages, not raw "C:N" counts
+        self.assertIn("%", prompt)
+        # C appears twice, L once → C 67%, L 33%
+        self.assertIn("C 67%", prompt)
+        self.assertIn("L 33%", prompt)
 
     def test_uncategorized_labelled_in_prompt(self):
         game = _make_game(entries_per_path={"0": [_clamp("")]})
@@ -231,8 +236,15 @@ class TestBuildPromptTrendCounts(unittest.TestCase):
             for d, cat in dates_and_cats
         ]
         prompt = build_prompt(games)
-        # Multiple "Bin N (" headers confirm trend structure, not flat totals
-        self.assertGreaterEqual(prompt.count("Bin "), 2)
+        # Multiple "N moments)" occurrences confirm trend structure, not flat totals
+        self.assertGreaterEqual(prompt.count("moments)"), 2)
+        # "Bin 1", "Bin 2", etc. must not appear — periods use calendar labels.
+        # (The instruction text contains the literal string "Bin N" as an example,
+        # which is fine — it's a numbered form like "Bin 1" that must be absent.)
+        self.assertNotIn("Bin 1", prompt)
+        self.assertNotIn("Bin 2", prompt)
+        self.assertNotIn("Bin 3", prompt)
+        self.assertNotIn("Bin 4", prompt)
 
     def test_trend_falls_back_gracefully_when_aggregator_empty(self):
         # PGN "????.??.??" → _game_date_ordinal_for_trends returns None
@@ -261,6 +273,50 @@ class TestBuildPromptNoteNormalization(unittest.TestCase):
         notes_idx = prompt.find("## Whole-game notes")
         self.assertGreater(notes_idx, norm_idx,
                            "note-normalization instruction must come before ## Whole-game notes")
+
+
+# ---------------------------------------------------------------------------
+# build_prompt — system prompt instructions
+# ---------------------------------------------------------------------------
+
+class TestSystemPromptInstructions(unittest.TestCase):
+    """Tests that key _SYSTEM_PROMPT instructions are present (verbatim phrase checks)."""
+
+    def _get_system_prompt(self) -> str:
+        from app.services.chess_log_narrative_service import _SYSTEM_PROMPT
+        return _SYSTEM_PROMPT
+
+    def test_calendar_label_instruction_present(self):
+        sp = self._get_system_prompt()
+        self.assertIn("Never use generic placeholder language like 'periods' or 'bins'", sp)
+
+    def test_closing_takeaway_instruction_present(self):
+        sp = self._get_system_prompt()
+        self.assertIn("must always end with a dedicated final paragraph", sp)
+        self.assertIn("must never be dropped", sp)
+
+    def test_period_listing_instruction_present(self):
+        sp = self._get_system_prompt()
+        self.assertIn("do not mechanically list every period's name", sp)
+        self.assertNotIn("lifetime", sp.lower())
+
+    def test_calendar_label_prompt_contains_no_bin_n(self):
+        # A multi-bin scenario: the assembled prompt's category-count section
+        # must contain real month text, not the literal "Bin 1" etc.
+        dates_and_cats = [
+            ("2025.06.01", "C"), ("2025.07.01", "L"),
+            ("2025.08.01", "A"), ("2025.09.01", "M"),
+        ]
+        games = [
+            _make_game(date=d, entries_per_path={"0": [_clamp(cat)]})
+            for d, cat in dates_and_cats
+        ]
+        prompt = build_prompt(games)
+        self.assertNotIn("Bin 1", prompt)
+        self.assertNotIn("Bin 2", prompt)
+        # Real month names are present
+        self.assertRegex(prompt, r"(January|February|March|April|May|June|"
+                                  r"July|August|September|October|November|December)")
 
 
 # ---------------------------------------------------------------------------
@@ -457,6 +513,236 @@ class TestGenerateNarrative(unittest.TestCase):
 
         call_kwargs = mock_service.send_message.call_args[1]
         self.assertEqual(call_kwargs.get("token_limit"), 4000)
+
+
+# ---------------------------------------------------------------------------
+# _bin_month_label — natural calendar labels
+# ---------------------------------------------------------------------------
+
+class TestBinMonthLabel(unittest.TestCase):
+
+    def test_same_month_same_year(self):
+        self.assertEqual(_bin_month_label("2025-06-01", "2025-06-30"), "June 2025")
+
+    def test_adjacent_months_same_year(self):
+        self.assertEqual(_bin_month_label("2025-06-01", "2025-07-15"), "June-July 2025")
+
+    def test_non_adjacent_months_same_year(self):
+        self.assertEqual(_bin_month_label("2025-03-01", "2025-08-31"), "March-August 2025")
+
+    def test_cross_year_uses_short_names(self):
+        label = _bin_month_label("2025-12-01", "2026-01-31")
+        self.assertIn("Dec", label)
+        self.assertIn("Jan", label)
+        self.assertIn("2025", label)
+        self.assertIn("2026", label)
+
+    def test_invalid_date_falls_back_to_raw(self):
+        result = _bin_month_label("????.??.??", "2025-06-30")
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+
+    def test_both_invalid_falls_back(self):
+        result = _bin_month_label("????.??.??", "????.??.??")
+        self.assertIsInstance(result, str)
+
+
+# ---------------------------------------------------------------------------
+# _format_trend_counts — percentages, overall average, no "Bin N"
+# ---------------------------------------------------------------------------
+
+class TestFormatTrendCounts(unittest.TestCase):
+
+    def _make_series_map(self, bins_data: list) -> dict:
+        """bins_data: list of (lab0, lab1, counts_dict) tuples."""
+        from app.services.chess_log_stats_service import ChessLogCategoryBin, ChessLogPresetSeries
+        bins = [
+            ChessLogCategoryBin(
+                time_pct=float(i * 25),
+                total=sum(counts.values()),
+                lab0=lab0,
+                lab1=lab1,
+                counts=dict(counts),
+            )
+            for i, (lab0, lab1, counts) in enumerate(bins_data)
+        ]
+        all_cats = sorted({cat for _, _, cts in bins_data for cat in cts})
+        series = ChessLogPresetSeries(preset="CLAMP", categories=all_cats, bins=bins)
+        return {"CLAMP": series}
+
+    def test_percentages_not_raw_counts(self):
+        # 3 C, 1 L in a single bin → C 75%, L 25%
+        sm = self._make_series_map([("2025-06-01", "2025-06-30", {"C": 3, "L": 1})])
+        text = _format_trend_counts(sm)
+        self.assertIn("75%", text)
+        self.assertIn("25%", text)
+        self.assertNotIn("C:3", text)
+        self.assertNotIn("L:1", text)
+
+    def test_overall_average_present(self):
+        sm = self._make_series_map([
+            ("2025-06-01", "2025-06-30", {"C": 3, "L": 1}),
+            ("2025-07-01", "2025-07-31", {"C": 1, "L": 3}),
+        ])
+        text = _format_trend_counts(sm)
+        self.assertIn("Overall average:", text)
+        self.assertNotIn("Lifetime average:", text)
+
+    def test_overall_average_is_total_weighted(self):
+        # Bin 1: C=9, L=1 (total 10). Bin 2: C=1, L=999 (total 1000).
+        # Total-weighted: C = 10/1010 ≈ 1%, L = 1000/1010 ≈ 99%.
+        # Average-of-pcts: C = (90% + 0.1%)/2 ≈ 45% — clearly wrong.
+        sm = self._make_series_map([
+            ("2025-06-01", "2025-06-30", {"C": 9, "L": 1}),
+            ("2025-07-01", "2025-07-31", {"C": 1, "L": 999}),
+        ])
+        text = _format_trend_counts(sm)
+        # Overall average line must show C 1% and L 99% (total-weighted)
+        avg_line = next(l for l in text.splitlines() if "Overall average" in l)
+        self.assertIn("C 1%", avg_line)
+        self.assertIn("L 99%", avg_line)
+
+    def test_no_bin_n_in_output(self):
+        sm = self._make_series_map([
+            ("2025-06-01", "2025-06-30", {"C": 2}),
+            ("2025-07-01", "2025-07-31", {"C": 3}),
+        ])
+        text = _format_trend_counts(sm)
+        self.assertNotIn("Bin 1", text)
+        self.assertNotIn("Bin 2", text)
+        self.assertNotIn("Bin ", text)
+
+    def test_bin_line_uses_month_label(self):
+        sm = self._make_series_map([
+            ("2025-06-01", "2025-06-30", {"C": 2}),
+            ("2025-07-01", "2025-07-31", {"C": 3}),
+        ])
+        text = _format_trend_counts(sm)
+        self.assertIn("June 2025", text)
+        self.assertIn("July 2025", text)
+
+    def test_calendar_label_instruction_in_prompt(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game])
+        self.assertIn('"Bin N"', prompt)
+        self.assertIn("never", prompt.lower())
+
+    def test_zero_count_categories_omitted(self):
+        # Only C appears — A, L, M, P should not appear in output
+        sm = self._make_series_map([("2025-06-01", "2025-06-30", {"C": 4})])
+        text = _format_trend_counts(sm)
+        self.assertNotIn("L ", text)
+        self.assertNotIn("A ", text)
+
+
+# ---------------------------------------------------------------------------
+# No input cap — all notes reach the prompt
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptNoCap(unittest.TestCase):
+
+    def test_all_why_notes_present_beyond_old_cap(self):
+        # 50 distinct why-notes exceeds the old _MAX_WHY_NOTES = 40 cap.
+        # All must appear in the assembled prompt.
+        entries = [_clamp("C", f"unique why note index {i}") for i in range(50)]
+        game = _make_game(entries_per_path={"0": entries})
+        prompt = build_prompt([game])
+        for i in range(50):
+            self.assertIn(f"unique why note index {i}", prompt,
+                          msg=f"Note {i} missing — input cap may still be active")
+
+    def test_all_game_notes_present_beyond_old_cap(self):
+        # 12 games each with a distinct game note exceeds old _MAX_GAME_NOTES = 10.
+        # All game notes must appear in the assembled prompt.
+        games = [
+            _make_game(
+                date=f"2025.0{(i % 9) + 1}.{(i // 9) * 10 + 1:02d}",
+                notes=f"game level note index {i}",
+                entries_per_path={"0": [_clamp("C")]},
+            )
+            for i in range(12)
+        ]
+        prompt = build_prompt(games)
+        for i in range(12):
+            self.assertIn(f"game level note index {i}", prompt,
+                          msg=f"Game note {i} missing — input cap may still be active")
+
+
+# ---------------------------------------------------------------------------
+# Truncation notice — max_tokens with partial text (ai_service layer)
+# ---------------------------------------------------------------------------
+
+class TestAnthropicTruncationNotice(unittest.TestCase):
+    """_send_anthropic_message appends a visible notice when stop_reason='max_tokens'
+    and the response contains partial text content."""
+
+    def _make_anthropic_response(self, text: str, stop_reason: str) -> "MagicMock":
+        import json
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"x"
+        mock_response.json.return_value = {
+            "id": "msg_test",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-6",
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": stop_reason,
+            "usage": {"input_tokens": 100, "output_tokens": 2000},
+        }
+        return mock_response
+
+    @patch("app.services.ai_service.requests.post")
+    def test_truncation_notice_appended_when_max_tokens_with_text(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_post.return_value = self._make_anthropic_response(
+            text="You show progress in checks but", stop_reason="max_tokens"
+        )
+        service = AIService()
+        success, text = service._send_anthropic_message(
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "Analyse my games."}],
+        )
+        self.assertTrue(success)
+        self.assertIn("You show progress in checks but", text)
+        self.assertIn("cut off", text.lower())
+        self.assertIn("token limit", text.lower())
+
+    @patch("app.services.ai_service.requests.post")
+    def test_no_truncation_notice_on_end_turn(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_post.return_value = self._make_anthropic_response(
+            text="Great work overall.", stop_reason="end_turn"
+        )
+        service = AIService()
+        success, text = service._send_anthropic_message(
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "Analyse my games."}],
+        )
+        self.assertTrue(success)
+        self.assertEqual(text, "Great work overall.")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_error_returned_when_max_tokens_no_text(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"x"
+        mock_response.json.return_value = {
+            "content": [{"type": "thinking", "thinking": "reasoning..."}],
+            "stop_reason": "max_tokens",
+        }
+        mock_post.return_value = mock_response
+        service = AIService()
+        success, text = service._send_anthropic_message(
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "Analyse my games."}],
+        )
+        self.assertFalse(success)
+        self.assertIn("token limit", text.lower())
 
 
 if __name__ == "__main__":

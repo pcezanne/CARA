@@ -3,8 +3,12 @@
 Assembles a prompt from:
   - Per-preset CLAMP glossary (verbatim definitions; prevents LLM letter-expansion errors)
   - Per-preset category counts binned over time (4 trend bins via chess_log_stats_service)
-  - Why-notes (non-empty entry["why"] values), capped to avoid token bloat
-  - Whole-game notes (CARANotes header) for games that have them
+  - Why-notes (all non-empty entry["why"] values, no cap)
+  - Whole-game notes (CARANotes header) for all games that have them, no cap
+
+No input truncation is applied. At typical tagging rates the full prompt stays well
+within 5–10% of the context window; the API's own error handling is the real
+constraint if a library ever grows large enough to matter.
 
 Calls AIService.send_message and parses the LLM response into a narrative string.
 The shallow-note flagging step has been removed from the prompt; _parse_response
@@ -21,18 +25,15 @@ from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
 
-# Maximum why-notes and game-notes included in the prompt to stay within
-# reasonable token budgets.  If the library is larger the extras are silently
-# omitted — the summary is still representative.
-_MAX_WHY_NOTES = 40
-_MAX_GAME_NOTES = 10
-
 _SYSTEM_PROMPT = (
     "You are a chess coach helping a player reflect on their self-annotated game moments. "
     "Be specific, encouraging, and concrete. Avoid generic advice. "
     "Write in second person ('you', 'your'). "
     "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
-    "Write in plain, direct sentences. Avoid decorative devices like em-dashes for dramatic pause and tidy aphoristic closers ('X is the mechanism, Y is the consequence') — but don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
+    "Write in plain, direct sentences. Never use em-dashes anywhere in your response, for any purpose - including setting off lists of numbers or parenthetical asides. Use commas, periods, or separate sentences instead. Don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
+    "Refer to time periods using their actual calendar labels (e.g. specific months or date ranges) provided in the data. Never use generic placeholder language like 'periods' or 'bins' when a real time label is available. "
+    "Your response must always end with a dedicated final paragraph giving a clear, actionable takeaway — this is the single most important part of your response and must never be dropped, shortened to a single sentence, or folded into the discussion of another category. If you are running short on space, compress or omit detailed discussion of a low-signal category (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice this closing paragraph. "
+    "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
 )
 
 # Registry of per-preset glossary text.
@@ -72,6 +73,8 @@ _PRESET_GLOSSARIES: Dict[str, str] = {
 _USER_PREAMBLE = """\
 Below is a summary of the moments I have tagged across my recent games in CARA's Chess Log.
 {glossary_section}## Category counts by preset (over time)
+
+(Use the calendar label shown for each time period, e.g. "June-July 2025" — never "Bin N" or "period 3".)
 
 {category_counts_block}
 
@@ -141,11 +144,11 @@ def build_prompt(
                         preset_names.add(preset)
                         counts = flat_counts.setdefault(preset, {})
                         counts[cat] = counts.get(cat, 0) + 1
-                    if why and len(why_notes) < _MAX_WHY_NOTES:
+                    if why:
                         label = f"{preset}/{cat}" if cat else f"{preset}/uncategorized"
                         why_notes.append((label, why))
 
-        if len(game_notes) < _MAX_GAME_NOTES and getattr(game, "has_notes", False):
+        if getattr(game, "has_notes", False):
             note_text = NotesStorageService.load_notes(game)
             if note_text and note_text.strip():
                 game_notes.append(note_text.strip())
@@ -284,23 +287,86 @@ def _format_glossary(preset_names: Set[str]) -> str:
     return "\n\n".join(blocks)
 
 
+def _bin_month_label(lab0: str, lab1: str) -> str:
+    """Convert an ISO date pair to a natural calendar label.
+
+    Same-month: "June 2025".  Same-year span: "June-July 2025".
+    Cross-year: "Dec 2025-Jan 2026".  Falls back to raw strings on parse failure.
+    """
+    from datetime import date as _date
+
+    _FULL = [
+        "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December",
+    ]
+    _SHORT = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+
+    def _parse(s: str) -> Optional[_date]:
+        try:
+            return _date.fromisoformat(s)
+        except (ValueError, TypeError):
+            return None
+
+    d0, d1 = _parse(lab0), _parse(lab1)
+    if d0 is None or d1 is None:
+        return f"{lab0} to {lab1}"
+
+    m0, y0, m1, y1 = d0.month, d0.year, d1.month, d1.year
+    if y0 == y1:
+        if m0 == m1:
+            return f"{_FULL[m0 - 1]} {y0}"
+        return f"{_FULL[m0 - 1]}-{_FULL[m1 - 1]} {y0}"
+    return f"{_SHORT[m0 - 1]} {y0}-{_SHORT[m1 - 1]} {y1}"
+
+
 def _format_trend_counts(series_map: Dict[str, ChessLogPresetSeries]) -> str:
-    """Format trend-binned category counts as a prompt block."""
+    """Format trend-binned category percentages as a prompt block.
+
+    Each bin shows category % of that bin's total (same denominator as the chart
+    Y-axis).  A lifetime average (total-weighted, not average-of-percentages) is
+    prepended per preset so the model has a single anchor value per category.
+    """
     lines = []
     for preset in sorted(series_map):
         series = series_map[preset]
         lines.append(f"### {preset}")
-        for i, bin_ in enumerate(series.bins, 1):
+
+        # Lifetime totals for total-weighted average
+        lifetime_total = sum(b.total for b in series.bins)
+        lifetime_counts: Dict[str, int] = {}
+        for bin_ in series.bins:
+            for cat, count in bin_.counts.items():
+                lifetime_counts[cat] = lifetime_counts.get(cat, 0) + count
+
+        if lifetime_total > 0:
+            avg_parts = []
+            for cat in series.categories:
+                count = lifetime_counts.get(cat, 0)
+                if count > 0:
+                    pct = round(count * 100 / lifetime_total)
+                    label = cat if cat else "uncategorized"
+                    avg_parts.append(f"{label} {pct}%")
+            if avg_parts:
+                lines.append(f"Overall average: {', '.join(avg_parts)}")
+
+        for bin_ in series.bins:
+            month_label = _bin_month_label(bin_.lab0, bin_.lab1)
+            if bin_.total == 0:
+                lines.append(f"{month_label}: (no moments)")
+                continue
             parts = []
             for cat in series.categories:
                 count = bin_.counts.get(cat, 0)
                 if count > 0:
+                    pct = round(count * 100 / bin_.total)
                     label = cat if cat else "uncategorized"
-                    parts.append(f"{label}:{count}")
+                    parts.append(f"{label} {pct}%")
             if not parts:
                 parts.append("(no moments)")
-            header = f"Bin {i} ({bin_.lab0} → {bin_.lab1}, {bin_.total} moments)"
-            lines.append(f"{header}: {' '.join(parts)}")
+            lines.append(f"{month_label} ({bin_.total} moments): {', '.join(parts)}")
     return "\n".join(lines)
 
 

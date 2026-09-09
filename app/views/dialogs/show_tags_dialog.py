@@ -1,4 +1,4 @@
-"""Dialog for reviewing (and optionally editing) all Chess Log tags in a game."""
+"""Dialog for reviewing and editing all Chess Log tags in a game."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import chess
 import chess.pgn
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -37,7 +36,9 @@ _3X3_PROMPTS = {
     "Why3": "Why is the engine's suggestion better?",
 }
 
-_MINI_BOARD_SIZE = 100
+# Scale matching manual analysis default (1.25 × 160 base = 200px board ≈ 204px widget)
+_MINI_BOARD_SCALE = 1.25
+_MINI_BOARD_PLACEHOLDER_PX = 204
 
 
 def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
@@ -46,7 +47,7 @@ def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
 
 
 class _TagRowWidget(QFrame):
-    """One row in the Show Tags list — one (path_key, preset) pair."""
+    """One row in the Show Tags list — one (path_key, preset) pair, always editable."""
 
     def __init__(
         self,
@@ -58,7 +59,6 @@ class _TagRowWidget(QFrame):
         fen: Optional[str],
         played_move: Optional[chess.Move],
         bg_rgb: List[int],
-        border_rgb: List[int],
         text_color: List[int],
         parent=None,
     ) -> None:
@@ -68,7 +68,6 @@ class _TagRowWidget(QFrame):
         self._custom_categories = custom_categories
         self._config = config
         self._bg_rgb = bg_rgb
-        self._border_rgb = border_rgb
         self._text_color = text_color
 
         self._checkboxes: Dict[str, QCheckBox] = {}
@@ -77,15 +76,14 @@ class _TagRowWidget(QFrame):
         self._setup(move_label, fen, played_move)
 
     def _setup(self, move_label: str, fen: Optional[str], played_move: Optional[chess.Move]) -> None:
-        br, bg, bb = self._border_rgb
-        self.setFrameShape(QFrame.Shape.StyledPanel)
+        br, bg, bb = self._bg_rgb
+        self.setFrameShape(QFrame.Shape.NoFrame)
         self.setStyleSheet(
-            f"background-color: rgb({self._bg_rgb[0]},{self._bg_rgb[1]},{self._bg_rgb[2]});"
-            f"border: 1px solid rgb({br},{bg},{bb}); border-radius: 4px;"
+            f"background-color: rgb({br},{bg},{bb});"
         )
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(4)
 
         # Move label header
@@ -93,7 +91,6 @@ class _TagRowWidget(QFrame):
         header = QLabel(f"{move_label}  —  {self._preset}")
         header.setStyleSheet(
             f"color: rgb({tr},{tg},{tb}); font-weight: bold; font-size: 11px;"
-            "border: none;"
         )
         outer.addWidget(header)
 
@@ -102,29 +99,28 @@ class _TagRowWidget(QFrame):
         cols.setSpacing(10)
         outer.addLayout(cols)
 
-        # Column 1: board miniature
+        # Column 1: board miniature (played move arrow, manual-analysis scale)
         if fen:
             try:
                 board_widget = MiniChessBoardWidget(
                     self._config,
                     fen,
                     is_flipped=False,
+                    scale_factor=_MINI_BOARD_SCALE,
                     embedded=True,
-                    size_override=_MINI_BOARD_SIZE,
                 )
                 if played_move is not None:
                     board_widget.set_move(played_move, True)
-                board_widget.setFixedSize(_MINI_BOARD_SIZE, _MINI_BOARD_SIZE)
                 cols.addWidget(board_widget, 0, Qt.AlignmentFlag.AlignTop)
             except Exception:
                 ph = QLabel("Board\nunavailable")
                 ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                ph.setFixedSize(_MINI_BOARD_SIZE, _MINI_BOARD_SIZE)
-                ph.setStyleSheet(f"color: rgb({tr},{tg},{tb}); border: none;")
+                ph.setFixedSize(_MINI_BOARD_PLACEHOLDER_PX, _MINI_BOARD_PLACEHOLDER_PX)
+                ph.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
                 cols.addWidget(ph, 0, Qt.AlignmentFlag.AlignTop)
         else:
             ph = QLabel("")
-            ph.setFixedSize(_MINI_BOARD_SIZE, _MINI_BOARD_SIZE)
+            ph.setFixedSize(_MINI_BOARD_PLACEHOLDER_PX, _MINI_BOARD_PLACEHOLDER_PX)
             cols.addWidget(ph, 0, Qt.AlignmentFlag.AlignTop)
 
         # Column 2: checkboxes (blank for 3x3)
@@ -137,13 +133,12 @@ class _TagRowWidget(QFrame):
             for cat in cats:
                 cb = QCheckBox(cat)
                 cb.setChecked(cat in ticked)
-                cb.setEnabled(False)
-                cb.setStyleSheet(f"color: rgb({tr},{tg},{tb}); border: none;")
+                cb.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
                 cb_col.addWidget(cb)
                 self._checkboxes[cat] = cb
         cols.addLayout(cb_col)
 
-        # Column 3: text / notes
+        # Column 3: text / notes (always editable; height fitted after show)
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
         txt_col.setAlignment(Qt.AlignmentFlag.AlignTop)
@@ -152,12 +147,11 @@ class _TagRowWidget(QFrame):
             for key in _3X3_KEYS:
                 prompt_lbl = QLabel(_3X3_PROMPTS[key])
                 prompt_lbl.setStyleSheet(
-                    f"color: rgb({tr},{tg},{tb}); font-size: 10px; font-style: italic; border: none;"
+                    f"color: rgb({tr},{tg},{tb}); font-size: 10px; font-style: italic;"
                 )
                 txt_col.addWidget(prompt_lbl)
                 te = QPlainTextEdit(why_map.get(key, ""))
-                te.setReadOnly(True)
-                te.setFixedHeight(52)
+                te.setMinimumHeight(50)
                 te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
                 self._style_text_widget(te)
                 txt_col.addWidget(te)
@@ -165,9 +159,8 @@ class _TagRowWidget(QFrame):
         else:
             why_text = self._entries[0].get("why", "") if self._entries else ""
             te = QPlainTextEdit(why_text)
-            te.setReadOnly(True)
-            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
-            te.setMinimumHeight(52)
+            te.setMinimumHeight(50)
+            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             self._style_text_widget(te)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
@@ -177,7 +170,7 @@ class _TagRowWidget(QFrame):
         tr, tg, tb = self._text_color
         te.setStyleSheet(
             f"color: rgb({tr},{tg},{tb}); background-color: rgb(30,30,35);"
-            "border: 1px solid rgb(60,60,65); border-radius: 3px;"
+            "border: 1px solid rgb(60,60,65);"
         )
 
     def _categories_for_preset(self) -> List[str]:
@@ -187,11 +180,17 @@ class _TagRowWidget(QFrame):
             return list(CCT_ORDER)
         return list(self._custom_categories)
 
-    def set_editable(self, enabled: bool) -> None:
-        for cb in self._checkboxes.values():
-            cb.setEnabled(enabled)
+    def fit_text_heights(self) -> None:
+        """Set each text widget to exactly fit its current content.
+
+        Called from ShowTagsDialog.showEvent after layout is complete.
+        Height is fixed after fitting — vertical scrollbar appears if the
+        user then types more than fits in that height.
+        """
         for te in self._why_texts.values():
-            te.setReadOnly(not enabled)
+            doc = te.document()
+            content_h = int(doc.documentLayout().documentSize().height())
+            te.setFixedHeight(max(50, min(content_h + 10, 400)))
 
     def get_current_entries(self) -> List[Dict[str, Any]]:
         """Return the current widget state as a list of {preset, cat, why} dicts."""
@@ -211,11 +210,11 @@ class _TagRowWidget(QFrame):
 
 
 class ShowTagsDialog(QDialog):
-    """Scrollable, read-only-first list of all Chess Log tags in a game.
+    """Scrollable list of all Chess Log tags in a game, always editable.
 
     Rows are sorted by ply ascending, then preset in canonical order.
-    Click Edit to enable inline editing; OK persists changes back to the
-    controller's in-memory cache (same two-step as Tag This Moment).
+    OK persists any changes back to the controller's in-memory cache
+    (same two-step save pattern as Tag This Moment).
     """
 
     def __init__(
@@ -228,7 +227,6 @@ class ShowTagsDialog(QDialog):
         super().__init__(parent)
         self.config = config
         self._controller = controller
-        self._edit_mode = False
 
         self._load_config()
 
@@ -340,6 +338,14 @@ class ShowTagsDialog(QDialog):
     # UI
     # ------------------------------------------------------------------
 
+    def _make_separator(self) -> QFrame:
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Plain)
+        sep.setFixedHeight(1)
+        sep.setStyleSheet("background-color: rgb(70, 70, 75); border: none;")
+        return sep
+
     def _setup_ui(self) -> None:
         br, bg, bb = self._bg_rgb
         self.setStyleSheet(
@@ -364,11 +370,14 @@ class ShowTagsDialog(QDialog):
 
             content = QWidget()
             self._rows_layout = QVBoxLayout(content)
-            self._rows_layout.setSpacing(8)
+            self._rows_layout.setSpacing(0)
             self._rows_layout.setContentsMargins(0, 0, 0, 0)
             self._rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-            for path_key, preset, entries in self._rows_data:
+            for i, (path_key, preset, entries) in enumerate(self._rows_data):
+                if i > 0:
+                    self._rows_layout.addWidget(self._make_separator())
+
                 fen, played_move, move_label = self._node_info(path_key)
                 custom_cats = self._controller.get_custom_categories()
                 row_widget = _TagRowWidget(
@@ -380,7 +389,6 @@ class ShowTagsDialog(QDialog):
                     fen or None,
                     played_move,
                     self._bg_rgb,
-                    self._border_rgb,
                     self._text_color_rgb,
                 )
                 self._rows_layout.addWidget(row_widget)
@@ -391,14 +399,14 @@ class ShowTagsDialog(QDialog):
 
             screen = self.screen()
             if screen:
-                max_h = int(screen.availableGeometry().height() * 0.80)
+                max_h = int(screen.availableGeometry().height() * 0.85)
             else:
-                max_h = 700
+                max_h = 800
             scroll.setMinimumHeight(min(400, max_h))
             scroll.setMaximumHeight(max_h)
             root.addWidget(scroll)
 
-        # Button bar: Cancel | Edit | OK
+        # Button bar: Cancel | OK
         btn_row = QHBoxLayout()
         btn_row.addStretch(1)
 
@@ -406,12 +414,6 @@ class ShowTagsDialog(QDialog):
         self._cancel_btn.setAutoDefault(False)
         self._cancel_btn.setFixedSize(self._button_width, self._button_height)
         self._cancel_btn.clicked.connect(self.reject)
-
-        self._edit_btn = QPushButton("Edit")
-        self._edit_btn.setAutoDefault(False)
-        self._edit_btn.setFixedSize(self._button_width, self._button_height)
-        self._edit_btn.clicked.connect(self._on_edit)
-        self._edit_btn.setEnabled(bool(self._rows_data))
 
         self._ok_btn = QPushButton("OK")
         self._ok_btn.setDefault(True)
@@ -421,34 +423,30 @@ class ShowTagsDialog(QDialog):
 
         btn_row.addWidget(self._cancel_btn)
         btn_row.addSpacing(6)
-        btn_row.addWidget(self._edit_btn)
-        btn_row.addSpacing(6)
         btn_row.addWidget(self._ok_btn)
         root.addLayout(btn_row)
 
-        self.setMinimumWidth(600)
+        # 1/3 wider than the original 600px baseline
+        self.setMinimumWidth(800)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # Fit text widget heights to content now that layout widths are known.
+        # Height is then fixed so vertical scrollbar appears if the user types more.
+        QTimer.singleShot(0, self._fit_text_heights)
+
+    def _fit_text_heights(self) -> None:
+        for rw in self._row_widgets:
+            rw.fit_text_heights()
 
     # ------------------------------------------------------------------
     # Button handlers
     # ------------------------------------------------------------------
 
-    def _on_edit(self) -> None:
-        self._edit_mode = True
-        for rw in self._row_widgets:
-            rw.set_editable(True)
-        self._edit_btn.setEnabled(False)
-        self._edit_btn.setText("Editing…")
-
     def _on_ok(self) -> None:
-        if self._edit_mode:
-            for (path_key, preset, _), row_widget in zip(
-                self._rows_data, self._row_widgets
-            ):
-                new_entries = row_widget.get_current_entries()
-                original = self._original_snapshot.get((path_key, preset), [])
-                if _normalize_entries(new_entries) != _normalize_entries(original):
-                    self._controller.replace_entries_at_path(path_key, preset, new_entries)
+        for (path_key, preset, _), row_widget in zip(self._rows_data, self._row_widgets):
+            new_entries = row_widget.get_current_entries()
+            original = self._original_snapshot.get((path_key, preset), [])
+            if _normalize_entries(new_entries) != _normalize_entries(original):
+                self._controller.replace_entries_at_path(path_key, preset, new_entries)
         self.accept()
-
-    def _on_cancel(self) -> None:
-        self.reject()

@@ -185,40 +185,29 @@ class TestThreeXThreeRow(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# Read-only / edit mode
+# Always-editable: checkboxes and text are editable on open
 # ---------------------------------------------------------------------------
 
 @requires_qt
-class TestReadOnlyAndEditMode(unittest.TestCase):
-    def test_read_only_mode_disables_checkboxes(self):
+class TestAlwaysEditable(unittest.TestCase):
+    def test_checkboxes_enabled_on_open(self):
         paths_data = {"0": [_make_entry("CLAMP", "C")]}
         dlg, _ = _make_dialog(paths_data)
-        row = dlg._row_widgets[0]
-        for cb in row._checkboxes.values():
-            self.assertFalse(cb.isEnabled())
-
-    def test_read_only_mode_makes_text_read_only(self):
-        paths_data = {"0": [_make_entry("CLAMP", "C", "missed it")]}
-        dlg, _ = _make_dialog(paths_data)
-        row = dlg._row_widgets[0]
-        for te in row._why_texts.values():
-            self.assertTrue(te.isReadOnly())
-
-    def test_edit_button_enables_checkboxes(self):
-        paths_data = {"0": [_make_entry("CLAMP", "C")]}
-        dlg, _ = _make_dialog(paths_data)
-        dlg._edit_btn.click()
         row = dlg._row_widgets[0]
         for cb in row._checkboxes.values():
             self.assertTrue(cb.isEnabled())
 
-    def test_edit_button_makes_text_editable(self):
-        paths_data = {"0": [_make_entry("CLAMP", "C", "why")]}
+    def test_text_editable_on_open(self):
+        paths_data = {"0": [_make_entry("CLAMP", "C", "missed it")]}
         dlg, _ = _make_dialog(paths_data)
-        dlg._edit_btn.click()
         row = dlg._row_widgets[0]
         for te in row._why_texts.values():
             self.assertFalse(te.isReadOnly())
+
+    def test_no_edit_button(self):
+        paths_data = {"0": [_make_entry("CLAMP", "C")]}
+        dlg, _ = _make_dialog(paths_data)
+        self.assertFalse(hasattr(dlg, "_edit_btn"))
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +216,7 @@ class TestReadOnlyAndEditMode(unittest.TestCase):
 
 @requires_qt
 class TestPersistence(unittest.TestCase):
-    def test_ok_in_read_only_mode_does_not_write(self):
+    def test_ok_with_no_changes_does_not_write(self):
         paths_data = {"0": [_make_entry("CLAMP", "C")]}
         dlg, ctrl = _make_dialog(paths_data)
         dlg._ok_btn.click()
@@ -236,8 +225,7 @@ class TestPersistence(unittest.TestCase):
     def test_ok_after_edit_persists_changed_row(self):
         paths_data = {"0": [_make_entry("CLAMP", "C", "old why")]}
         dlg, ctrl = _make_dialog(paths_data)
-        dlg._edit_btn.click()
-        # Change the why text
+        # Change the why text (fields always editable — no edit button needed)
         row = dlg._row_widgets[0]
         row._why_texts["why"].setPlainText("new why")
         dlg._ok_btn.click()
@@ -254,7 +242,6 @@ class TestPersistence(unittest.TestCase):
             "0.0": [_make_entry("CLAMP", "L", "will change")],
         }
         dlg, ctrl = _make_dialog(paths_data)
-        dlg._edit_btn.click()
         # Modify only the second row
         dlg._row_widgets[1]._why_texts["why"].setPlainText("changed!")
         dlg._ok_btn.click()
@@ -271,7 +258,6 @@ class TestPersistence(unittest.TestCase):
             ],
         }
         dlg, ctrl = _make_dialog(paths_data, custom_categories=["Time trouble"])
-        dlg._edit_btn.click()
         # Edit the CLAMP row (index 0 in rows_data since CLAMP < Custom)
         clamp_row_idx = next(
             i for i, r in enumerate(dlg._rows_data) if r[1] == "CLAMP"
@@ -286,7 +272,6 @@ class TestPersistence(unittest.TestCase):
     def test_cancel_after_edit_does_not_write(self):
         paths_data = {"0": [_make_entry("CLAMP", "C", "original")]}
         dlg, ctrl = _make_dialog(paths_data)
-        dlg._edit_btn.click()
         dlg._row_widgets[0]._why_texts["why"].setPlainText("changed but cancelled")
         dlg._cancel_btn.click()
         ctrl.replace_entries_at_path.assert_not_called()

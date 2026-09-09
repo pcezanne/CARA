@@ -25,6 +25,7 @@ from PyQt6.QtWidgets import (
 
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.utils.pgn_variation_path import decode_path, node_at_path
+from app.views.style.style_manager import StyleManager
 from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
 
 _PRESET_ORDER = ["CLAMP", "CCT", "3x3", "Custom"]
@@ -396,6 +397,15 @@ class ShowTagsDialog(QDialog):
 
             self._rows_layout.addStretch(1)
             scroll.setWidget(content)
+
+            StyleManager.style_scroll_area(
+                scroll,
+                self.config,
+                self._bg_rgb,
+                self._border_rgb,
+                border_radius=0,
+                include_scroll_area_border=False,
+            )
 
             screen = self.screen()
             if screen:

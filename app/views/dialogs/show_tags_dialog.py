@@ -1,4 +1,4 @@
-"""Dialog for reviewing and editing all Chess Log tags in a game."""
+"""Dialog for reviewing and editing Chess Log tags — single-game or multi-game."""
 
 from __future__ import annotations
 
@@ -52,9 +52,14 @@ class _TagRowWidget(QFrame):
     """One row in the Show Tags list — one (path_key, preset) pair, always editable.
 
     Emits ``edited`` (with 300ms debounce) whenever the user changes a
-    checkbox or why-text, allowing the Tags Report to persist live edits to the
-    multi-game cache without an OK button.  ShowTagsDialog ignores this signal —
-    it still batches on OK.
+    checkbox, why-text, or the ignore checkbox, so live-edit callers can
+    persist immediately.  ShowTagsDialog ignores this signal — it still
+    batches on OK.
+
+    Pass ``show_ignore_checkbox=True`` to render the Ignore checkbox (used
+    by ShowShallowTagsDialog).  When False (default), the original
+    moment-level ``ignore_shallow`` value is preserved transparently through
+    ``get_current_entries()`` without exposing UI for it.
     """
 
     edited = pyqtSignal()
@@ -70,6 +75,7 @@ class _TagRowWidget(QFrame):
         played_move: Optional[chess.Move],
         bg_rgb: List[int],
         text_color: List[int],
+        show_ignore_checkbox: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -79,10 +85,15 @@ class _TagRowWidget(QFrame):
         self._config = config
         self._bg_rgb = bg_rgb
         self._text_color = text_color
+        self._show_ignore_checkbox = show_ignore_checkbox
+        self._preserved_ignore_shallow: bool = any(
+            bool(e.get("ignore_shallow")) for e in entries
+        )
 
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
         self._header_label: Optional[QLabel] = None
+        self._ignore_check: Optional[QCheckBox] = None
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -102,14 +113,25 @@ class _TagRowWidget(QFrame):
         outer.setContentsMargins(8, 8, 8, 8)
         outer.setSpacing(4)
 
-        # Move label header
+        # Move label header row (label + optional Ignore checkbox)
         tr, tg, tb = self._text_color
+        header_row = QHBoxLayout()
+        header_row.setSpacing(8)
         header = QLabel(move_label)
         header.setStyleSheet(
             f"color: rgb({tr},{tg},{tb}); font-weight: bold; font-size: 11px;"
         )
-        outer.addWidget(header)
+        header_row.addWidget(header, 1)
         self._header_label = header
+
+        if self._show_ignore_checkbox:
+            self._ignore_check = QCheckBox("Ignore")
+            self._ignore_check.setChecked(self._preserved_ignore_shallow)
+            self._ignore_check.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
+            self._ignore_check.stateChanged.connect(self._schedule_edited)
+            header_row.addWidget(self._ignore_check)
+
+        outer.addLayout(header_row)
 
         # Three-column row: board | checkboxes | text
         cols = QHBoxLayout()
@@ -157,10 +179,6 @@ class _TagRowWidget(QFrame):
         cols.addLayout(cb_col)
 
         # Column 3: text / notes (always editable).
-        # No alignment set on txt_col — alignment=0 lets it fill the allocated region.
-        # Expanding vertical policy lets each text box grow to fill the row height
-        # (set by the board miniature), with the scrollbar appearing only if the
-        # user types more than fits.
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
         if self._preset == "3x3":
@@ -190,7 +208,7 @@ class _TagRowWidget(QFrame):
         cols.addLayout(txt_col, 1)
 
     def _schedule_edited(self) -> None:
-        """Restart the 300ms debounce timer on any checkbox or text change."""
+        """Restart the 300ms debounce timer on any input change."""
         self._edit_debounce.start()
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
@@ -208,55 +226,83 @@ class _TagRowWidget(QFrame):
         return list(self._custom_categories)
 
     def get_current_entries(self) -> List[Dict[str, Any]]:
-        """Return the current widget state as a list of {preset, cat, why} dicts."""
+        """Return the current widget state as a list of entry dicts."""
+        if self._show_ignore_checkbox:
+            ignore = self._ignore_check is not None and self._ignore_check.isChecked()
+        else:
+            ignore = self._preserved_ignore_shallow
+
+        def _annotate(d: Dict[str, Any]) -> Dict[str, Any]:
+            if ignore:
+                d["ignore_shallow"] = True
+            return d
+
         if self._preset == "3x3":
             result = []
             for key in _3X3_KEYS:
                 text = self._why_texts.get(key, QPlainTextEdit()).toPlainText().strip()
                 if text:
-                    result.append({"preset": "3x3", "cat": key, "why": text})
+                    result.append(_annotate({"preset": "3x3", "cat": key, "why": text}))
             return result
         why = self._why_texts.get("why", QPlainTextEdit()).toPlainText().strip()
         selected = [cat for cat, cb in self._checkboxes.items() if cb.isChecked()]
         if not selected:
             # Mirror MomentDialog.get_entries(): zero boxes + why → cat="" entry;
             # zero boxes + empty why → [] (intentional delete gesture).
-            return [{"preset": self._preset, "cat": "", "why": why}] if why else []
-        return [{"preset": self._preset, "cat": cat, "why": why} for cat in selected]
+            return [_annotate({"preset": self._preset, "cat": "", "why": why})] if why else []
+        return [_annotate({"preset": self._preset, "cat": cat, "why": why}) for cat in selected]
 
 
 class ShowTagsDialog(QDialog):
-    """Scrollable list of all Chess Log tags in a game, always editable.
+    """Scrollable, editable list of Chess Log tags.
 
-    Rows are sorted by ply ascending, then preset in canonical order.
-    OK persists any changes back to the controller's in-memory cache
-    (same two-step save pattern as Tag This Moment).
+    Accepts a list of GameData objects — pass a single-element list for the
+    single-game (Show Tags) use case.  Multi-game usage inserts a game-header
+    label between each game's rows.
+
+    OK persists changes via ``controller.replace_entries_at_path_for_game``;
+    Cancel discards all edits.
     """
 
     def __init__(
         self,
         config: Dict[str, Any],
-        game_data,
+        games: List,
         controller,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self.config = config
         self._controller = controller
+        self._games = list(games)
 
         self._load_config()
 
-        self._pgn_game = self._parse_pgn(game_data)
-        tags = controller.get_tags_for_current_game()
-        self._rows_data: List[Tuple[str, str, List[Dict[str, Any]]]] = self._build_rows_data(tags)
+        # Build (path_key, preset, entries) rows for all games in order.
+        # _row_games and _row_pgn_games are parallel to _rows_data.
+        self._rows_data: List[Tuple[str, str, List[Dict[str, Any]]]] = []
+        self._row_games: List = []
+        self._row_pgn_games: List[Optional[chess.pgn.Game]] = []
+
+        for game in self._games:
+            pgn_game = self._parse_pgn(game)
+            tags = controller.get_tags_for_game(game)
+            for path_key, preset, entries in self._build_rows_for_game(pgn_game, tags):
+                self._rows_data.append((path_key, preset, entries))
+                self._row_games.append(game)
+                self._row_pgn_games.append(pgn_game)
+
+        # Snapshot keyed by (game_number, path_key, preset)
         self._original_snapshot = {
-            (path_key, preset): list(entries)
-            for path_key, preset, entries in self._rows_data
+            (self._row_games[i].game_number, pk, pr): list(entries)
+            for i, (pk, pr, entries) in enumerate(self._rows_data)
         }
         self._row_widgets: List[_TagRowWidget] = []
 
         self._setup_ui()
-        self.setWindowTitle("Chess Log Tags")
+        self.setWindowTitle(
+            "Show Chess Logs for all games" if len(self._games) > 1 else "Chess Log Tags"
+        )
 
     # ------------------------------------------------------------------
     # Config
@@ -284,10 +330,12 @@ class ShowTagsDialog(QDialog):
         except Exception:
             return None
 
-    def _build_rows_data(
-        self, tags: Dict[str, List[Dict[str, Any]]]
+    @staticmethod
+    def _build_rows_for_game(
+        pgn_game: Optional[chess.pgn.Game],
+        tags: Dict[str, List[Dict[str, Any]]],
     ) -> List[Tuple[str, str, List[Dict[str, Any]]]]:
-        """Return sorted (path_key, preset, entries) tuples — one per (move, preset) pair."""
+        """Return sorted (path_key, preset, entries) tuples for one game."""
         preset_rank = {p: i for i, p in enumerate(_PRESET_ORDER)}
         rows: List[Tuple[int, int, str, str, List[Dict[str, Any]]]] = []
 
@@ -297,7 +345,7 @@ class ShowTagsDialog(QDialog):
             path = decode_path(path_key)
             if path is None:
                 continue
-            ply = self._ply_for_path(path)
+            ply = _ply_for_path_fn(pgn_game, path)
 
             by_preset: Dict[str, List[Dict[str, Any]]] = {}
             for entry in all_entries:
@@ -311,12 +359,6 @@ class ShowTagsDialog(QDialog):
         rows.sort(key=lambda r: (r[0], r[1]))
         return [(path_key, preset, entries) for _, _, path_key, preset, entries in rows]
 
-    def _ply_for_path(self, path) -> int:
-        return _ply_for_path_fn(self._pgn_game, path)
-
-    def _node_info(self, path_key: str) -> Tuple[str, Optional[chess.Move], str]:
-        return _node_info_fn(self._pgn_game, path_key)
-
     # ------------------------------------------------------------------
     # UI
     # ------------------------------------------------------------------
@@ -329,6 +371,28 @@ class ShowTagsDialog(QDialog):
         sep.setStyleSheet("background-color: rgb(70, 70, 75); border: none;")
         return sep
 
+    def _make_game_header(self, game) -> QLabel:
+        _white = str(getattr(game, "white", "") or "").strip() or "Unknown"
+        _black = str(getattr(game, "black", "") or "").strip() or "Unknown"
+        _result = str(getattr(game, "result", "") or "").strip() or "*"
+        _date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
+        try:
+            _moves = int(getattr(game, "moves", 0) or 0)
+        except (TypeError, ValueError):
+            _moves = 0
+        text = f"{_white} - {_black} {_result} ({_date} - {_moves} moves)"
+        label = QLabel(text)
+        br, bg, bb = self._bg_rgb
+        tr, tg, tb = self._text_color_rgb
+        bor, bog, bob = self._border_rgb
+        label.setStyleSheet(
+            f"background-color: rgb({min(255, br+20)},{min(255, bg+20)},{min(255, bb+20)}); "
+            f"color: rgb({tr},{tg},{tb}); "
+            f"padding: 3px 8px; "
+            f"border: 1px solid rgb({bor},{bog},{bob});"
+        )
+        return label
+
     def _setup_ui(self) -> None:
         br, bg, bb = self._bg_rgb
         self.setStyleSheet(
@@ -340,7 +404,7 @@ class ShowTagsDialog(QDialog):
         root.setSpacing(8)
 
         if not self._rows_data:
-            lbl = QLabel("No tagged moments found in this game.")
+            lbl = QLabel("No tagged moments found.")
             tr, tg, tb = self._text_color_rgb
             lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
             root.addWidget(lbl)
@@ -357,12 +421,21 @@ class ShowTagsDialog(QDialog):
             self._rows_layout.setContentsMargins(0, 0, 0, 0)
             self._rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
+            multi_game = len(self._games) > 1
+            last_game = None
+            custom_cats = self._controller.get_custom_categories()
+
             for i, (path_key, preset, entries) in enumerate(self._rows_data):
-                if i > 0:
+                game = self._row_games[i]
+                pgn_game = self._row_pgn_games[i]
+
+                if multi_game and game is not last_game:
+                    self._rows_layout.addWidget(self._make_game_header(game))
+                    last_game = game
+                elif i > 0:
                     self._rows_layout.addWidget(self._make_separator())
 
-                fen, played_move, move_label = self._node_info(path_key)
-                custom_cats = self._controller.get_custom_categories()
+                fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
                 row_widget = _TagRowWidget(
                     self.config,
                     preset,
@@ -418,7 +491,6 @@ class ShowTagsDialog(QDialog):
         btn_row.addWidget(self._ok_btn)
         root.addLayout(btn_row)
 
-        # 1/3 wider than the original 600px baseline
         self.setMinimumWidth(800)
 
     # ------------------------------------------------------------------
@@ -426,9 +498,14 @@ class ShowTagsDialog(QDialog):
     # ------------------------------------------------------------------
 
     def _on_ok(self) -> None:
-        for (path_key, preset, _), row_widget in zip(self._rows_data, self._row_widgets):
+        for i, ((path_key, preset, _), row_widget) in enumerate(
+            zip(self._rows_data, self._row_widgets)
+        ):
             new_entries = row_widget.get_current_entries()
-            original = self._original_snapshot.get((path_key, preset), [])
+            game = self._row_games[i]
+            original = self._original_snapshot.get((game.game_number, path_key, preset), [])
             if _normalize_entries(new_entries) != _normalize_entries(original):
-                self._controller.replace_entries_at_path(path_key, preset, new_entries)
+                self._controller.replace_entries_at_path_for_game(
+                    game, path_key, preset, new_entries
+                )
         self.accept()

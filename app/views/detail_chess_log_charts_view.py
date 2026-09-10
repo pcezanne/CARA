@@ -249,6 +249,14 @@ class DetailChessLogChartsView(QWidget):
 
         layout.addLayout(model_row)
 
+        shallow_row = QHBoxLayout()
+        self._show_shallow_btn = QPushButton("Show Shallow Tags")
+        self._show_shallow_btn.clicked.connect(self._on_show_shallow_clicked)
+        self._show_shallow_btn.setEnabled(False)
+        shallow_row.addWidget(self._show_shallow_btn)
+        shallow_row.addStretch()
+        layout.addLayout(shallow_row)
+
         btn_row = QHBoxLayout()
         self._generate_btn = QPushButton("Generate Narrative Summary")
         self._generate_btn.clicked.connect(self._on_generate_clicked)
@@ -475,9 +483,32 @@ class DetailChessLogChartsView(QWidget):
         self._placeholder.setVisible(True)
         self._charts_container.setVisible(False)
 
+    def _on_show_shallow_clicked(self) -> None:
+        if not self._controller:
+            return
+        shallow_keys = self._controller.flag_shallow_notes()
+        games = self._controller.resolve_games()
+        chess_log_ctrl = self._controller.get_chess_log_controller()
+        if not chess_log_ctrl:
+            return
+        if not shallow_keys:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(self, "No Shallow Notes", "No shallow notes found — great job.")
+            return
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(
+            config=self._config,
+            games=games,
+            controller=chess_log_ctrl,
+            shallow_keys=shallow_keys,
+            parent=self,
+        )
+        dlg.exec()
+
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
         self._generate_btn.setEnabled(configured)
+        self._show_shallow_btn.setEnabled(configured)
         self._ai_hint.setVisible(not configured)
         self._model_combo.setEnabled(configured)
         self._timeout_spin.setEnabled(configured)

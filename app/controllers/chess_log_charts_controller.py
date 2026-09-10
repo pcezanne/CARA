@@ -258,6 +258,10 @@ class ChessLogChartsController(QObject):
         """Inject ChessLogController for Chess Log dialogs."""
         self._chess_log_controller = controller
 
+    def get_chess_log_controller(self) -> Optional[Any]:
+        """Return the injected ChessLogController."""
+        return self._chess_log_controller
+
     def resolve_games(self) -> List[GameData]:
         """Public wrapper around _resolve_games()."""
         return self._resolve_games()
@@ -516,6 +520,8 @@ class ChessLogChartsController(QObject):
                     by_preset.setdefault(p, []).append(entry)
                 for preset, preset_entries in by_preset.items():
                     for entry in preset_entries:
+                        if entry.get("ignore_shallow"):
+                            continue
                         why = (entry.get("why") or "").strip()
                         if why:
                             notes.append((len(notes), game.game_number, path_key, preset, why))

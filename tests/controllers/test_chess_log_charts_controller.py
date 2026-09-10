@@ -534,6 +534,59 @@ class TestChessLogChartsControllerChartSettings(unittest.TestCase):
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
+    """flag_shallow_notes() must skip entries with ignore_shallow=True."""
+
+    def _make_controller_with_note(self, ignore: bool) -> "ChessLogChartsController":
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "I blundered", ignore_shallow=ignore)
+        game = _make_game(entries_per_path={"0": [entry]})
+        db_ctrl = _make_db_controller([game])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({
+            "ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}
+        })
+        return ctrl
+
+    def test_ignored_entry_not_sent_to_ai(self):
+        ctrl = self._make_controller_with_note(ignore=True)
+        captured_messages = []
+
+        def fake_send(provider, model, api_key, messages, **kwargs):
+            captured_messages.extend(messages)
+            return False, "no response"
+
+        with patch(
+            "app.services.ai_service.AIService.send_message",
+            side_effect=fake_send,
+        ):
+            ctrl.flag_shallow_notes()
+
+        # If the entry was ignored, flag_shallow_notes returns early (no notes → no AI call)
+        self.assertEqual(len(captured_messages), 0)
+
+    def test_non_ignored_entry_is_sent_to_ai(self):
+        ctrl = self._make_controller_with_note(ignore=False)
+        captured_messages = []
+
+        def fake_send(provider, model, api_key, messages, **kwargs):
+            captured_messages.extend(messages)
+            return False, "no response"
+
+        with patch(
+            "app.services.ai_service.AIService.send_message",
+            side_effect=fake_send,
+        ):
+            ctrl.flag_shallow_notes()
+
+        # Non-ignored why-note should reach the AI
+        self.assertTrue(len(captured_messages) > 0)
+        self.assertIn("I blundered", captured_messages[0]["content"])
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
     """Regression: _schedule_charts_refresh must use live instance fields, not
     re-read from stale _user_settings, so menu-driven changes take effect."""

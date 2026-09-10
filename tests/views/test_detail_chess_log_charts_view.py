@@ -330,6 +330,22 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view = self._make_view()
         self.assertFalse(hasattr(view, "_flag_btn"))
 
+    # --- Show Shallow Tags button ---
+
+    def test_show_shallow_btn_exists(self):
+        from PyQt6.QtWidgets import QPushButton
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_show_shallow_btn"))
+        self.assertIsInstance(view._show_shallow_btn, QPushButton)
+
+    def test_show_shallow_btn_disabled_when_unconfigured(self):
+        view = self._make_view(ai=False)
+        self.assertFalse(view._show_shallow_btn.isEnabled())
+
+    def test_show_shallow_btn_enabled_when_configured(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        self.assertTrue(view._show_shallow_btn.isEnabled())
+
     # --- Model combo ---
 
     def test_model_combo_exists(self):

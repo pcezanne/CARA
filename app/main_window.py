@@ -1470,6 +1470,33 @@ class MainWindow(QMainWindow):
                 f"{failed} failed"
             )
 
+    def _show_chess_logs_for_all_games(self) -> None:
+        """Open Show Chess Logs dialog scoped to tagged games in the active database."""
+        if not self.controller:
+            return
+        db_controller = self.controller.get_database_controller()
+        if not db_controller:
+            return
+        db = db_controller.get_active_database()
+        if not db:
+            self.controller.set_status("No active database")
+            return
+        games = [g for g in db.get_all_games() if getattr(g, "has_chess_log_tags", False)]
+        if not games:
+            self.controller.set_status("No tagged games in the active database")
+            return
+        chess_log_controller = self.controller.get_chess_log_controller()
+        if not chess_log_controller:
+            return
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        dlg = ShowTagsDialog(
+            config=self.config,
+            games=games,
+            controller=chess_log_controller,
+            parent=self,
+        )
+        dlg.exec()
+
     def _clear_chess_log_for_current_game(self) -> None:
         """Clear Chess Log moments for the current game (removes CARAChessLog tags in memory)."""
         if not self.controller:

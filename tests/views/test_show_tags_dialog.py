@@ -35,7 +35,7 @@ _QT_OK = _qt_starts_cleanly()
 requires_qt = unittest.skipUnless(_QT_OK, "Qt platform plugin unavailable")
 
 if _QT_OK:
-    from PyQt6.QtWidgets import QApplication, QCheckBox, QPlainTextEdit, QScrollArea
+    from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QPlainTextEdit, QScrollArea
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
 
 # ---------------------------------------------------------------------------
@@ -48,31 +48,37 @@ MAINLINE_PGN = (
     "1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 *\n"
 )
 
+SECOND_PGN = (
+    '[Event "T"][Site "?"][Date "2026.02.01"]'
+    '[Round "?"][White "X"][Black "Y"][Result "1-0"]\n\n'
+    "1. d4 d5 *\n"
+)
 
-def _make_game_data(pgn: str = MAINLINE_PGN):
+
+def _make_game_data(pgn: str = MAINLINE_PGN, game_number: int = 1):
     from app.models.database_model import GameData
-    return GameData(game_number=1, pgn=pgn)
+    return GameData(game_number=game_number, pgn=pgn)
 
 
 def _make_controller(paths_data: dict, custom_categories=None):
     ctrl = MagicMock()
-    ctrl.get_tags_for_current_game.return_value = paths_data
+    ctrl.get_tags_for_game.return_value = paths_data
     ctrl.get_custom_categories.return_value = custom_categories or []
     ctrl.game_has_any_tags.return_value = bool(paths_data)
-    ctrl.replace_entries_at_path = MagicMock()
+    ctrl.replace_entries_at_path_for_game = MagicMock()
     return ctrl
 
 
-def _make_entry(preset, cat, why=""):
+def _make_entry(preset, cat, why="", ignore_shallow=False):
     from app.services.chess_log_storage_service import ChessLogStorageService
-    return ChessLogStorageService.make_entry(preset, cat, why)
+    return ChessLogStorageService.make_entry(preset, cat, why, ignore_shallow=ignore_shallow)
 
 
 def _make_dialog(paths_data: dict, custom_categories=None, pgn: str = MAINLINE_PGN):
     from app.views.dialogs.show_tags_dialog import ShowTagsDialog
     game_data = _make_game_data(pgn)
     ctrl = _make_controller(paths_data, custom_categories)
-    return ShowTagsDialog({}, game_data, ctrl), ctrl
+    return ShowTagsDialog({}, [game_data], ctrl), ctrl
 
 
 # ---------------------------------------------------------------------------
@@ -227,7 +233,7 @@ class TestPersistence(unittest.TestCase):
         paths_data = {"0": [_make_entry("CLAMP", "C")]}
         dlg, ctrl = _make_dialog(paths_data)
         dlg._ok_btn.click()
-        ctrl.replace_entries_at_path.assert_not_called()
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
 
     def test_ok_after_edit_persists_changed_row(self):
         paths_data = {"0": [_make_entry("CLAMP", "C", "old why")]}
@@ -236,9 +242,9 @@ class TestPersistence(unittest.TestCase):
         row = dlg._row_widgets[0]
         row._why_texts["why"].setPlainText("new why")
         dlg._ok_btn.click()
-        ctrl.replace_entries_at_path.assert_called_once()
-        call_args = ctrl.replace_entries_at_path.call_args
-        path_key, preset, new_entries = call_args[0]
+        ctrl.replace_entries_at_path_for_game.assert_called_once()
+        call_args = ctrl.replace_entries_at_path_for_game.call_args
+        _game, path_key, preset, new_entries = call_args[0]
         self.assertEqual(path_key, "0")
         self.assertEqual(preset, "CLAMP")
         self.assertTrue(any(e.get("why") == "new why" for e in new_entries))
@@ -252,9 +258,9 @@ class TestPersistence(unittest.TestCase):
         # Modify only the second row
         dlg._row_widgets[1]._why_texts["why"].setPlainText("changed!")
         dlg._ok_btn.click()
-        self.assertEqual(ctrl.replace_entries_at_path.call_count, 1)
-        call_args = ctrl.replace_entries_at_path.call_args
-        self.assertEqual(call_args[0][0], "0.0")
+        self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 1)
+        call_args = ctrl.replace_entries_at_path_for_game.call_args
+        self.assertEqual(call_args[0][1], "0.0")
 
     def test_ok_preserves_other_preset_at_same_path(self):
         """Editing CLAMP row must NOT write to the Custom preset at the same path."""
@@ -272,16 +278,16 @@ class TestPersistence(unittest.TestCase):
         dlg._row_widgets[clamp_row_idx]._why_texts["why"].setPlainText("new clamp")
         dlg._ok_btn.click()
         # Only one replace call (for CLAMP)
-        self.assertEqual(ctrl.replace_entries_at_path.call_count, 1)
-        call_args = ctrl.replace_entries_at_path.call_args
-        self.assertEqual(call_args[0][1], "CLAMP")
+        self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 1)
+        call_args = ctrl.replace_entries_at_path_for_game.call_args
+        self.assertEqual(call_args[0][2], "CLAMP")
 
     def test_cancel_after_edit_does_not_write(self):
         paths_data = {"0": [_make_entry("CLAMP", "C", "original")]}
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._why_texts["why"].setPlainText("changed but cancelled")
         dlg._cancel_btn.click()
-        ctrl.replace_entries_at_path.assert_not_called()
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -354,8 +360,8 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._why_texts["why"].setPlainText("updated note")
         dlg._ok_btn.click()
-        ctrl.replace_entries_at_path.assert_called_once()
-        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        ctrl.replace_entries_at_path_for_game.assert_called_once()
+        _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(len(new_entries), 1)
         self.assertEqual(new_entries[0]["cat"], "")
         self.assertEqual(new_entries[0]["why"], "updated note")
@@ -366,8 +372,8 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
         dlg._ok_btn.click()
-        ctrl.replace_entries_at_path.assert_called_once()
-        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        ctrl.replace_entries_at_path_for_game.assert_called_once()
+        _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(len(new_entries), 1)
         self.assertEqual(new_entries[0]["cat"], "")
         self.assertEqual(new_entries[0]["why"], "note")
@@ -379,9 +385,178 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
         dlg._row_widgets[0]._why_texts["why"].setPlainText("")
         dlg._ok_btn.click()
-        ctrl.replace_entries_at_path.assert_called_once()
-        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        ctrl.replace_entries_at_path_for_game.assert_called_once()
+        _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(new_entries, [])
+
+
+# ---------------------------------------------------------------------------
+# Multi-game dialog shows game headers
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMultiGameDialog(unittest.TestCase):
+    def _make_multi_game_dialog(self, paths1=None, paths2=None):
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        from app.models.database_model import GameData
+
+        game1 = GameData(game_number=1, pgn=MAINLINE_PGN, white="Alice", black="Bob")
+        game2 = GameData(game_number=2, pgn=SECOND_PGN, white="Carol", black="Dave")
+        paths1 = paths1 or {"0": [_make_entry("CLAMP", "C")]}
+        paths2 = paths2 or {"0": [_make_entry("CLAMP", "L")]}
+
+        ctrl = MagicMock()
+        ctrl.get_tags_for_game.side_effect = lambda g: paths1 if g is game1 else paths2
+        ctrl.get_custom_categories.return_value = []
+        ctrl.replace_entries_at_path_for_game = MagicMock()
+
+        dlg = ShowTagsDialog({}, [game1, game2], ctrl)
+        return dlg, ctrl, game1, game2
+
+    def test_multi_game_title(self):
+        dlg, _, _, _ = self._make_multi_game_dialog()
+        self.assertIn("all games", dlg.windowTitle().lower())
+
+    def test_single_game_title_is_not_multi(self):
+        dlg, _ = _make_dialog({"0": [_make_entry("CLAMP", "C")]})
+        self.assertNotIn("all games", dlg.windowTitle().lower())
+
+    def test_multi_game_has_game_header_labels(self):
+        dlg, _, game1, game2 = self._make_multi_game_dialog()
+        # Game headers are QLabel children containing player names
+        labels = dlg.findChildren(QLabel)
+        label_texts = [lbl.text() for lbl in labels]
+        # At least one label should contain Alice (game1 header)
+        self.assertTrue(any("Alice" in t for t in label_texts))
+        # At least one label should contain Carol (game2 header)
+        self.assertTrue(any("Carol" in t for t in label_texts))
+
+    def test_single_game_no_game_header_with_player_name(self):
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+
+        game = GameData(game_number=1, pgn=MAINLINE_PGN, white="UniqueNameXYZ", black="Bob")
+        ctrl = MagicMock()
+        ctrl.get_tags_for_game.return_value = {"0": [_make_entry("CLAMP", "C")]}
+        ctrl.get_custom_categories.return_value = []
+        dlg = ShowTagsDialog({}, [game], ctrl)
+        # With a single game, no game-header QLabel is added — the move label
+        # won't contain the player name
+        labels = dlg.findChildren(QLabel)
+        label_texts = [lbl.text() for lbl in labels]
+        self.assertFalse(any("UniqueNameXYZ" in t for t in label_texts))
+
+    def test_multi_game_row_count_spans_all_games(self):
+        dlg, _, _, _ = self._make_multi_game_dialog(
+            paths1={"0": [_make_entry("CLAMP", "C")]},
+            paths2={"0": [_make_entry("CLAMP", "L")], "0.0": [_make_entry("CLAMP", "M")]},
+        )
+        self.assertEqual(len(dlg._row_widgets), 3)
+
+    def test_multi_game_ok_writes_to_correct_game(self):
+        dlg, ctrl, game1, game2 = self._make_multi_game_dialog()
+        # Edit the second row (game2's row)
+        dlg._row_widgets[1]._why_texts["why"].setPlainText("edited g2")
+        dlg._ok_btn.click()
+        ctrl.replace_entries_at_path_for_game.assert_called_once()
+        call_args = ctrl.replace_entries_at_path_for_game.call_args[0]
+        # First arg should be game2
+        self.assertIs(call_args[0], game2)
+
+
+# ---------------------------------------------------------------------------
+# Ignore checkbox on _TagRowWidget
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestIgnoreCheckbox(unittest.TestCase):
+    def _make_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            custom_categories=[],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def test_no_ignore_checkbox_by_default(self):
+        row = self._make_row([_make_entry("CLAMP", "C")])
+        self.assertIsNone(row._ignore_check)
+
+    def test_ignore_checkbox_rendered_when_requested(self):
+        row = self._make_row([_make_entry("CLAMP", "C")], show_ignore=True)
+        self.assertIsNotNone(row._ignore_check)
+        self.assertIsInstance(row._ignore_check, QCheckBox)
+
+    def test_ignore_checkbox_starts_unchecked_when_entry_has_no_flag(self):
+        row = self._make_row([_make_entry("CLAMP", "C")], show_ignore=True)
+        self.assertFalse(row._ignore_check.isChecked())
+
+    def test_ignore_checkbox_starts_checked_when_entry_flagged(self):
+        entry = _make_entry("CLAMP", "C", ignore_shallow=True)
+        row = self._make_row([entry], show_ignore=True)
+        self.assertTrue(row._ignore_check.isChecked())
+
+    def test_get_current_entries_includes_ignore_shallow_when_checked(self):
+        row = self._make_row([_make_entry("CLAMP", "C")], show_ignore=True)
+        row._ignore_check.setChecked(True)
+        entries = row.get_current_entries()
+        self.assertTrue(all(e.get("ignore_shallow") for e in entries))
+
+    def test_get_current_entries_omits_ignore_shallow_when_unchecked(self):
+        row = self._make_row([_make_entry("CLAMP", "C")], show_ignore=True)
+        row._ignore_check.setChecked(False)
+        entries = row.get_current_entries()
+        self.assertFalse(any(e.get("ignore_shallow") for e in entries))
+
+    def test_show_tags_dialog_rows_have_no_ignore_checkbox(self):
+        """ShowTagsDialog never passes show_ignore_checkbox=True to rows."""
+        paths_data = {"0": [_make_entry("CLAMP", "C")]}
+        dlg, _ = _make_dialog(paths_data)
+        for row in dlg._row_widgets:
+            self.assertIsNone(row._ignore_check)
+
+
+# ---------------------------------------------------------------------------
+# ignore_shallow preservation when show_ignore_checkbox=False
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestIgnoreShallowPreservation(unittest.TestCase):
+    def _make_row(self, entries):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            custom_categories=[],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=False,
+        )
+
+    def test_ignore_shallow_preserved_through_edit_roundtrip(self):
+        """Editing why-text in Show Tags does not strip an existing ignore_shallow flag."""
+        entry = _make_entry("CLAMP", "C", "original note", ignore_shallow=True)
+        row = self._make_row([entry])
+        row._why_texts["why"].setPlainText("edited note")
+        entries = row.get_current_entries()
+        self.assertTrue(all(e.get("ignore_shallow") for e in entries))
+
+    def test_no_ignore_shallow_when_entry_never_had_it(self):
+        entry = _make_entry("CLAMP", "C", "note")
+        row = self._make_row([entry])
+        entries = row.get_current_entries()
+        self.assertFalse(any(e.get("ignore_shallow") for e in entries))
 
 
 if __name__ == "__main__":

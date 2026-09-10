@@ -543,7 +543,7 @@ class DetailMovesListView(QWidget):
         if game_data is None:
             return
         from app.views.dialogs.show_tags_dialog import ShowTagsDialog
-        dlg = ShowTagsDialog(self.config, game_data, self._chess_log_controller, self)
+        dlg = ShowTagsDialog(self.config, [game_data], self._chess_log_controller, self)
         dlg.exec()
 
     def _on_moves_table_context_menu(self, pos: QPoint) -> None:

@@ -44,7 +44,7 @@ if _QT_AVAILABLE:
         ChessLogCategoryBin,
         ChessLogPresetSeries,
     )
-    from PyQt6.QtWidgets import QPushButton, QScrollArea, QSpinBox
+    from PyQt6.QtWidgets import QComboBox, QSpinBox
 
 
 # ---------------------------------------------------------------------------
@@ -326,27 +326,11 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view.set_controller(_make_stub_controller(ai_configured=ai, models=models, timeout=timeout))
         return view
 
-    # --- Flag Shallow Notes button ---
-
-    def test_flag_btn_exists(self):
+    def test_no_flag_btn_attribute(self):
         view = self._make_view()
-        self.assertTrue(hasattr(view, "_flag_btn"))
-        self.assertIsInstance(view._flag_btn, QPushButton)
+        self.assertFalse(hasattr(view, "_flag_btn"))
 
-    def test_flag_btn_disabled_when_unconfigured(self):
-        view = self._make_view(ai=False)
-        self.assertFalse(view._flag_btn.isEnabled())
-
-    def test_flag_btn_disabled_when_configured_but_no_why_notes(self):
-        view = self._make_view(ai=True, models=["gpt-4o"])
-        # No tags report rows — _flaggable_why_note_count stays 0
-        self.assertFalse(view._flag_btn.isEnabled())
-
-    def test_no_include_flags_check_attribute(self):
-        view = self._make_view()
-        self.assertFalse(hasattr(view, "_include_flags_check"))
-
-    # --- Model combo (Item 4) ---
+    # --- Model combo ---
 
     def test_model_combo_exists(self):
         view = self._make_view()
@@ -430,84 +414,6 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view._controller.set_narrative_token_limit = MagicMock()
         view._tokens_spin.setValue(4000)
         view._controller.set_narrative_token_limit.assert_called_with(4000)
-
-
-@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
-class TestTagsReportPanel(unittest.TestCase):
-
-    def _make_view(self, ai: bool = False) -> "DetailChessLogChartsView":
-        view = DetailChessLogChartsView(config={})
-        ctrl = _make_stub_controller(ai_configured=ai)
-        ctrl.resolve_games.return_value = []
-        ctrl.get_custom_categories.return_value = []
-        ctrl.has_player_selected.return_value = False
-        view.set_controller(ctrl)
-        return view
-
-    def test_no_player_shows_select_label(self):
-        from PyQt6.QtWidgets import QLabel
-        view = self._make_view()
-        view._controller.has_player_selected.return_value = False
-        view._refresh_tags_report()
-        labels = [
-            view._tags_report_inner_layout.itemAt(i).widget()
-            for i in range(view._tags_report_inner_layout.count())
-            if view._tags_report_inner_layout.itemAt(i).widget() is not None
-        ]
-        texts = [w.text() for w in labels if isinstance(w, QLabel)]
-        self.assertTrue(
-            any("player" in t.lower() for t in texts),
-            f"Expected a 'select a player' label, got: {texts}",
-        )
-
-    def test_no_player_produces_no_tag_row_widgets(self):
-        view = self._make_view()
-        view._controller.has_player_selected.return_value = False
-        view._refresh_tags_report()
-        self.assertEqual(len(view._tags_report_row_widgets), 0)
-
-    def test_player_changed_refreshes_report(self):
-        view = self._make_view()
-        view._controller.has_player_selected.return_value = True
-        view._controller.resolve_games.return_value = []
-        with patch.object(view, "_refresh_tags_report", wraps=view._refresh_tags_report) as spy:
-            view._player_combo.addItem("Alice (3 tagged)", "Alice")
-            view._player_combo.setCurrentIndex(0)
-            # Manually call as the signal handler would
-            view._on_player_changed(0)
-            spy.assert_called_once()
-
-    def test_scroll_area_fixed_height_when_many_rows(self):
-        """When > 9 rows exist, the inner scroll area must use a fixed height."""
-        from PyQt6.QtWidgets import QLabel
-        view = self._make_view()
-        view._controller.has_player_selected.return_value = True
-        # Patch _refresh_tags_report to manually inject a scroll area with > 9 rows
-        # by simulating the branch that creates a QScrollArea
-        view._flaggable_why_note_count = 0
-        while view._tags_report_inner_layout.count():
-            item = view._tags_report_inner_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        from PyQt6.QtWidgets import QScrollArea, QWidget, QVBoxLayout
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
-        for _ in range(10):
-            inner_layout.addWidget(QLabel("row"))
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(inner)
-        scroll.setFixedHeight(500)
-        view._tags_report_inner_layout.addWidget(scroll)
-        found = [
-            view._tags_report_inner_layout.itemAt(i).widget()
-            for i in range(view._tags_report_inner_layout.count())
-            if isinstance(view._tags_report_inner_layout.itemAt(i).widget(), QScrollArea)
-        ]
-        self.assertEqual(len(found), 1)
-        self.assertEqual(found[0].maximumHeight(), 500)
-        self.assertEqual(found[0].minimumHeight(), 500)
 
 
 if __name__ == "__main__":

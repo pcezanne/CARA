@@ -34,8 +34,6 @@ from PyQt6.QtWidgets import (
 from app.controllers.chess_log_charts_controller import ChessLogChartsController
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
-from app.utils.pgn_variation_path import decode_path
-from app.views.dialogs._tag_row_helpers import node_info as _node_info, ply_for_path as _ply_for_path
 from app.views.style.style_manager import StyleManager
 from app.views.widgets.chess_log_category_chart_widget import ChessLogCategoryChartWidget
 
@@ -97,7 +95,6 @@ class DetailChessLogChartsView(QWidget):
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
 
         self._refresh_ai_state()
-        self._refresh_tags_report()
 
     def refresh_ai_state(self) -> None:
         """Called externally when AI model settings change."""
@@ -146,8 +143,6 @@ class DetailChessLogChartsView(QWidget):
 
         content_layout.addWidget(self._placeholder)
         content_layout.addWidget(self._charts_container)
-        self._tags_report_outer = self._build_tags_report_panel()
-        content_layout.addWidget(self._tags_report_outer)
         content_layout.addWidget(self._build_narrative_panel())
         content_layout.addStretch()
 
@@ -254,14 +249,6 @@ class DetailChessLogChartsView(QWidget):
 
         layout.addLayout(model_row)
 
-        flag_row = QHBoxLayout()
-        self._flag_btn = QPushButton("Flag Shallow Notes")
-        self._flag_btn.clicked.connect(self._on_flag_shallow_clicked)
-        self._flag_btn.setEnabled(False)
-        flag_row.addWidget(self._flag_btn)
-        flag_row.addStretch()
-        layout.addLayout(flag_row)
-
         btn_row = QHBoxLayout()
         self._generate_btn = QPushButton("Generate Narrative Summary")
         self._generate_btn.clicked.connect(self._on_generate_clicked)
@@ -296,263 +283,6 @@ class DetailChessLogChartsView(QWidget):
         layout.addWidget(self._flagged_box)
 
         return frame
-
-    # ------------------------------------------------------------------
-    # Tags Report panel
-    # ------------------------------------------------------------------
-
-    def _build_tags_report_panel(self) -> QWidget:
-        """Build the Tags Report panel container; call _refresh_tags_report() to populate."""
-        container = QWidget()
-        container.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._tags_report_inner_layout = QVBoxLayout(container)
-        self._tags_report_inner_layout.setContentsMargins(0, 0, 0, 0)
-        self._tags_report_inner_layout.setSpacing(0)
-        self._tags_report_row_widgets: List = []  # List[Tuple[game, path_key, preset, _TagRowWidget]]
-        self._tags_report_built = False
-        self._flaggable_why_note_count: int = 0
-        return container
-
-    def _refresh_tags_report(self) -> None:
-        """Rebuild the Tags Report panel contents from the current data source."""
-        from io import StringIO
-        import chess.pgn
-        from app.views.dialogs.show_tags_dialog import _TagRowWidget
-
-        # Clear existing content
-        while self._tags_report_inner_layout.count():
-            item = self._tags_report_inner_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.deleteLater()
-        self._tags_report_row_widgets = []
-        self._flaggable_why_note_count = 0
-
-        panel_cfg = self._config.get("ui", {}).get("panels", {}).get("detail", {})
-        cl_cfg = panel_cfg.get("chess_log_charts", {})
-        colors = cl_cfg.get("colors", {})
-        bg = colors.get("background", [28, 28, 33])
-        text_color = colors.get("text", [210, 210, 220])
-        border = colors.get("border", [60, 60, 68])
-
-        if not self._controller:
-            return
-
-        if not self._controller.has_player_selected():
-            tr, tg, tb = text_color
-            lbl = QLabel("Select a player to view tagged moments.")
-            lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); padding: 8px 0;")
-            self._tags_report_inner_layout.addWidget(lbl)
-            self._refresh_ai_state()
-            return
-
-        from app.services.chess_log_storage_service import ChessLogStorageService
-
-        games = self._controller.resolve_games()
-        custom_cats = self._controller.get_custom_categories()
-
-        # Collect (game, paths_data, pgn_game) triples that have tags
-        tagged_games = []
-        for game in games:
-            tags = self._controller.get_tags_for_game(game)
-            if not any(tags.values()):
-                continue
-            try:
-                pgn_game = chess.pgn.read_game(StringIO(game.pgn)) if game.pgn else None
-            except Exception:
-                pgn_game = None
-            tagged_games.append((game, tags, pgn_game))
-
-        if not tagged_games:
-            lbl = QLabel("No tagged moments in the current selection.")
-            tr, tg, tb = text_color
-            lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); padding: 8px 0;")
-            self._tags_report_inner_layout.addWidget(lbl)
-            self._refresh_ai_state()
-            return
-
-        # Sort games by date ascending, game_number as tiebreak
-        def _sort_key(triple):
-            game, _, __ = triple
-            date_str = str(getattr(game, "date", "") or "")
-            return (date_str, getattr(game, "game_number", 0))
-
-        tagged_games.sort(key=_sort_key)
-
-        # Decide whether to group by database (only when >1 distinct database)
-        _PRESET_ORDER = ["CLAMP", "CCT", "3x3", "Custom"]
-        preset_rank = {p: i for i, p in enumerate(_PRESET_ORDER)}
-
-        def _db_name(game):
-            try:
-                db = self._controller._database_controller.find_database_model_for_game(game)
-                if db:
-                    return db.display_name
-            except Exception:
-                pass
-            return "Unknown"
-
-        db_names = [_db_name(g) for g, _, __ in tagged_games]
-        multi_db = len(set(db_names)) > 1
-
-        # Build rows
-        all_rows = []  # (game, path_key, preset, entries, pgn_game)
-        for (game, tags, pgn_game) in tagged_games:
-            for path_key, all_entries in tags.items():
-                if not all_entries:
-                    continue
-                path = decode_path(path_key)
-                if path is None:
-                    continue
-                ply = _ply_for_path(pgn_game, path)
-                by_preset: Dict[str, list] = {}
-                for entry in all_entries:
-                    p = entry.get("preset", "")
-                    by_preset.setdefault(p, []).append(entry)
-                for preset, entries in by_preset.items():
-                    rank = preset_rank.get(preset, len(_PRESET_ORDER))
-                    all_rows.append((ply, rank, game, path_key, preset, entries, pgn_game))
-
-        total_row_count = len(all_rows)
-
-        # Container that holds separator labels + row widgets
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(0)
-
-        br, bg_v, bb = bg
-        tr, tg, tb = text_color
-        bor, bog, bob = border
-
-        last_db = None
-        last_game = None
-
-        # Sort all_rows: by game (same order), then within game by ply and preset rank
-        # Since tagged_games is already sorted, group by game preserving that order
-        from itertools import groupby
-        game_row_groups = {}
-        for (ply, rank, game, path_key, preset, entries, pgn_game) in all_rows:
-            gid = id(game)
-            if gid not in game_row_groups:
-                game_row_groups[gid] = (game, pgn_game, [])
-            game_row_groups[gid][2].append((ply, rank, path_key, preset, entries))
-
-        for (game, _, __) in tagged_games:
-            gid = id(game)
-            if gid not in game_row_groups:
-                continue
-            _, pgn_game, g_rows = game_row_groups[gid]
-            g_rows.sort(key=lambda r: (r[0], r[1]))  # sort by ply, then preset rank
-
-            db_name = _db_name(game)
-
-            # Database header
-            if multi_db and db_name != last_db:
-                db_header = QLabel(db_name)
-                dh_bg_r = min(255, br + 38)
-                dh_bg_g = min(255, bg_v + 38)
-                dh_bg_b = min(255, bb + 38)
-                db_header.setStyleSheet(
-                    f"background-color: rgb({dh_bg_r},{dh_bg_g},{dh_bg_b}); "
-                    f"color: rgb({tr},{tg},{tb}); font-weight: bold; "
-                    f"padding: 4px 8px; "
-                    f"border-top: 1px solid rgb({bor},{bog},{bob}); "
-                    f"border-bottom: 1px solid rgb({bor},{bog},{bob});"
-                )
-                inner_layout.addWidget(db_header)
-                inner_layout.addSpacing(12)
-                last_db = db_name
-                last_game = None
-
-            # Game header
-            if last_game is not game:
-                if last_game is not None:
-                    inner_layout.addSpacing(6)
-                _white = str(getattr(game, "white", "") or "").strip() or "Unknown"
-                _black = str(getattr(game, "black", "") or "").strip() or "Unknown"
-                _result = str(getattr(game, "result", "") or "").strip() or "*"
-                _date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
-                try:
-                    _moves = int(getattr(game, "moves", 0) or 0)
-                except (TypeError, ValueError):
-                    _moves = 0
-                game_label = f"{_white} - {_black} {_result} ({_date} - {_moves} moves)"
-                game_header = QLabel(game_label)
-                gh_bg_r = min(255, br + 20)
-                gh_bg_g = min(255, bg_v + 20)
-                gh_bg_b = min(255, bb + 20)
-                game_header.setStyleSheet(
-                    f"background-color: rgb({gh_bg_r},{gh_bg_g},{gh_bg_b}); "
-                    f"color: rgb({tr},{tg},{tb}); "
-                    f"padding: 3px 8px; "
-                    f"border-top: 1px solid rgb({bor},{bog},{bob}); "
-                    f"border-bottom: 1px solid rgb({bor},{bog},{bob});"
-                )
-                inner_layout.addWidget(game_header)
-                last_game = game
-
-            for i, (ply, rank, path_key, preset, entries) in enumerate(g_rows):
-                if i > 0:
-                    sep = QFrame()
-                    sep.setFrameShape(QFrame.Shape.HLine)
-                    sep.setFixedHeight(1)
-                    sep.setStyleSheet(f"background-color: rgb({bor},{bog},{bob}); border: none;")
-                    inner_layout.addWidget(sep)
-
-                fen, played_move, move_label = _node_info(pgn_game, path_key)
-                row = _TagRowWidget(
-                    self._config,
-                    preset,
-                    entries,
-                    custom_cats,
-                    move_label,
-                    fen or None,
-                    played_move,
-                    bg,
-                    text_color,
-                )
-                row.edited.connect(
-                    lambda g=game, pk=path_key, pr=preset, w=row:
-                        self._on_tag_row_edited(g, pk, pr, w)
-                )
-                inner_layout.addWidget(row)
-                self._tags_report_row_widgets.append((game, path_key, preset, row))
-                if any((e.get("why") or "").strip() for e in entries):
-                    self._flaggable_why_note_count += 1
-
-            inner_layout.addSpacing(2)
-
-        # Wrap in a scroll area only if row count > 9
-        if total_row_count > 9:
-            scroll = QScrollArea()
-            scroll.setWidgetResizable(True)
-            scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-            scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-            scroll.setFrameShape(QFrame.Shape.NoFrame)
-            scroll.setWidget(inner)
-            scroll.setFixedHeight(500)
-            StyleManager.style_scroll_area(
-                scroll, self._config, bg, border, border_radius=0, include_scroll_area_border=False
-            )
-            self._tags_report_inner_layout.addWidget(scroll)
-        else:
-            self._tags_report_inner_layout.addWidget(inner)
-
-        self._refresh_ai_state()
-
-    def _on_tag_row_edited(self, game, path_key: str, preset: str, row) -> None:
-        """Persist a live Tags Report edit to the multi-game cache."""
-        if self._controller:
-            self._controller.tag_row_edited(game, path_key, preset, row.get_current_entries())
-
-    def _on_flag_shallow_clicked(self) -> None:
-        """Ask the controller to classify why-notes and decorate shallow rows with a warning."""
-        if not self._controller:
-            return
-        shallow_keys = self._controller.flag_shallow_notes()
-        for (game, path_key, preset, row) in self._tags_report_row_widgets:
-            row.set_flagged((game.game_number, path_key, preset) in shallow_keys)
 
     # ------------------------------------------------------------------
     # Styling
@@ -611,7 +341,6 @@ class DetailChessLogChartsView(QWidget):
         self._reset_player_selection()
         if self._controller:
             self._controller.set_source_selection(index)
-        self._refresh_tags_report()
 
     def _on_player_changed(self, index: int) -> None:
         if not self._controller or index < 0:
@@ -619,7 +348,6 @@ class DetailChessLogChartsView(QWidget):
         raw_name = self._player_combo.itemData(index)
         if raw_name:
             self._controller.set_player_selection(raw_name)
-            self._refresh_tags_report()
 
     def _on_generate_clicked(self) -> None:
         if self._controller:
@@ -750,7 +478,6 @@ class DetailChessLogChartsView(QWidget):
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
         self._generate_btn.setEnabled(configured)
-        self._flag_btn.setEnabled(configured and self._flaggable_why_note_count > 0)
         self._ai_hint.setVisible(not configured)
         self._model_combo.setEnabled(configured)
         self._timeout_spin.setEnabled(configured)

@@ -83,7 +83,6 @@ class _TagRowWidget(QFrame):
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
         self._header_label: Optional[QLabel] = None
-        self._header_base_text: str = ""
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -111,7 +110,6 @@ class _TagRowWidget(QFrame):
         )
         outer.addWidget(header)
         self._header_label = header
-        self._header_base_text = move_label
 
         # Three-column row: board | checkboxes | text
         cols = QHBoxLayout()
@@ -194,19 +192,6 @@ class _TagRowWidget(QFrame):
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any checkbox or text change."""
         self._edit_debounce.start()
-
-    def set_flagged(self, flagged: bool) -> None:
-        """Show or hide a shallow-note warning triangle in the move-label header."""
-        if self._header_label is None:
-            return
-        if flagged:
-            self._header_label.setText("⚠ " + self._header_base_text)
-            self._header_label.setToolTip(
-                "This note may be too shallow — try describing why, not just what happened."
-            )
-        else:
-            self._header_label.setText(self._header_base_text)
-            self._header_label.setToolTip("")
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
         tr, tg, tb = self._text_color

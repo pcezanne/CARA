@@ -209,6 +209,13 @@ class TestAlwaysEditable(unittest.TestCase):
         dlg, _ = _make_dialog(paths_data)
         self.assertFalse(hasattr(dlg, "_edit_btn"))
 
+    def test_tag_row_widget_has_no_set_flagged(self):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        paths_data = {"0": [_make_entry("CLAMP", "C")]}
+        dlg, _ = _make_dialog(paths_data)
+        row = dlg._row_widgets[0]
+        self.assertFalse(hasattr(row, "set_flagged"))
+
 
 # ---------------------------------------------------------------------------
 # OK and Cancel persistence

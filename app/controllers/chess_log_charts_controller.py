@@ -255,11 +255,11 @@ class ChessLogChartsController(QObject):
         self._get_selected_games_callback = callback
 
     def set_chess_log_controller(self, controller: Any) -> None:
-        """Inject ChessLogController for Tags Report live editing."""
+        """Inject ChessLogController for Chess Log dialogs."""
         self._chess_log_controller = controller
 
     def resolve_games(self) -> List[GameData]:
-        """Public wrapper around _resolve_games() for the Tags Report panel."""
+        """Public wrapper around _resolve_games()."""
         return self._resolve_games()
 
     def has_player_selected(self) -> bool:
@@ -278,18 +278,6 @@ class ChessLogChartsController(QObject):
         if self._chess_log_controller is None:
             return []
         return self._chess_log_controller.get_custom_categories()
-
-    def tag_row_edited(
-        self,
-        game: GameData,
-        path_key: str,
-        preset: str,
-        entries: List[Dict[str, Any]],
-    ) -> None:
-        """Persist a live Tags Report edit to the multi-game cache."""
-        if self._chess_log_controller is None:
-            return
-        self._chess_log_controller.replace_entries_at_path_for_game(game, path_key, preset, entries)
 
     def set_user_settings(self, user_settings: Dict[str, Any]) -> None:
         """Refresh user settings (e.g. after AI Model Settings dialog closes)."""

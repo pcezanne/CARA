@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from app.controllers.game_controller import GameController
 from app.services.chess_log_storage_service import ChessLogStorageService
@@ -36,6 +36,13 @@ class ChessLogController:
         self._user_settings_service = user_settings_service
         self._cached_paths_data: Dict[str, List[Dict[str, Any]]] = {}
         self._cached_game_id: Optional[int] = None
+
+        # Multi-game cache for Tags Report and save-all.
+        # Games not currently active live here; the active game lives in
+        # _cached_paths_data / _cached_game_id.  Games move between stores on
+        # active-game transitions — only one store ever owns a given game_number.
+        self._multi_cache: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
+        self._dirty_games: Dict[int, Any] = {}  # game_number -> GameData
 
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
@@ -172,6 +179,87 @@ class ChessLogController:
         elif tagged:
             self._cached_paths_data[path_key] = tagged
 
+    def get_tags_for_game(self, game) -> Dict[str, List[Dict[str, Any]]]:
+        """Return moments for any game, not just the active one.
+
+        Checks the multi-cache first; falls back to disk.  The active game's
+        moments are always read from the single-game cache to stay coherent with
+        in-progress edits.
+        """
+        gid = game.game_number
+        if gid == self._cached_game_id:
+            return self._cached_paths_data
+        if gid not in self._multi_cache:
+            self._multi_cache[gid] = ChessLogStorageService.load_tags(game)
+        return self._multi_cache[gid]
+
+    def replace_entries_at_path_for_game(
+        self,
+        game,
+        path_key: str,
+        preset: str,
+        entries: List[Dict[str, Any]],
+    ) -> None:
+        """Replace all entries for *preset* at *path_key* for any game.
+
+        Writes to whichever store owns this game (single-game cache if it is
+        the active game, multi-cache otherwise).  Marks the game dirty so
+        save_all_dirty_games() will persist it later.
+        """
+        gid = game.game_number
+        tagged = [
+            ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", ""))
+            for e in entries
+        ]
+        if gid == self._cached_game_id:
+            data = self._cached_paths_data
+        else:
+            if gid not in self._multi_cache:
+                self._multi_cache[gid] = ChessLogStorageService.load_tags(game)
+            data = self._multi_cache[gid]
+
+        if path_key in data:
+            kept = [e for e in data[path_key] if e.get("preset") != preset]
+            merged = kept + tagged
+            if merged:
+                data[path_key] = merged
+            else:
+                del data[path_key]
+        elif tagged:
+            data[path_key] = tagged
+
+        self._dirty_games[gid] = game
+
+    def save_all_dirty_games(self) -> Tuple[int, int]:
+        """Persist every dirty game via ChessLogStorageService.store_tags.
+
+        Returns:
+            (n_saved, n_failed)
+
+        Only dirty games are written; clean games are untouched.  On success the
+        game is removed from _dirty_games; on failure it stays dirty so the user
+        can retry.
+        """
+        saved = failed = 0
+        for gid, game in list(self._dirty_games.items()):
+            data = (
+                self._cached_paths_data
+                if gid == self._cached_game_id
+                else self._multi_cache.get(gid, {})
+            )
+            ok = ChessLogStorageService.store_tags(game, data, self.config)
+            if ok:
+                saved += 1
+                self._mark_database_unsaved(game)
+                self._dirty_games.pop(gid, None)
+            else:
+                failed += 1
+        return saved, failed
+
+    def has_dirty_games(self) -> bool:
+        """Return True if any multi-game edits are pending a save."""
+        return bool(self._dirty_games)
+
     def has_unsaved_changes(self) -> bool:
         """Return True if in-memory cache differs from what's stored in the PGN."""
         game = self._game_controller.get_game_model().active_game
@@ -185,7 +273,19 @@ class ChessLogController:
     # ------------------------------------------------------------------
 
     def _on_active_game_changed(self, game) -> None:
-        """Reload cache when the active game changes."""
+        """Reload cache when the active game changes.
+
+        Rule B (deactivation): flush the outgoing active game into _multi_cache
+        so edits made via the Tags Report survive the game switch.
+
+        Rule A (activation): promote from _multi_cache if present, so edits to
+        an inactive game made via the Tags Report are visible once it becomes active.
+        """
+        # Rule B — flush outgoing active game into multi-cache
+        old_gid = self._cached_game_id
+        if old_gid is not None and (self._cached_paths_data or old_gid in self._dirty_games):
+            self._multi_cache[old_gid] = dict(self._cached_paths_data)
+
         if game is None:
             self._cached_paths_data = {}
             self._cached_game_id = None
@@ -193,8 +293,18 @@ class ChessLogController:
             self._load_into_cache(game)
 
     def _load_into_cache(self, game) -> None:
-        self._cached_paths_data = ChessLogStorageService.load_tags(game)
-        self._cached_game_id = game.game_number
+        """Load *game* into the single-game cache.
+
+        Rule A: check _multi_cache first so unsaved edits on an inactive game
+        survive being made active.  Remove from _multi_cache once promoted
+        (a game lives in exactly one store at a time).
+        """
+        gid = game.game_number
+        if gid in self._multi_cache:
+            self._cached_paths_data = self._multi_cache.pop(gid)
+        else:
+            self._cached_paths_data = ChessLogStorageService.load_tags(game)
+        self._cached_game_id = gid
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:

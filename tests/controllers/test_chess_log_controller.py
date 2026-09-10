@@ -357,5 +357,205 @@ class TestReplaceEntriesAtPath(unittest.TestCase):
         self.assertEqual(ctrl._cached_paths_data["9"][0]["cat"], "Threats")
 
 
+class TestMultiGameCache(unittest.TestCase):
+    """Multi-game cache: get_tags_for_game, replace_entries_at_path_for_game,
+    save_all_dirty_games, and coherency at active-game transitions."""
+
+    def _make_ctrl(self, active_game=None):
+        ctrl, gm = make_controller(active_game)
+        if active_game:
+            ctrl._cached_game_id = active_game.game_number
+        return ctrl, gm
+
+    # ------------------------------------------------------------------
+    # Basic API
+    # ------------------------------------------------------------------
+
+    def test_get_tags_for_game_active_reads_from_single_cache(self):
+        game = make_game(1)
+        ctrl, _ = self._make_ctrl(game)
+        entry = ChessLogStorageService.make_entry("CLAMP", "C")
+        ctrl._cached_paths_data = {"0": [entry]}
+        result = ctrl.get_tags_for_game(game)
+        self.assertIs(result, ctrl._cached_paths_data)
+
+    def test_get_tags_for_game_inactive_loads_and_caches(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ChessLogStorageService.store_tags(
+            game_b, {"0": [ChessLogStorageService.make_entry("CCT", "C")]}, {}
+        )
+        ctrl, _ = self._make_ctrl(game_a)
+        result = ctrl.get_tags_for_game(game_b)
+        self.assertEqual(ChessLogStorageService.count_tags(result), 1)
+        self.assertIn(2, ctrl._multi_cache)
+
+    def test_replace_entries_at_path_for_game_active_writes_to_single_cache(self):
+        game = make_game(1)
+        ctrl, _ = self._make_ctrl(game)
+        ctrl.replace_entries_at_path_for_game(
+            game, "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "test"}]
+        )
+        self.assertIn("0", ctrl._cached_paths_data)
+        self.assertTrue(ctrl.has_dirty_games())
+
+    def test_replace_entries_at_path_for_game_inactive_writes_to_multi_cache(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, _ = self._make_ctrl(game_a)
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CLAMP", [{"preset": "CLAMP", "cat": "P", "why": ""}]
+        )
+        self.assertIn(2, ctrl._multi_cache)
+        self.assertIn("0", ctrl._multi_cache[2])
+        self.assertNotIn("0", ctrl._cached_paths_data)
+
+    def test_save_all_dirty_games_calls_store_tags_for_each(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = self._make_ctrl(game_a)
+        gm.active_game = game_a
+
+        # Edit active game (goes to single-game cache)
+        ctrl.replace_entries_at_path_for_game(
+            game_a, "0", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "a"}]
+        )
+        # Edit inactive game (goes to multi-cache)
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CCT", [{"preset": "CCT", "cat": "Threats", "why": "b"}]
+        )
+
+        store_calls = []
+        original = ChessLogStorageService.store_tags
+
+        def fake_store(game, data, config):
+            store_calls.append((game.game_number, dict(data)))
+            return original(game, data, config)
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags", side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual(saved, 2)
+        self.assertEqual(failed, 0)
+        self.assertFalse(ctrl.has_dirty_games())
+        game_numbers = {gn for gn, _ in store_calls}
+        self.assertEqual(game_numbers, {1, 2})
+
+    def test_save_all_dirty_games_reads_correct_store_for_active_game(self):
+        """save_all_dirty_games must use _cached_paths_data for the active game."""
+        game = make_game(1)
+        ctrl, _ = self._make_ctrl(game)
+        ctrl.replace_entries_at_path_for_game(
+            game, "0", "CLAMP", [{"preset": "CLAMP", "cat": "L", "why": "from cache"}]
+        )
+        # Put stale data in multi_cache to confirm it is NOT used for the active game
+        ctrl._multi_cache[1] = {"0": [ChessLogStorageService.make_entry("CLAMP", "P")]}
+
+        captured = {}
+
+        def fake_store(game, data, config):
+            captured["data"] = dict(data)
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags", side_effect=fake_store):
+            ctrl.save_all_dirty_games()
+
+        self.assertEqual(captured["data"]["0"][0]["cat"], "L")
+
+    def test_save_all_dirty_games_keeps_failed_game_dirty(self):
+        game = make_game(1)
+        ctrl, _ = self._make_ctrl(game)
+        ctrl.replace_entries_at_path_for_game(
+            game, "0", "CLAMP", [{"preset": "CLAMP", "cat": "A", "why": ""}]
+        )
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags", return_value=False):
+            saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 0)
+        self.assertEqual(failed, 1)
+        self.assertTrue(ctrl.has_dirty_games())
+
+    # ------------------------------------------------------------------
+    # Transition coherency
+    # ------------------------------------------------------------------
+
+    def test_edit_inactive_game_then_activate_preserves_edit(self):
+        """Editing Game B while Game A is active — the edit survives when Game B becomes active."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+
+        ctrl, gm = self._make_ctrl(game_a)
+        gm.active_game = game_a
+
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "edited"}]
+        )
+        self.assertIn("0", ctrl._multi_cache.get(2, {}))
+
+        # Switch active game to Game B
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        tags = ctrl.get_tags_for_current_game()
+        self.assertIn("0", tags)
+        self.assertEqual(tags["0"][0]["cat"], "M")
+        self.assertEqual(tags["0"][0]["why"], "edited")
+
+    def test_switch_away_from_dirty_active_game_preserves_edit(self):
+        """Game A is active and dirty; switching to Game B and back must preserve Game A's edit."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+
+        ctrl, gm = self._make_ctrl(game_a)
+        gm.active_game = game_a
+
+        ctrl.replace_entries_at_path_for_game(
+            game_a, "0", "CLAMP", [{"preset": "CLAMP", "cat": "P", "why": "preserved"}]
+        )
+
+        # Switch to Game B
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        self.assertNotEqual(ctrl._cached_game_id, 1)
+
+        # Switch back to Game A
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        self.assertEqual(ctrl._cached_game_id, 1)
+        self.assertIn("0", ctrl._cached_paths_data)
+        self.assertEqual(ctrl._cached_paths_data["0"][0]["why"], "preserved")
+
+    def test_save_all_dirty_games_reads_from_correct_store_after_activation(self):
+        """One dirty game in multi_cache + one dirty active game — save_all reads from the right place."""
+        game_a = make_game(1)  # will be active
+        game_b = make_game(2)  # will stay in multi_cache
+
+        ctrl, gm = self._make_ctrl(game_a)
+        gm.active_game = game_a
+
+        ctrl.replace_entries_at_path_for_game(
+            game_a, "0", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "active-edit"}]
+        )
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CCT", [{"preset": "CCT", "cat": "Checks", "why": "multi-edit"}]
+        )
+
+        captured = {}
+
+        def fake_store(game, data, config):
+            captured[game.game_number] = {
+                pk: [e["why"] for e in entries]
+                for pk, entries in data.items()
+            }
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags", side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual(saved, 2)
+        self.assertEqual(failed, 0)
+        self.assertIn("active-edit", captured.get(1, {}).get("0", []))
+        self.assertIn("multi-edit", captured.get(2, {}).get("0", []))
+
+
 if __name__ == "__main__":
     unittest.main()

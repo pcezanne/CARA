@@ -170,6 +170,14 @@ class DatabaseModel(QAbstractTableModel):
         self._position_index_fuzzy: Dict[int, List[Tuple[int, int]]] = {}
         self._position_reverse_fuzzy: Dict[int, List[Tuple[int, int]]] = {}
 
+    @property
+    def display_name(self) -> str:
+        """Short display name: file stem for file-based DBs, 'Clipboard' otherwise."""
+        if self.file_path:
+            from pathlib import Path
+            return Path(self.file_path).stem
+        return "Clipboard"
+
     def set_config(self, config: Dict[str, Any]) -> None:
         """Update config and refresh cached theme-driven assets."""
         self._config = config or {}

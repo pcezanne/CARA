@@ -1450,6 +1450,26 @@ class MainWindow(QMainWindow):
             self.controller.set_status("Chess Log saved to current game")
             self._notify_moveslist_chess_log_changed()
 
+    def _save_chess_logs_for_all_games(self) -> None:
+        """Persist dirty Chess Log edits for all games in the multi-game cache."""
+        if not self.controller:
+            return
+        chess_log_controller = self.controller.get_chess_log_controller()
+        if not chess_log_controller:
+            return
+        saved, failed = chess_log_controller.save_all_dirty_games()
+        if saved == 0 and failed == 0:
+            self.controller.set_status("No unsaved Chess Log changes")
+        elif failed == 0:
+            self.controller.set_status(
+                f"Chess Log saved for {saved} game{'s' if saved != 1 else ''}"
+            )
+        else:
+            self.controller.set_status(
+                f"Chess Log saved for {saved} game{'s' if saved != 1 else ''}; "
+                f"{failed} failed"
+            )
+
     def _clear_chess_log_for_current_game(self) -> None:
         """Clear Chess Log moments for the current game (removes CARAChessLog tags in memory)."""
         if not self.controller:

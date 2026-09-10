@@ -653,11 +653,7 @@ class DatabasePanel(QWidget):
         tab_table.update()
         tab_table.viewport().update()
         
-        # Determine tab label
-        if file_path:
-            tab_label = Path(file_path).stem
-        else:
-            tab_label = "Clipboard"
+        tab_label = model.display_name
         
         # Insert tab before the open-database tab
         tab_index = self._add_tab_index

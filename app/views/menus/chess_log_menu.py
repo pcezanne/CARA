@@ -35,6 +35,11 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     mw.save_chess_log_action.triggered.connect(mw._save_chess_log_for_current_game)
     chess_log_menu.addAction(mw.save_chess_log_action)
 
+    mw.save_all_chess_logs_action = QAction("Save Chess Logs for all games", mw)
+    set_menubar_themable_action_icon(mw, mw.save_all_chess_logs_action, SVG_MENU_SAVE)
+    mw.save_all_chess_logs_action.triggered.connect(mw._save_chess_logs_for_all_games)
+    chess_log_menu.addAction(mw.save_all_chess_logs_action)
+
     chess_log_menu.addSeparator()
 
     mw.highlight_chess_log_moves_action = QAction("Highlight tagged moves in moves list", mw)

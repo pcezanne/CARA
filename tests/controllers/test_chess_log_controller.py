@@ -557,5 +557,37 @@ class TestMultiGameCache(unittest.TestCase):
         self.assertIn("multi-edit", captured.get(2, {}).get("0", []))
 
 
+class TestIgnoreShallowPreservation(unittest.TestCase):
+    """replace_entries_at_path and _for_game must preserve the ignore_shallow field."""
+
+    def test_replace_entries_at_path_preserves_ignore_shallow(self):
+        game = make_game(1)
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", ignore_shallow=True)
+        ctrl.replace_entries_at_path("0", "CLAMP", [entry])
+        result = ctrl._cached_paths_data["0"]
+        self.assertTrue(result[0].get("ignore_shallow"))
+
+    def test_replace_entries_at_path_omits_ignore_shallow_when_false(self):
+        game = make_game(1)
+        ctrl, _ = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note")
+        ctrl.replace_entries_at_path("0", "CLAMP", [entry])
+        result = ctrl._cached_paths_data["0"]
+        self.assertNotIn("ignore_shallow", result[0])
+
+    def test_replace_entries_at_path_for_game_preserves_ignore_shallow(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, _ = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", ignore_shallow=True)
+        ctrl.replace_entries_at_path_for_game(game_b, "0", "CLAMP", [entry])
+        result = ctrl._multi_cache[2]["0"]
+        self.assertTrue(result[0].get("ignore_shallow"))
+
+
 if __name__ == "__main__":
     unittest.main()

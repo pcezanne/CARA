@@ -166,7 +166,10 @@ class ChessLogController:
         In-memory only — call save_tags_for_current_game() to persist to PGN.
         """
         tagged = [
-            ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", ""))
+            ChessLogStorageService.make_entry(
+                e["preset"], e["cat"], e.get("why", ""),
+                ignore_shallow=bool(e.get("ignore_shallow")),
+            )
             for e in entries
         ]
         if path_key in self._cached_paths_data:
@@ -208,7 +211,10 @@ class ChessLogController:
         """
         gid = game.game_number
         tagged = [
-            ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", ""))
+            ChessLogStorageService.make_entry(
+                e["preset"], e["cat"], e.get("why", ""),
+                ignore_shallow=bool(e.get("ignore_shallow")),
+            )
             for e in entries
         ]
         if gid == self._cached_game_id:

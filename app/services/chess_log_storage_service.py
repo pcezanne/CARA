@@ -158,15 +158,18 @@ class ChessLogStorageService:
         return sum(1 for entries in paths_data.values() if entries)
 
     @staticmethod
-    def make_entry(preset: str, cat: str, why: str = "") -> Dict[str, Any]:
+    def make_entry(preset: str, cat: str, why: str = "", ignore_shallow: bool = False) -> Dict[str, Any]:
         """Build a single moment entry dict with a new UUID and UTC timestamp."""
-        return {
+        entry: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "preset": preset,
             "cat": cat,
             "why": why,
             "created": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         }
+        if ignore_shallow:
+            entry["ignore_shallow"] = True
+        return entry
 
     @staticmethod
     def _sync_chess_log_chip_in_headers(chess_game, *, inject: bool) -> None:

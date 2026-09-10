@@ -235,6 +235,29 @@ class TestThreeByThreeRoundTrip(unittest.TestCase):
         self.assertEqual(loaded["0"][0]["preset"], "3x3")
 
 
+class TestMakeEntryIgnoreShallow(unittest.TestCase):
+    def test_ignore_shallow_false_omits_field(self):
+        entry = ChessLogStorageService.make_entry("CLAMP", "C")
+        self.assertNotIn("ignore_shallow", entry)
+
+    def test_ignore_shallow_true_includes_field(self):
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", ignore_shallow=True)
+        self.assertIn("ignore_shallow", entry)
+        self.assertTrue(entry["ignore_shallow"])
+
+    def test_ignore_shallow_roundtrips_through_store_load(self):
+        game = make_game()
+        entries = [
+            ChessLogStorageService.make_entry("CLAMP", "C", "note", ignore_shallow=True),
+            ChessLogStorageService.make_entry("CLAMP", "L"),
+        ]
+        loaded = _store_and_reload(game, {"0": entries})
+        shallow_entry = next(e for e in loaded["0"] if e.get("cat") == "C")
+        normal_entry = next(e for e in loaded["0"] if e.get("cat") == "L")
+        self.assertTrue(shallow_entry.get("ignore_shallow"))
+        self.assertNotIn("ignore_shallow", normal_entry)
+
+
 class TestNoneAndInvalidGame(unittest.TestCase):
     def test_none_game(self):
         self.assertFalse(ChessLogStorageService.has_chess_log_tags(None))

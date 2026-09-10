@@ -89,7 +89,7 @@ class _TagRowWidget(QFrame):
 
         # Move label header
         tr, tg, tb = self._text_color
-        header = QLabel(f"{move_label}  —  {self._preset}")
+        header = QLabel(move_label)
         header.setStyleSheet(
             f"color: rgb({tr},{tg},{tb}); font-weight: bold; font-size: 11px;"
         )
@@ -139,10 +139,10 @@ class _TagRowWidget(QFrame):
                 self._checkboxes[cat] = cb
         cols.addLayout(cb_col)
 
-        # Column 3: text / notes (always editable; height fitted after show)
+        # Column 3: text / notes (always editable; height fitted after show).
+        # No alignment set on txt_col — alignment=0 lets it fill the allocated region.
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
-        txt_col.setAlignment(Qt.AlignmentFlag.AlignTop)
         if self._preset == "3x3":
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
             for key in _3X3_KEYS:
@@ -165,6 +165,7 @@ class _TagRowWidget(QFrame):
             self._style_text_widget(te)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
+        txt_col.addStretch(1)
         cols.addLayout(txt_col, 1)
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:

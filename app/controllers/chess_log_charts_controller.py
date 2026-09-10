@@ -262,6 +262,10 @@ class ChessLogChartsController(QObject):
         """Public wrapper around _resolve_games() for the Tags Report panel."""
         return self._resolve_games()
 
+    def has_player_selected(self) -> bool:
+        """True iff the user has explicitly picked a player in the Player dropdown."""
+        return self._player_explicit_selected
+
     def get_tags_for_game(self, game: GameData) -> Dict[str, Any]:
         """Return Chess Log moments for *game* (delegates to ChessLogController)."""
         if self._chess_log_controller is None:

@@ -166,6 +166,22 @@ class TestChessLogChartsControllerPlayerSelection(unittest.TestCase):
         self.assertIsNotNone(ctrl._agg_worker)
         ctrl._cancel_agg_worker()
 
+    def test_has_player_selected_starts_false(self):
+        ctrl = self._make_controller()
+        self.assertFalse(ctrl.has_player_selected())
+
+    def test_has_player_selected_true_after_set_player(self):
+        ctrl = self._make_controller()
+        ctrl.set_player_selection("Alice")
+        self.assertTrue(ctrl.has_player_selected())
+
+    def test_has_player_selected_resets_on_set_source(self):
+        ctrl = self._make_controller()
+        ctrl.set_player_selection("Alice")
+        self.assertTrue(ctrl.has_player_selected())
+        ctrl.set_source_selection(1)
+        self.assertFalse(ctrl.has_player_selected())
+
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerAIConfigured(unittest.TestCase):

@@ -32,7 +32,6 @@ from PyQt6.QtWidgets import (
 )
 
 from app.controllers.chess_log_charts_controller import ChessLogChartsController
-from app.services.bulk_analysis_service import BulkAnalysisService
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
 from app.utils.pgn_variation_path import decode_path
@@ -339,6 +338,14 @@ class DetailChessLogChartsView(QWidget):
         if not self._controller:
             return
 
+        if not self._controller.has_player_selected():
+            tr, tg, tb = text_color
+            lbl = QLabel("Select a player to view tagged moments.")
+            lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); padding: 8px 0;")
+            self._tags_report_inner_layout.addWidget(lbl)
+            self._refresh_ai_state()
+            return
+
         from app.services.chess_log_storage_service import ChessLogStorageService
 
         games = self._controller.resolve_games()
@@ -462,7 +469,15 @@ class DetailChessLogChartsView(QWidget):
             if last_game is not game:
                 if last_game is not None:
                     inner_layout.addSpacing(6)
-                game_label = BulkAnalysisService.format_game_label(game)
+                _white = str(getattr(game, "white", "") or "").strip() or "Unknown"
+                _black = str(getattr(game, "black", "") or "").strip() or "Unknown"
+                _result = str(getattr(game, "result", "") or "").strip() or "*"
+                _date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
+                try:
+                    _moves = int(getattr(game, "moves", 0) or 0)
+                except (TypeError, ValueError):
+                    _moves = 0
+                game_label = f"{_white} - {_black} {_result} ({_date} - {_moves} moves)"
                 game_header = QLabel(game_label)
                 gh_bg_r = min(255, br + 20)
                 gh_bg_g = min(255, bg_v + 20)
@@ -508,8 +523,6 @@ class DetailChessLogChartsView(QWidget):
 
             inner_layout.addSpacing(2)
 
-        inner_layout.addStretch(1)
-
         # Wrap in a scroll area only if row count > 9
         if total_row_count > 9:
             scroll = QScrollArea()
@@ -518,7 +531,7 @@ class DetailChessLogChartsView(QWidget):
             scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setWidget(inner)
-            scroll.setMaximumHeight(700)
+            scroll.setFixedHeight(500)
             StyleManager.style_scroll_area(
                 scroll, self._config, bg, border, border_radius=0, include_scroll_area_border=False
             )
@@ -606,6 +619,7 @@ class DetailChessLogChartsView(QWidget):
         raw_name = self._player_combo.itemData(index)
         if raw_name:
             self._controller.set_player_selection(raw_name)
+            self._refresh_tags_report()
 
     def _on_generate_clicked(self) -> None:
         if self._controller:

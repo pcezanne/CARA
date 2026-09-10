@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import chess
 import chess.pgn
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QTimer, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -24,7 +24,8 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
-from app.utils.pgn_variation_path import decode_path, node_at_path
+from app.utils.pgn_variation_path import decode_path
+from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.style.style_manager import StyleManager
 from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
 
@@ -48,7 +49,15 @@ def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
 
 
 class _TagRowWidget(QFrame):
-    """One row in the Show Tags list — one (path_key, preset) pair, always editable."""
+    """One row in the Show Tags list — one (path_key, preset) pair, always editable.
+
+    Emits ``edited`` (with 300ms debounce) whenever the user changes a
+    checkbox or why-text, allowing the Tags Report to persist live edits to the
+    multi-game cache without an OK button.  ShowTagsDialog ignores this signal —
+    it still batches on OK.
+    """
+
+    edited = pyqtSignal()
 
     def __init__(
         self,
@@ -73,6 +82,13 @@ class _TagRowWidget(QFrame):
 
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
+        self._header_label: Optional[QLabel] = None
+        self._header_base_text: str = ""
+
+        self._edit_debounce = QTimer(self)
+        self._edit_debounce.setSingleShot(True)
+        self._edit_debounce.setInterval(300)
+        self._edit_debounce.timeout.connect(self.edited.emit)
 
         self._setup(move_label, fen, played_move)
 
@@ -94,6 +110,8 @@ class _TagRowWidget(QFrame):
             f"color: rgb({tr},{tg},{tb}); font-weight: bold; font-size: 11px;"
         )
         outer.addWidget(header)
+        self._header_label = header
+        self._header_base_text = move_label
 
         # Three-column row: board | checkboxes | text
         cols = QHBoxLayout()
@@ -135,6 +153,7 @@ class _TagRowWidget(QFrame):
                 cb = QCheckBox(cat)
                 cb.setChecked(cat in ticked)
                 cb.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
+                cb.stateChanged.connect(self._schedule_edited)
                 cb_col.addWidget(cb)
                 self._checkboxes[cat] = cb
         cols.addLayout(cb_col)
@@ -158,6 +177,7 @@ class _TagRowWidget(QFrame):
                 te.setMinimumHeight(50)
                 te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 self._style_text_widget(te)
+                te.textChanged.connect(self._schedule_edited)
                 txt_col.addWidget(te)
                 self._why_texts[key] = te
         else:
@@ -166,9 +186,27 @@ class _TagRowWidget(QFrame):
             te.setMinimumHeight(50)
             te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._style_text_widget(te)
+            te.textChanged.connect(self._schedule_edited)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
         cols.addLayout(txt_col, 1)
+
+    def _schedule_edited(self) -> None:
+        """Restart the 300ms debounce timer on any checkbox or text change."""
+        self._edit_debounce.start()
+
+    def set_flagged(self, flagged: bool) -> None:
+        """Show or hide a shallow-note warning triangle in the move-label header."""
+        if self._header_label is None:
+            return
+        if flagged:
+            self._header_label.setText("⚠ " + self._header_base_text)
+            self._header_label.setToolTip(
+                "This note may be too shallow — try describing why, not just what happened."
+            )
+        else:
+            self._header_label.setText(self._header_base_text)
+            self._header_label.setToolTip("")
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
         tr, tg, tb = self._text_color
@@ -289,43 +327,10 @@ class ShowTagsDialog(QDialog):
         return [(path_key, preset, entries) for _, _, path_key, preset, entries in rows]
 
     def _ply_for_path(self, path) -> int:
-        if self._pgn_game is None:
-            return len(path)
-        node = node_at_path(self._pgn_game, path)
-        if node is None:
-            return len(path)
-        try:
-            return node.ply()
-        except AttributeError:
-            pass
-        parent = getattr(node, "parent", None)
-        if parent is None:
-            return len(path)
-        pre = parent.board()
-        return (pre.fullmove_number - 1) * 2 + (0 if pre.turn == chess.WHITE else 1)
+        return _ply_for_path_fn(self._pgn_game, path)
 
     def _node_info(self, path_key: str) -> Tuple[str, Optional[chess.Move], str]:
-        """Return (fen_after_move, played_move, move_label) for display."""
-        if self._pgn_game is None:
-            return ("", None, path_key)
-        path = decode_path(path_key)
-        if not path:
-            return ("", None, path_key)
-        node = node_at_path(self._pgn_game, path)
-        if node is None or node.move is None:
-            return ("", None, path_key)
-        try:
-            pre_board = node.parent.board()
-            san = pre_board.san(node.move)
-            fullmove = pre_board.fullmove_number
-            if pre_board.turn == chess.WHITE:
-                move_label = f"{fullmove}. {san}"
-            else:
-                move_label = f"{fullmove}… {san}"
-            fen = node.board().fen()
-            return (fen, node.move, move_label)
-        except Exception:
-            return ("", None, path_key)
+        return _node_info_fn(self._pgn_game, path_key)
 
     # ------------------------------------------------------------------
     # UI

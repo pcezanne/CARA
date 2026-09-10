@@ -182,6 +182,7 @@ class AppController:
             config,
             self.database_controller,
         )
+        self.chess_log_charts_controller.set_chess_log_controller(self.chess_log_controller)
 
         # Initialize metadata controller (depends on game controller and database controller)
         self.metadata_controller = MetadataController(

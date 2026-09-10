@@ -240,6 +240,7 @@ class ChessLogChartsController(QObject):
         self._narrative_token_limit: int = 4000
         self._narrative_include_flags: bool = True
         self._narrative_model_override: Optional[str] = None
+        self._chess_log_controller: Optional[Any] = None
 
         self._selection_debounce = QTimer(self)
         self._selection_debounce.setSingleShot(True)
@@ -256,6 +257,39 @@ class ChessLogChartsController(QObject):
         self, callback: Optional[Callable[[bool], List[GameData]]]
     ) -> None:
         self._get_selected_games_callback = callback
+
+    def set_chess_log_controller(self, controller: Any) -> None:
+        """Inject ChessLogController for Tags Report live editing."""
+        self._chess_log_controller = controller
+
+    def resolve_games(self) -> List[GameData]:
+        """Public wrapper around _resolve_games() for the Tags Report panel."""
+        return self._resolve_games()
+
+    def get_tags_for_game(self, game: GameData) -> Dict[str, Any]:
+        """Return Chess Log moments for *game* (delegates to ChessLogController)."""
+        if self._chess_log_controller is None:
+            from app.services.chess_log_storage_service import ChessLogStorageService
+            return ChessLogStorageService.load_tags(game)
+        return self._chess_log_controller.get_tags_for_game(game)
+
+    def get_custom_categories(self) -> List[str]:
+        """Return Custom preset categories (delegates to ChessLogController)."""
+        if self._chess_log_controller is None:
+            return []
+        return self._chess_log_controller.get_custom_categories()
+
+    def tag_row_edited(
+        self,
+        game: GameData,
+        path_key: str,
+        preset: str,
+        entries: List[Dict[str, Any]],
+    ) -> None:
+        """Persist a live Tags Report edit to the multi-game cache."""
+        if self._chess_log_controller is None:
+            return
+        self._chess_log_controller.replace_entries_at_path_for_game(game, path_key, preset, entries)
 
     def set_user_settings(self, user_settings: Dict[str, Any]) -> None:
         """Refresh user settings (e.g. after AI Model Settings dialog closes)."""

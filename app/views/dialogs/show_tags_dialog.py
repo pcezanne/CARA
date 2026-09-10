@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import chess
 import chess.pgn
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -139,8 +139,11 @@ class _TagRowWidget(QFrame):
                 self._checkboxes[cat] = cb
         cols.addLayout(cb_col)
 
-        # Column 3: text / notes (always editable; height fitted after show).
+        # Column 3: text / notes (always editable).
         # No alignment set on txt_col — alignment=0 lets it fill the allocated region.
+        # Expanding vertical policy lets each text box grow to fill the row height
+        # (set by the board miniature), with the scrollbar appearing only if the
+        # user types more than fits.
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
         if self._preset == "3x3":
@@ -153,7 +156,7 @@ class _TagRowWidget(QFrame):
                 txt_col.addWidget(prompt_lbl)
                 te = QPlainTextEdit(why_map.get(key, ""))
                 te.setMinimumHeight(50)
-                te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+                te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 self._style_text_widget(te)
                 txt_col.addWidget(te)
                 self._why_texts[key] = te
@@ -161,11 +164,10 @@ class _TagRowWidget(QFrame):
             why_text = self._entries[0].get("why", "") if self._entries else ""
             te = QPlainTextEdit(why_text)
             te.setMinimumHeight(50)
-            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._style_text_widget(te)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
-        txt_col.addStretch(1)
         cols.addLayout(txt_col, 1)
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
@@ -181,18 +183,6 @@ class _TagRowWidget(QFrame):
         if self._preset == "CCT":
             return list(CCT_ORDER)
         return list(self._custom_categories)
-
-    def fit_text_heights(self) -> None:
-        """Set each text widget to exactly fit its current content.
-
-        Called from ShowTagsDialog.showEvent after layout is complete.
-        Height is fixed after fitting — vertical scrollbar appears if the
-        user then types more than fits in that height.
-        """
-        for te in self._why_texts.values():
-            doc = te.document()
-            content_h = int(doc.documentLayout().documentSize().height())
-            te.setFixedHeight(max(50, min(content_h + 10, 400)))
 
     def get_current_entries(self) -> List[Dict[str, Any]]:
         """Return the current widget state as a list of {preset, cat, why} dicts."""
@@ -440,16 +430,6 @@ class ShowTagsDialog(QDialog):
 
         # 1/3 wider than the original 600px baseline
         self.setMinimumWidth(800)
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        # Fit text widget heights to content now that layout widths are known.
-        # Height is then fixed so vertical scrollbar appears if the user types more.
-        QTimer.singleShot(0, self._fit_text_heights)
-
-    def _fit_text_heights(self) -> None:
-        for rw in self._row_widgets:
-            rw.fit_text_heights()
 
     # ------------------------------------------------------------------
     # Button handlers

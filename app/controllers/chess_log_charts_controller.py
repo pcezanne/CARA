@@ -12,7 +12,7 @@ wiring in AppController / MainWindow.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QTimer, pyqtSignal
 
@@ -149,7 +149,6 @@ class ChessLogNarrativeThread(QThread):
         config: Optional[Dict[str, Any]],
         timeout_seconds: int = 60,
         token_limit: Optional[int] = None,
-        include_also_flagged: bool = True,
     ) -> None:
         super().__init__()
         self._games = games
@@ -162,7 +161,6 @@ class ChessLogNarrativeThread(QThread):
         self._config = config
         self._timeout_seconds = timeout_seconds
         self._token_limit = token_limit
-        self._include_also_flagged = include_also_flagged
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -185,7 +183,6 @@ class ChessLogNarrativeThread(QThread):
             config=self._config,
             timeout_seconds=self._timeout_seconds,
             token_limit=self._token_limit,
-            include_also_flagged=self._include_also_flagged,
         )
         with QMutexLocker(self._mutex):
             if self._cancelled:
@@ -238,7 +235,6 @@ class ChessLogChartsController(QObject):
 
         # Narrative-panel ephemeral settings (not persisted except timeout).
         self._narrative_token_limit: int = 4000
-        self._narrative_include_flags: bool = True
         self._narrative_model_override: Optional[str] = None
         self._chess_log_controller: Optional[Any] = None
 
@@ -342,9 +338,6 @@ class ChessLogChartsController(QObject):
 
     def set_narrative_token_limit(self, limit: int) -> None:
         self._narrative_token_limit = limit
-
-    def set_narrative_include_flags(self, include: bool) -> None:
-        self._narrative_include_flags = include
 
     def set_narrative_model_override(self, model: Optional[str]) -> None:
         """Set a specific model to use for narrative generation (None = provider default)."""
@@ -496,13 +489,90 @@ class ChessLogChartsController(QObject):
             config=self._config,
             timeout_seconds=self.get_narrative_timeout_seconds(),
             token_limit=self._narrative_token_limit,
-            include_also_flagged=self._narrative_include_flags,
         )
         thread.narrative_ready.connect(self.narrative_ready)
         thread.narrative_failed.connect(self.narrative_failed)
         thread.finished.connect(self._on_narrative_finished)
         self._narrative_thread = thread
         thread.start()
+
+    def flag_shallow_notes(self) -> Set[Tuple[int, str, str]]:
+        """Classify why-notes in the current report as SHALLOW or DEEP via AI.
+
+        Gathers all non-empty why-notes from games in scope, sends a single
+        classification prompt to the configured provider, and returns the set of
+        (game_number, path_key, preset) keys for rows whose note was judged SHALLOW.
+        Session-only — never persisted.
+        """
+        from app.services.ai_service import AIService
+        provider_tuple = resolve_default_provider(self._user_settings)
+        if not provider_tuple:
+            return set()
+        provider, default_model, api_key, base_url = provider_tuple
+        model = self._narrative_model_override or default_model
+
+        games = self._resolve_games()
+        notes: List[Tuple[int, int, str, str, str]] = []  # (idx, game_number, path_key, preset, why)
+        for game in games:
+            tags = self.get_tags_for_game(game)
+            for path_key, entries in tags.items():
+                if not entries:
+                    continue
+                by_preset: Dict[str, list] = {}
+                for entry in entries:
+                    p = entry.get("preset", "")
+                    by_preset.setdefault(p, []).append(entry)
+                for preset, preset_entries in by_preset.items():
+                    for entry in preset_entries:
+                        why = (entry.get("why") or "").strip()
+                        if why:
+                            notes.append((len(notes), game.game_number, path_key, preset, why))
+
+        if not notes:
+            return set()
+
+        notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in notes)
+        prompt = (
+            "Classify each of these player self-notes as SHALLOW or DEEP.\n"
+            "SHALLOW = states what happened without explaining why "
+            "(e.g. 'I blundered', 'missed it', 'lost tempo').\n"
+            "DEEP = attempts to name the cause, pattern, or lesson — "
+            "even if tentative or partial "
+            "(e.g. 'I think I was making a rook lift', 'probably tunnel-visioned on the queen').\n"
+            "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
+            f"{notes_text}"
+        )
+        service = AIService(config=self._config)
+        messages = [{"role": "user", "content": prompt}]
+        timeout = self.get_narrative_timeout_seconds()
+        success, response = service.send_message(
+            provider=provider,
+            model=model,
+            api_key=api_key,
+            messages=messages,
+            base_url_override=base_url,
+            timeout_seconds=timeout,
+        )
+        if not success:
+            return set()
+
+        shallow: Set[Tuple[int, str, str]] = set()
+        for line in response.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(":", 1)
+            if len(parts) != 2:
+                continue
+            try:
+                idx = int(parts[0].strip())
+            except ValueError:
+                continue
+            if parts[1].strip().upper() == "SHALLOW" and 0 <= idx < len(notes):
+                _, gn, pk, pr, _ = notes[idx]
+                shallow.add((gn, pk, pr))
+
+        return shallow
 
     # ------------------------------------------------------------------
     # Internal helpers

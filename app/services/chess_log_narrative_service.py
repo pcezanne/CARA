@@ -108,16 +108,13 @@ def build_prompt(
     games: List[GameData],
     player: str = "",
     color_filter: str = "both",
-    include_also_flagged: bool = True,  # accepted but unused; kept for backward compat
 ) -> str:
     """Assemble the LLM prompt from the given games.
 
     Args:
-        games:                Games to draw data from (already filtered to the desired scope).
-        player:               Player name for scoping (empty = all players).
-        color_filter:         "white" / "black" / "both".
-        include_also_flagged: Ignored — shallow-note flagging has been removed from the prompt.
-                              Parameter kept so existing call sites do not need updating.
+        games:         Games to draw data from (already filtered to the desired scope).
+        player:        Player name for scoping (empty = all players).
+        color_filter:  "white" / "black" / "both".
 
     Returns:
         Formatted prompt string ready to send as the user message.
@@ -198,26 +195,24 @@ def generate_narrative(
     config: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 60,
     token_limit: Optional[int] = None,
-    include_also_flagged: bool = True,
 ) -> Tuple[bool, str, List[str]]:
     """Generate a narrative summary from the given games.
 
     Args:
-        games:                Games in scope (already filtered to the desired Data Source).
-        provider:             AIProvider string ("openai", "anthropic", "custom").
-        model:                Model ID.
-        api_key:              API key.
-        base_url_override:    Custom endpoint base URL (None for OpenAI/Anthropic).
-        player:               Player filter (empty = all players).
-        color_filter:         "white" / "black" / "both".
-        config:               Optional config dict forwarded to AIService.
-        timeout_seconds:      Request timeout passed to AIService.send_message.
-        token_limit:          Max tokens passed to AIService.send_message (None = AIService default).
-        include_also_flagged: Ignored — kept for call-site backward compat.
+        games:              Games in scope (already filtered to the desired Data Source).
+        provider:           AIProvider string ("openai", "anthropic", "custom").
+        model:              Model ID.
+        api_key:            API key.
+        base_url_override:  Custom endpoint base URL (None for OpenAI/Anthropic).
+        player:             Player filter (empty = all players).
+        color_filter:       "white" / "black" / "both".
+        config:             Optional config dict forwarded to AIService.
+        timeout_seconds:    Request timeout passed to AIService.send_message.
+        token_limit:        Max tokens passed to AIService.send_message (None = AIService default).
 
     Returns:
         (success, narrative_text, shallow_flags)
-        shallow_flags is always [] — the shallow-note step has been removed from the prompt.
+        shallow_flags is always [] — shallow-note flagging is handled separately via flag_shallow_notes().
         On failure: (False, error_message, [])
     """
     player_cf = (player or "").casefold().strip()
@@ -233,7 +228,6 @@ def generate_narrative(
         games,
         player=player,
         color_filter=color_filter,
-        include_also_flagged=include_also_flagged,
     )
 
     service = AIService(config=config)

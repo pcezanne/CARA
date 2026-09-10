@@ -17,7 +17,6 @@ from typing import Any, Dict, List, Optional
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QFrame,
     QGroupBox,
@@ -214,20 +213,6 @@ class DetailChessLogChartsView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        # Checkbox: include also-flagged step in the prompt (default checked).
-        self._include_flags_check = QCheckBox("Also flag shallow notes")
-        self._include_flags_check.setChecked(True)
-        self._include_flags_check.stateChanged.connect(self._on_include_flags_changed)
-        layout.addWidget(self._include_flags_check)
-
-        btn_row = QHBoxLayout()
-        self._generate_btn = QPushButton("Generate Narrative Summary")
-        self._generate_btn.clicked.connect(self._on_generate_clicked)
-        self._generate_btn.setEnabled(False)
-        btn_row.addWidget(self._generate_btn)
-        btn_row.addStretch()
-        layout.addLayout(btn_row)
-
         self._ai_hint = QLabel(
             "Configure an AI provider in Chess Log → AI Model Settings to enable narrative summaries."
         )
@@ -270,6 +255,22 @@ class DetailChessLogChartsView(QWidget):
 
         layout.addLayout(model_row)
 
+        flag_row = QHBoxLayout()
+        self._flag_btn = QPushButton("Flag Shallow Notes")
+        self._flag_btn.clicked.connect(self._on_flag_shallow_clicked)
+        self._flag_btn.setEnabled(False)
+        flag_row.addWidget(self._flag_btn)
+        flag_row.addStretch()
+        layout.addLayout(flag_row)
+
+        btn_row = QHBoxLayout()
+        self._generate_btn = QPushButton("Generate Narrative Summary")
+        self._generate_btn.clicked.connect(self._on_generate_clicked)
+        self._generate_btn.setEnabled(False)
+        btn_row.addWidget(self._generate_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
         self._narrative_edit = QTextEdit()
         self._narrative_edit.setReadOnly(True)
         self._narrative_edit.setPlaceholderText(
@@ -310,6 +311,7 @@ class DetailChessLogChartsView(QWidget):
         self._tags_report_inner_layout.setSpacing(0)
         self._tags_report_row_widgets: List = []  # List[Tuple[game, path_key, preset, _TagRowWidget]]
         self._tags_report_built = False
+        self._flaggable_why_note_count: int = 0
         return container
 
     def _refresh_tags_report(self) -> None:
@@ -325,6 +327,7 @@ class DetailChessLogChartsView(QWidget):
             if w:
                 w.deleteLater()
         self._tags_report_row_widgets = []
+        self._flaggable_why_note_count = 0
 
         panel_cfg = self._config.get("ui", {}).get("panels", {}).get("detail", {})
         cl_cfg = panel_cfg.get("chess_log_charts", {})
@@ -358,6 +361,7 @@ class DetailChessLogChartsView(QWidget):
             tr, tg, tb = text_color
             lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); padding: 8px 0;")
             self._tags_report_inner_layout.addWidget(lbl)
+            self._refresh_ai_state()
             return
 
         # Sort games by date ascending, game_number as tiebreak
@@ -499,6 +503,8 @@ class DetailChessLogChartsView(QWidget):
                 )
                 inner_layout.addWidget(row)
                 self._tags_report_row_widgets.append((game, path_key, preset, row))
+                if any((e.get("why") or "").strip() for e in entries):
+                    self._flaggable_why_note_count += 1
 
             inner_layout.addSpacing(2)
 
@@ -520,10 +526,20 @@ class DetailChessLogChartsView(QWidget):
         else:
             self._tags_report_inner_layout.addWidget(inner)
 
+        self._refresh_ai_state()
+
     def _on_tag_row_edited(self, game, path_key: str, preset: str, row) -> None:
         """Persist a live Tags Report edit to the multi-game cache."""
         if self._controller:
             self._controller.tag_row_edited(game, path_key, preset, row.get_current_entries())
+
+    def _on_flag_shallow_clicked(self) -> None:
+        """Ask the controller to classify why-notes and decorate shallow rows with a warning."""
+        if not self._controller:
+            return
+        shallow_keys = self._controller.flag_shallow_notes()
+        for (game, path_key, preset, row) in self._tags_report_row_widgets:
+            row.set_flagged((game.game_number, path_key, preset) in shallow_keys)
 
     # ------------------------------------------------------------------
     # Styling
@@ -660,10 +676,6 @@ class DetailChessLogChartsView(QWidget):
     def _on_ai_configured_changed(self, configured: bool) -> None:
         self._refresh_ai_state()
 
-    def _on_include_flags_changed(self, state: int) -> None:
-        if self._controller:
-            self._controller.set_narrative_include_flags(bool(state))
-
     def _on_narrative_model_changed(self, text: str) -> None:
         if self._controller:
             self._controller.set_narrative_model_override(text or None)
@@ -724,8 +736,8 @@ class DetailChessLogChartsView(QWidget):
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
         self._generate_btn.setEnabled(configured)
+        self._flag_btn.setEnabled(configured and self._flaggable_why_note_count > 0)
         self._ai_hint.setVisible(not configured)
-        self._include_flags_check.setEnabled(configured)
         self._model_combo.setEnabled(configured)
         self._timeout_spin.setEnabled(configured)
         self._tokens_spin.setEnabled(configured)

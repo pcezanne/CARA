@@ -204,11 +204,12 @@ class _TagRowWidget(QFrame):
                     result.append({"preset": "3x3", "cat": key, "why": text})
             return result
         why = self._why_texts.get("why", QPlainTextEdit()).toPlainText().strip()
-        return [
-            {"preset": self._preset, "cat": cat, "why": why}
-            for cat, cb in self._checkboxes.items()
-            if cb.isChecked()
-        ]
+        selected = [cat for cat, cb in self._checkboxes.items() if cb.isChecked()]
+        if not selected:
+            # Mirror MomentDialog.get_entries(): zero boxes + why → cat="" entry;
+            # zero boxes + empty why → [] (intentional delete gesture).
+            return [{"preset": self._preset, "cat": "", "why": why}] if why else []
+        return [{"preset": self._preset, "cat": cat, "why": why} for cat in selected]
 
 
 class ShowTagsDialog(QDialog):

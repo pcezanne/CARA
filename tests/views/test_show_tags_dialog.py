@@ -335,5 +335,47 @@ class TestCheckboxState(unittest.TestCase):
         self.assertFalse(row._checkboxes["Wrong plan"].isChecked())
 
 
+# ---------------------------------------------------------------------------
+# Zero-category round-trip (cat="" legitimate saves must not be deleted on OK)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestZeroCategoryRoundtrip(unittest.TestCase):
+    def test_zero_category_moment_edit_preserves_entry(self):
+        """A moment stored with cat='' survives OK when why text is edited."""
+        paths_data = {"0": [_make_entry("CLAMP", "", "original note")]}
+        dlg, ctrl = _make_dialog(paths_data)
+        dlg._row_widgets[0]._why_texts["why"].setPlainText("updated note")
+        dlg._ok_btn.click()
+        ctrl.replace_entries_at_path.assert_called_once()
+        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        self.assertEqual(len(new_entries), 1)
+        self.assertEqual(new_entries[0]["cat"], "")
+        self.assertEqual(new_entries[0]["why"], "updated note")
+
+    def test_uncheck_last_box_keeps_why_as_zero_category(self):
+        """Unchecking the last box but leaving why text saves as cat='' (mirrors MomentDialog)."""
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        dlg, ctrl = _make_dialog(paths_data)
+        dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
+        dlg._ok_btn.click()
+        ctrl.replace_entries_at_path.assert_called_once()
+        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        self.assertEqual(len(new_entries), 1)
+        self.assertEqual(new_entries[0]["cat"], "")
+        self.assertEqual(new_entries[0]["why"], "note")
+
+    def test_uncheck_all_and_clear_why_is_intentional_delete(self):
+        """Unchecking all boxes AND clearing why text deletes the moment (explicit gesture)."""
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        dlg, ctrl = _make_dialog(paths_data)
+        dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
+        dlg._row_widgets[0]._why_texts["why"].setPlainText("")
+        dlg._ok_btn.click()
+        ctrl.replace_entries_at_path.assert_called_once()
+        _, _, new_entries = ctrl.replace_entries_at_path.call_args[0]
+        self.assertEqual(new_entries, [])
+
+
 if __name__ == "__main__":
     unittest.main()

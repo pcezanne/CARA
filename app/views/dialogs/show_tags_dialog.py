@@ -89,6 +89,9 @@ class _TagRowWidget(QFrame):
         self._preserved_ignore_shallow: bool = any(
             bool(e.get("ignore_shallow")) for e in entries
         )
+        self._preserved_is_shallow: bool = any(
+            bool(e.get("is_shallow")) for e in entries
+        )
 
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
@@ -125,6 +128,9 @@ class _TagRowWidget(QFrame):
         self._header_label = header
 
         if self._show_ignore_checkbox:
+            warning_lbl = QLabel("⚠️")
+            warning_lbl.setStyleSheet("border: none;")
+            header_row.addWidget(warning_lbl)
             self._ignore_check = QCheckBox("Ignore")
             self._ignore_check.setChecked(self._preserved_ignore_shallow)
             self._ignore_check.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
@@ -235,6 +241,8 @@ class _TagRowWidget(QFrame):
         def _annotate(d: Dict[str, Any]) -> Dict[str, Any]:
             if ignore:
                 d["ignore_shallow"] = True
+            if self._preserved_is_shallow:
+                d["is_shallow"] = True
             return d
 
         if self._preset == "3x3":
@@ -436,6 +444,7 @@ class ShowTagsDialog(QDialog):
                     self._rows_layout.addWidget(self._make_separator())
 
                 fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
+                row_is_shallow = any(e.get("is_shallow") for e in entries)
                 row_widget = _TagRowWidget(
                     self.config,
                     preset,
@@ -446,6 +455,7 @@ class ShowTagsDialog(QDialog):
                     played_move,
                     self._bg_rgb,
                     self._text_color_rgb,
+                    show_ignore_checkbox=row_is_shallow,
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

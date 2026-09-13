@@ -158,7 +158,13 @@ class ChessLogStorageService:
         return sum(1 for entries in paths_data.values() if entries)
 
     @staticmethod
-    def make_entry(preset: str, cat: str, why: str = "", ignore_shallow: bool = False) -> Dict[str, Any]:
+    def make_entry(
+        preset: str,
+        cat: str,
+        why: str = "",
+        ignore_shallow: bool = False,
+        is_shallow: bool = False,
+    ) -> Dict[str, Any]:
         """Build a single moment entry dict with a new UUID and UTC timestamp."""
         entry: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
@@ -169,6 +175,8 @@ class ChessLogStorageService:
         }
         if ignore_shallow:
             entry["ignore_shallow"] = True
+        if is_shallow:
+            entry["is_shallow"] = True
         return entry
 
     @staticmethod

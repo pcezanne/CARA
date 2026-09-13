@@ -131,6 +131,89 @@ class ChessLogAggregationWorker(QThread):
             self.charts_unavailable.emit("no_data")
 
 
+class ChessLogShallowThread(QThread):
+    """Classify why-notes as SHALLOW or DEEP off the UI thread."""
+
+    shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
+    shallow_failed = pyqtSignal(str)     # error message
+
+    def __init__(
+        self,
+        games: List[GameData],
+        provider: str,
+        model: str,
+        api_key: str,
+        base_url_override: Optional[str],
+        config: Optional[Dict[str, Any]],
+        timeout_seconds: int,
+        notes: List[Tuple[int, int, str, str, str]],  # (idx, game_number, path_key, preset, why)
+    ) -> None:
+        super().__init__()
+        self._games = games
+        self._provider = provider
+        self._model = model
+        self._api_key = api_key
+        self._base_url_override = base_url_override
+        self._config = config
+        self._timeout_seconds = timeout_seconds
+        self._notes = notes
+        self._cancelled = False
+        self._mutex = QMutex()
+
+    def cancel(self) -> None:
+        with QMutexLocker(self._mutex):
+            self._cancelled = True
+
+    def run(self) -> None:
+        with QMutexLocker(self._mutex):
+            if self._cancelled:
+                return
+        from app.services.ai_service import AIService
+        notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in self._notes)
+        prompt = (
+            "Classify each of these player self-notes as SHALLOW or DEEP.\n"
+            "SHALLOW = states what happened without explaining why "
+            "(e.g. 'I blundered', 'missed it', 'lost tempo').\n"
+            "DEEP = attempts to name the cause, pattern, or lesson — "
+            "even if tentative or partial "
+            "(e.g. 'I think I was making a rook lift', 'probably tunnel-visioned on the queen').\n"
+            "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
+            f"{notes_text}"
+        )
+        service = AIService(config=self._config)
+        messages = [{"role": "user", "content": prompt}]
+        success, response = service.send_message(
+            provider=self._provider,
+            model=self._model,
+            api_key=self._api_key,
+            messages=messages,
+            base_url_override=self._base_url_override,
+            timeout_seconds=self._timeout_seconds,
+        )
+        with QMutexLocker(self._mutex):
+            if self._cancelled:
+                return
+        if not success:
+            self.shallow_failed.emit(response or "Classification failed.")
+            return
+        shallow: Set[Tuple[int, str, str]] = set()
+        for line in response.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parts = line.split(":", 1)
+            if len(parts) != 2:
+                continue
+            try:
+                idx = int(parts[0].strip())
+            except ValueError:
+                continue
+            if parts[1].strip().upper() == "SHALLOW" and 0 <= idx < len(self._notes):
+                _, gn, pk, pr, _ = self._notes[idx]
+                shallow.add((gn, pk, pr))
+        self.shallow_ready.emit(shallow)
+
+
 class ChessLogNarrativeThread(QThread):
     """Run chess_log_narrative_service.generate_narrative() off the UI thread."""
 
@@ -203,6 +286,8 @@ class ChessLogChartsController(QObject):
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
     narrative_ready = pyqtSignal(str, list)
     narrative_failed = pyqtSignal(str)
+    shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
+    shallow_failed = pyqtSignal(str)
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
 
     def __init__(
@@ -232,6 +317,7 @@ class ChessLogChartsController(QObject):
         self._dropdown_worker: Optional[ChessLogPlayerDropdownWorker] = None
         self._agg_worker: Optional[ChessLogAggregationWorker] = None
         self._narrative_thread: Optional[ChessLogNarrativeThread] = None
+        self._shallow_thread: Optional[ChessLogShallowThread] = None
 
         # Narrative-panel ephemeral settings (not persisted except timeout).
         self._narrative_token_limit: int = 4000
@@ -492,23 +578,25 @@ class ChessLogChartsController(QObject):
         self._narrative_thread = thread
         thread.start()
 
-    def flag_shallow_notes(self) -> Set[Tuple[int, str, str]]:
-        """Classify why-notes in the current report as SHALLOW or DEEP via AI.
+    def request_flag_shallow_notes(self) -> None:
+        """Start shallow-note classification off the UI thread.
 
-        Gathers all non-empty why-notes from games in scope, sends a single
-        classification prompt to the configured provider, and returns the set of
-        (game_number, path_key, preset) keys for rows whose note was judged SHALLOW.
-        Session-only — never persisted.
+        Gathers all non-empty why-notes from games in scope, then spawns
+        ChessLogShallowThread. On completion, emits ``shallow_ready`` with the
+        set of (game_number, path_key, preset) keys whose notes were judged
+        SHALLOW, and writes is_shallow onto each affected entry in the cache.
+        Emits ``shallow_failed`` on error.
         """
-        from app.services.ai_service import AIService
         provider_tuple = resolve_default_provider(self._user_settings)
         if not provider_tuple:
-            return set()
+            self.shallow_failed.emit("No AI provider configured.")
+            return
         provider, default_model, api_key, base_url = provider_tuple
         model = self._narrative_model_override or default_model
 
         games = self._resolve_games()
-        notes: List[Tuple[int, int, str, str, str]] = []  # (idx, game_number, path_key, preset, why)
+        # (idx, game_number, path_key, preset, why) — skip ignore_shallow entries
+        notes: List[Tuple[int, int, str, str, str]] = []
         for game in games:
             tags = self.get_tags_for_game(game)
             for path_key, entries in tags.items():
@@ -527,50 +615,72 @@ class ChessLogChartsController(QObject):
                             notes.append((len(notes), game.game_number, path_key, preset, why))
 
         if not notes:
-            return set()
+            self.shallow_ready.emit(set())
+            return
 
-        notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in notes)
-        prompt = (
-            "Classify each of these player self-notes as SHALLOW or DEEP.\n"
-            "SHALLOW = states what happened without explaining why "
-            "(e.g. 'I blundered', 'missed it', 'lost tempo').\n"
-            "DEEP = attempts to name the cause, pattern, or lesson — "
-            "even if tentative or partial "
-            "(e.g. 'I think I was making a rook lift', 'probably tunnel-visioned on the queen').\n"
-            "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
-            f"{notes_text}"
-        )
-        service = AIService(config=self._config)
-        messages = [{"role": "user", "content": prompt}]
-        timeout = self.get_narrative_timeout_seconds()
-        success, response = service.send_message(
+        self._cancel_shallow_thread()
+        thread = ChessLogShallowThread(
+            games=games,
             provider=provider,
             model=model,
             api_key=api_key,
-            messages=messages,
             base_url_override=base_url,
-            timeout_seconds=timeout,
+            config=self._config,
+            timeout_seconds=self.get_narrative_timeout_seconds(),
+            notes=notes,
         )
-        if not success:
-            return set()
+        thread.shallow_ready.connect(self._on_shallow_thread_ready)
+        thread.shallow_failed.connect(self._on_shallow_thread_failed)
+        thread.finished.connect(self._on_shallow_thread_finished)
+        self._shallow_thread = thread
+        thread.start()
 
-        shallow: Set[Tuple[int, str, str]] = set()
-        for line in response.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(":", 1)
-            if len(parts) != 2:
-                continue
+    def _on_shallow_thread_ready(self, shallow_keys: Set[Tuple[int, str, str]]) -> None:
+        """Write is_shallow onto every in-scope entry (full sync), then re-emit."""
+        games = self._resolve_games()
+        for game in games:
+            tags = self.get_tags_for_game(game)
+            for path_key, entries in list(tags.items()):
+                if not entries:
+                    continue
+                by_preset: Dict[str, list] = {}
+                for entry in entries:
+                    by_preset.setdefault(entry.get("preset", ""), []).append(entry)
+                for preset, preset_entries in by_preset.items():
+                    key = (game.game_number, path_key, preset)
+                    flag = key in shallow_keys
+                    updated = [dict(e, is_shallow=flag) if flag else
+                               {k: v for k, v in e.items() if k != "is_shallow"}
+                               for e in preset_entries]
+                    if self._chess_log_controller is not None:
+                        self._chess_log_controller.replace_entries_at_path_for_game(
+                            game, path_key, preset, updated
+                        )
+        self.shallow_ready.emit(shallow_keys)
+
+    def _on_shallow_thread_failed(self, message: str) -> None:
+        self.shallow_failed.emit(message)
+
+    def _cancel_shallow_thread(self) -> None:
+        if self._shallow_thread:
             try:
-                idx = int(parts[0].strip())
-            except ValueError:
-                continue
-            if parts[1].strip().upper() == "SHALLOW" and 0 <= idx < len(notes):
-                _, gn, pk, pr, _ = notes[idx]
-                shallow.add((gn, pk, pr))
+                if self._shallow_thread.isRunning():
+                    self._shallow_thread.cancel()
+                    self._shallow_thread.finished.disconnect()
+                    self._shallow_thread = None
+                    return
+                self._shallow_thread.finished.disconnect()
+            except RuntimeError:
+                pass
+            self._shallow_thread = None
 
-        return shallow
+    def _on_shallow_thread_finished(self) -> None:
+        try:
+            if self._shallow_thread:
+                self._shallow_thread.finished.disconnect()
+        except RuntimeError:
+            pass
+        self._shallow_thread = None
 
     # ------------------------------------------------------------------
     # Internal helpers

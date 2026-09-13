@@ -35,6 +35,7 @@ from app.controllers.chess_log_charts_controller import ChessLogChartsController
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
 from app.views.style.style_manager import StyleManager
+from app.views.widgets.busy_spinner import BusySpinner
 from app.views.widgets.chess_log_category_chart_widget import ChessLogCategoryChartWidget
 
 
@@ -77,6 +78,8 @@ class DetailChessLogChartsView(QWidget):
                 self._controller.player_selection_cleared.disconnect(self._reset_player_selection)
                 self._controller.narrative_ready.disconnect(self._on_narrative_ready)
                 self._controller.narrative_failed.disconnect(self._on_narrative_failed)
+                self._controller.shallow_ready.disconnect(self._on_shallow_ready)
+                self._controller.shallow_failed.disconnect(self._on_shallow_failed)
                 self._controller.ai_configured_changed.disconnect(self._on_ai_configured_changed)
             except RuntimeError:
                 pass
@@ -92,6 +95,8 @@ class DetailChessLogChartsView(QWidget):
         controller.player_selection_cleared.connect(self._reset_player_selection)
         controller.narrative_ready.connect(self._on_narrative_ready)
         controller.narrative_failed.connect(self._on_narrative_failed)
+        controller.shallow_ready.connect(self._on_shallow_ready)
+        controller.shallow_failed.connect(self._on_shallow_failed)
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
 
         self._refresh_ai_state()
@@ -254,6 +259,11 @@ class DetailChessLogChartsView(QWidget):
         self._show_shallow_btn.clicked.connect(self._on_show_shallow_clicked)
         self._show_shallow_btn.setEnabled(False)
         shallow_row.addWidget(self._show_shallow_btn)
+        self._shallow_spinner = BusySpinner(color=QColor(180, 180, 200), size=18, line_width=2)
+        shallow_row.addWidget(self._shallow_spinner)
+        self._shallow_status_label = QLabel("Generating Shallow Tags…")
+        self._shallow_status_label.setVisible(False)
+        shallow_row.addWidget(self._shallow_status_label)
         shallow_row.addStretch()
         layout.addLayout(shallow_row)
 
@@ -486,14 +496,24 @@ class DetailChessLogChartsView(QWidget):
     def _on_show_shallow_clicked(self) -> None:
         if not self._controller:
             return
-        shallow_keys = self._controller.flag_shallow_notes()
-        games = self._controller.resolve_games()
-        chess_log_ctrl = self._controller.get_chess_log_controller()
-        if not chess_log_ctrl:
+        self._show_shallow_btn.setEnabled(False)
+        self._shallow_spinner.start()
+        self._shallow_status_label.setVisible(True)
+        self._controller.request_flag_shallow_notes()
+
+    def _on_shallow_ready(self, shallow_keys) -> None:
+        self._shallow_spinner.stop()
+        self._shallow_status_label.setVisible(False)
+        self._refresh_ai_state()
+        if not self._controller:
             return
         if not shallow_keys:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "No Shallow Notes", "No shallow notes found — great job.")
+            return
+        games = self._controller.resolve_games()
+        chess_log_ctrl = self._controller.get_chess_log_controller()
+        if not chess_log_ctrl:
             return
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         dlg = ShowShallowTagsDialog(
@@ -504,6 +524,13 @@ class DetailChessLogChartsView(QWidget):
             parent=self,
         )
         dlg.exec()
+
+    def _on_shallow_failed(self, message: str) -> None:
+        self._shallow_spinner.stop()
+        self._shallow_status_label.setVisible(False)
+        self._refresh_ai_state()
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.warning(self, "Shallow Tags Error", f"Could not classify notes:\n{message}")
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())

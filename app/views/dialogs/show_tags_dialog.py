@@ -524,6 +524,13 @@ class ShowTagsDialog(QDialog):
         btn_row.addWidget(self._ok_btn)
         root.addLayout(btn_row)
 
+        StyleManager.style_buttons(
+            [self._export_pdf_btn, self._cancel_btn, self._ok_btn],
+            self.config,
+            self._bg_rgb,
+            self._border_rgb,
+        )
+
         self.setMinimumWidth(800)
 
     # ------------------------------------------------------------------

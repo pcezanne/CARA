@@ -95,7 +95,7 @@ for a conclusion.
 """
 
 _NARRATIVE_STEP = (
-    "1. **Narrative summary** (8 paragraphs): a reflective synthesis of the patterns you "
+    "1. **Narrative summary** (3–5 paragraphs): a reflective synthesis of the patterns you "
     "see — what recurring themes emerge, where I seem to be making progress, and what "
     "areas still need attention.  Reference specific categories and quote a few of my "
     "own words where they are illuminating."

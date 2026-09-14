@@ -558,13 +558,18 @@ class DetailChessLogChartsView(QWidget):
             timeout = self._controller.get_narrative_timeout_seconds()
 
             # Repopulate combo without firing model-changed signal.
+            # Preserve the user's current selection; fall back to default only
+            # if that model is no longer in the list (e.g. provider changed).
+            current_selection = self._model_combo.currentText()
             self._model_combo.blockSignals(True)
             self._model_combo.clear()
             for m in models:
                 self._model_combo.addItem(m)
-            if default_model:
+            restore = current_selection if current_selection else default_model
+            idx = self._model_combo.findText(restore)
+            if idx < 0:
                 idx = self._model_combo.findText(default_model)
-                self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)
             self._model_combo.blockSignals(False)
 
             # Sync timeout from shared setting without triggering valueChanged persist.

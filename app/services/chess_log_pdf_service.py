@@ -165,9 +165,6 @@ class ChessLogPDFService(BasePDFReportService):
 
             narrative = (narrative_text or "").strip()
             if narrative:
-                y = self._section_heading(
-                    painter, writer, content, y, "Narrative Summary", keep_with=40.0
-                )
                 y = self._draw_narrative_paginated(painter, writer, content, y, narrative)
                 y += self._ROW_GAP
 
@@ -504,11 +501,24 @@ class ChessLogPDFService(BasePDFReportService):
         flags_draw = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
 
         for para in text.split("\n"):
-            if not para.strip():
+            stripped = para.strip()
+            if not stripped:
                 y += line_h * 0.5
                 continue
-            # Word-wrap this paragraph using painter.boundingRect for accuracy
-            words = para.split()
+
+            # Markdown heading: render as a styled section heading
+            if stripped.startswith("#"):
+                heading_text = stripped.lstrip("#").strip()
+                if heading_text:
+                    y = self._section_heading(
+                        painter, writer, content, y, heading_text, keep_with=line_h * 2
+                    )
+                    painter.setFont(self._font_body)
+                    painter.setPen(self._text)
+                continue
+
+            # Body text: word-wrap line by line with page-break checks
+            words = stripped.split()
             cur = ""
             for word in words:
                 candidate = (cur + " " + word).strip() if cur else word

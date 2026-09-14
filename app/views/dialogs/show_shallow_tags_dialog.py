@@ -257,6 +257,13 @@ class ShowShallowTagsDialog(QDialog):
         btn_row.addWidget(self._close_btn)
         root.addLayout(btn_row)
 
+        StyleManager.style_buttons(
+            [self._export_pdf_btn, self._close_btn],
+            self._config,
+            self._bg_rgb,
+            self._border_rgb,
+        )
+
         self.setMinimumWidth(800)
 
     def _on_export_pdf(self) -> None:

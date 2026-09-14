@@ -325,10 +325,10 @@ class TestSystemPromptInstructions(unittest.TestCase):
 
 class TestBuildPromptNarrativeInstruction(unittest.TestCase):
 
-    def test_narrative_step_asks_for_three_to_five_paragraphs(self):
+    def test_narrative_step_paragraph_count_in_prompt(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         prompt = build_prompt([game])
-        self.assertIn("3–5 paragraphs", prompt)   # en-dash: 3–5
+        self.assertIn("8 paragraphs", prompt)
         self.assertNotIn("2–4 paragraphs", prompt)
 
 

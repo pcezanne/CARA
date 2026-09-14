@@ -229,6 +229,14 @@ Reporting and visualization layer for Chess Log — the detail tab (index 9, F10
 
 **Shallow-tag freshness rule**: Copy Log and Export PDF include shallow tags only when fresh — `self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]]` on the view is non-None. Set in `_on_shallow_ready` (after Show Shallow Tags runs); cleared in `_on_source_changed` and `_on_player_changed`. When stale or not yet run, shallow tags are silently omitted. Color filter is not yet wired to a UI control in this view — when a Color combo is added, its change handler must also clear `_last_shallow_keys`.
 
+**Chess Log Charts right-click → Export PDF Report** source label: the PDF header reads `Source: <combo-text>: <pgn-stem>[, <pgn-stem>...]`. The filename list is built by `ChessLogChartsController.get_current_source_filenames()`, which mirrors the `_resolve_games` selection logic (active database → 1 name; all open → N names). `DatabaseModel.display_name` (Path stem or "Clipboard") is used for each entry.
+
+**Tag row cards in PDFs** are sized dynamically: `card_h = pad*2 + header_h + 4 + max(board_sz, body_content_h)`. `body_content_h` is measured via `painter.boundingRect` (checkboxes×line_h vs. word-wrapped why-text for CLAMP/CCT/Custom; sum of prompt+answer pairs for 3x3). Cards are never taller than content requires. The helper `ChessLogPDFService._measure_tag_row_height(painter, content, row)` is called both by `_draw_tag_row` (for `_ensure_space`) and by `export_tags` / `export_charts_report` (for the `keep_with` parameter in `_section_heading`, ensuring game headers never orphan from their first row).
+
+**Warning triangle in PDF**: drawn as a QPainter yellow-filled polygon with black exclamation mark (not a Unicode glyph — emoji doesn't render in PDF fonts). Positioned right-aligned on the header line, immediately to the left of "Ignore: Yes/No". Drawn via `ChessLogPDFService._draw_warning_triangle(painter, x, y, size)`.
+
+**Narrative Summary pagination**: `ChessLogPDFService._draw_narrative_paginated` word-wraps the narrative line-by-line and calls `_ensure_space` before each line, so long narratives page-break cleanly at the footer boundary rather than overflowing it.
+
 **Tech debt** (`widget.grab()` chart quality): `ChessLogPDFService.export_charts_report` embeds charts as screen-resolution pixmaps from `widget.grab()`. Player Stats re-renders charts natively via QPainter from series data. If PDF chart quality is inadequate, the upgrade path is a native-QPainter pipeline in `ChessLogPDFService` — flagged as tech debt; the existing path is upgradeable without API changes.
 
 **Tech debt note**: `BusySpinner` (`app/views/widgets/busy_spinner.py`) and the private `_BusySpinner` inside `app/views/dialogs/bulk_operations_dialog.py` are independent copies of the same widget. The `bulk_operations_dialog.py` copy should be replaced with `BusySpinner` in a future PR coordinated with Philipp.

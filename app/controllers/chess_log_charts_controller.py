@@ -797,6 +797,28 @@ class ChessLogChartsController(QObject):
                 return []
         return []
 
+    def get_current_source_filenames(self) -> List[str]:
+        """Return display names of the databases backing the current source selection."""
+        if self._source_selection == 0:
+            return []
+        if self._source_selection == 1:
+            db = self._database_controller.get_active_database()
+            return [db.display_name] if db else []
+        if self._source_selection == 2:
+            panel = self._database_controller.get_panel_model()
+            if not panel:
+                return []
+            return [db.display_name for db in panel.get_all_database_models()]
+        if self._source_selection == 3:
+            db = self._database_controller.get_active_database()
+            return [db.display_name] if db else []
+        if self._source_selection == 4:
+            panel = self._database_controller.get_panel_model()
+            if not panel:
+                return []
+            return [db.display_name for db in panel.get_all_database_models()]
+        return []
+
     def _persist_chart_settings(self) -> None:
         try:
             UserSettingsService.get_instance().update_chess_log_settings({

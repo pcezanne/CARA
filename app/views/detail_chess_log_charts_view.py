@@ -732,7 +732,9 @@ class DetailChessLogChartsView(QWidget):
                                 show_ignore=True,
                             ))
 
-        source_label = self._source_combo.currentText()
+        label = self._source_combo.currentText()
+        files = self._controller.get_current_source_filenames() if self._controller else []
+        source_label = f"{label}: {', '.join(files)}" if files else label
         ChessLogPDFService(self._config).export_charts_report(
             Path(path),
             player_name,

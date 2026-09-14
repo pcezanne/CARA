@@ -32,7 +32,11 @@ _SYSTEM_PROMPT = (
     "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
     "Write in plain, direct sentences. Never use em-dashes anywhere in your response, for any purpose - including setting off lists of numbers or parenthetical asides. Use commas, periods, or separate sentences instead. Don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
     "Refer to time periods using their actual calendar labels (e.g. specific months or date ranges) provided in the data. Never use generic placeholder language like 'periods' or 'bins' when a real time label is available. "
-    "Your response must always end with a dedicated final paragraph giving a clear, actionable takeaway — this is the single most important part of your response and must never be dropped, shortened to a single sentence, or folded into the discussion of another category. If you are running short on space, compress or omit detailed discussion of a low-signal category (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice this closing paragraph. "
+    "Structure your response as two markdown sections, in this exact order, using exactly these headers:\n\n"
+    "## Narrative Summary\n"
+    "## Key Takeaways\n\n"
+    "The Narrative Summary section builds the case: the patterns, the specific categories, the illuminating quotes, the qualitative texture. Do not end this section with an actionable takeaway or summary paragraph of its own, that belongs entirely in the Key Takeaways section below it, not duplicated here. "
+    "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 3 to 5 distinct, concrete, actionable items, each grounded in a specific category or pattern from the Narrative Summary above, not a miniature restatement of the whole thing. If you are running short on space, compress or omit detailed discussion of a low-signal category in the Narrative Summary (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
     "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
 )
 
@@ -95,13 +99,20 @@ for a conclusion.
 """
 
 _NARRATIVE_STEP = (
-    "1. **Narrative summary** (3–5 paragraphs): a reflective synthesis of the patterns you "
-    "see — what recurring themes emerge, where I seem to be making progress, and what "
-    "areas still need attention.  Reference specific categories and quote a few of my "
-    "own words where they are illuminating."
+    "Please write:\n\n"
+    "1. **Narrative Summary** (5 to 8 paragraphs, now that Key Takeaways is its own "
+    "section below): a reflective synthesis of the patterns you see, what recurring "
+    "themes emerge, where I seem to be making progress, and what areas still need "
+    "attention. Reference specific categories and quote a few of my own words where "
+    "they are illuminating.\n\n"
+    "2. **Key Takeaways** (3 to 5 items): distinct, actionable next steps grounded "
+    "in the categories and patterns discussed above. Each item should stand on its "
+    "own, not restate the narrative in miniature.\n\n"
+    "Format both as markdown sections with the exact headers "
+    '"## Narrative Summary" and "## Key Takeaways", in that order.\n'
 )
 
-_CLOSING = "\n\nKeep the narrative concise and actionable.\n"
+_CLOSING = ""
 
 
 def build_prompt(
@@ -180,7 +191,7 @@ def build_prompt(
         why_notes_block=why_notes_block,
         game_notes_block=game_notes_block,
     )
-    instruction = "Please write:\n\n" + _NARRATIVE_STEP + _CLOSING
+    instruction = _NARRATIVE_STEP
     return preamble + instruction
 
 
@@ -230,6 +241,12 @@ def generate_narrative(
         color_filter=color_filter,
     )
 
+    thinking = (
+        {"type": "disabled"}
+        if any(name in (model or "").lower() for name in ("sonnet-5", "opus-5"))
+        else None
+    )
+
     service = AIService(config=config)
     messages = [{"role": "user", "content": prompt}]
     success, response = service.send_message(
@@ -241,6 +258,7 @@ def generate_narrative(
         base_url_override=base_url_override,
         token_limit=token_limit,
         timeout_seconds=timeout_seconds,
+        thinking=thinking,
     )
     if not success:
         return False, response, []

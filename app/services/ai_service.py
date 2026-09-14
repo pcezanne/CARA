@@ -157,7 +157,8 @@ class AIService:
         system_prompt: Optional[str] = None,
         token_limit: Optional[int] = None,
         base_url_override: Optional[str] = None,
-        timeout_seconds: int = 60
+        timeout_seconds: int = 60,
+        thinking: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         """Send a message to an AI provider and get response.
         
@@ -177,7 +178,7 @@ class AIService:
             if provider == AIProvider.OPENAI:
                 return self._send_openai_message(model, api_key, messages, system_prompt, token_limit, timeout_seconds=timeout_seconds)
             elif provider == AIProvider.ANTHROPIC:
-                return self._send_anthropic_message(model, api_key, messages, system_prompt, token_limit=token_limit, timeout_seconds=timeout_seconds)
+                return self._send_anthropic_message(model, api_key, messages, system_prompt, token_limit=token_limit, timeout_seconds=timeout_seconds, thinking=thinking)
             elif provider == AIProvider.CUSTOM and base_url_override:
                 chat_url = base_url_override.rstrip("/") + "/chat/completions"
                 return self._send_openai_message(
@@ -482,7 +483,8 @@ class AIService:
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
         token_limit: Optional[int] = None,
-        timeout_seconds: int = 60
+        timeout_seconds: int = 60,
+        thinking: Optional[Dict[str, Any]] = None,
     ) -> Tuple[bool, str]:
         """Send message to Anthropic API.
         
@@ -524,6 +526,9 @@ class AIService:
         # Add system prompt if provided
         if system_prompt:
             payload["system"] = system_prompt
+
+        if thinking is not None:
+            payload["thinking"] = thinking
         
         # Debug outbound: log request payload (hide API key)
         debug_payload = payload.copy()

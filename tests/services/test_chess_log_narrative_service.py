@@ -290,9 +290,9 @@ class TestSystemPromptInstructions(unittest.TestCase):
         sp = self._get_system_prompt()
         self.assertIn("Never use generic placeholder language like 'periods' or 'bins'", sp)
 
-    def test_closing_takeaway_instruction_present(self):
+    def test_key_takeaways_section_instruction_present(self):
         sp = self._get_system_prompt()
-        self.assertIn("must always end with a dedicated final paragraph", sp)
+        self.assertIn("## Key Takeaways", sp)
         self.assertIn("must never be dropped", sp)
 
     def test_period_listing_instruction_present(self):
@@ -325,11 +325,14 @@ class TestSystemPromptInstructions(unittest.TestCase):
 
 class TestBuildPromptNarrativeInstruction(unittest.TestCase):
 
-    def test_narrative_step_asks_for_three_to_five_paragraphs(self):
+    def test_narrative_step_asks_for_two_sections_with_correct_counts(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         prompt = build_prompt([game])
-        self.assertIn("3–5 paragraphs", prompt)   # en-dash: 3–5
-        self.assertNotIn("2–4 paragraphs", prompt)
+        self.assertIn("5 to 8 paragraphs", prompt)
+        self.assertIn("3 to 5 items", prompt)
+        self.assertIn("## Narrative Summary", prompt)
+        self.assertIn("## Key Takeaways", prompt)
+        self.assertNotIn("3–5 paragraphs", prompt)
 
 
 # ---------------------------------------------------------------------------
@@ -743,6 +746,55 @@ class TestAnthropicTruncationNotice(unittest.TestCase):
         )
         self.assertFalse(success)
         self.assertIn("token limit", text.lower())
+
+
+# ---------------------------------------------------------------------------
+# generate_narrative — thinking parameter gating
+# ---------------------------------------------------------------------------
+
+class TestGenerateNarrativeThinkingGating(unittest.TestCase):
+    """generate_narrative must pass thinking={"type":"disabled"} for next-gen
+    models (Sonnet 5, Opus 5) and thinking=None for all others."""
+
+    def _run(self, model: str, game):
+        captured = {}
+
+        def fake_send(self_svc, provider, model, api_key, messages,
+                      system_prompt=None, token_limit=None,
+                      base_url_override=None, timeout_seconds=60,
+                      thinking=None):
+            captured["thinking"] = thinking
+            return True, "## Narrative Summary\nOK\n\n## Key Takeaways\n- OK"
+
+        with patch("app.services.chess_log_narrative_service.AIService.send_message", fake_send):
+            generate_narrative(
+                [game],
+                provider="anthropic",
+                model=model,
+                api_key="sk-test",
+                base_url_override=None,
+            )
+        return captured.get("thinking")
+
+    def test_sonnet5_disables_thinking(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        self.assertEqual(self._run("claude-sonnet-5", game), {"type": "disabled"})
+
+    def test_opus5_disables_thinking(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        self.assertEqual(self._run("claude-opus-5", game), {"type": "disabled"})
+
+    def test_sonnet46_does_not_disable_thinking(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        self.assertIsNone(self._run("claude-sonnet-4-6", game))
+
+    def test_opus47_does_not_disable_thinking(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        self.assertIsNone(self._run("claude-opus-4-7", game))
+
+    def test_dated_sonnet5_variant_disables_thinking(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        self.assertEqual(self._run("claude-sonnet-5-20260901", game), {"type": "disabled"})
 
 
 if __name__ == "__main__":

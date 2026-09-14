@@ -93,6 +93,9 @@ class _TagRowWidget(QFrame):
             bool(e.get("is_shallow")) for e in entries
         )
 
+        self._fen: Optional[str] = fen
+        self._played_move: Optional[chess.Move] = played_move
+
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
         self._header_label: Optional[QLabel] = None
@@ -259,6 +262,18 @@ class _TagRowWidget(QFrame):
             # zero boxes + empty why → [] (intentional delete gesture).
             return [_annotate({"preset": self._preset, "cat": "", "why": why})] if why else []
         return [_annotate({"preset": self._preset, "cat": cat, "why": why}) for cat in selected]
+
+    def snapshot(self):
+        """Return current widget state as a TagRowSnapshot for PDF export."""
+        from app.services.chess_log_pdf_service import TagRowSnapshot
+        return TagRowSnapshot(
+            move_label=self._header_label.text() if self._header_label else "",
+            preset=self._preset,
+            entries=self.get_current_entries(),
+            fen=self._fen,
+            played_move=self._played_move,
+            show_ignore=self._show_ignore_checkbox,
+        )
 
 
 class ShowTagsDialog(QDialog):
@@ -481,8 +496,16 @@ class ShowTagsDialog(QDialog):
             scroll.setMaximumHeight(max_h)
             root.addWidget(scroll)
 
-        # Button bar: Cancel | OK
+        # Button bar: [Export to PDF]  stretch  Cancel | OK
         btn_row = QHBoxLayout()
+
+        self._export_pdf_btn = QPushButton("Export to PDF")
+        self._export_pdf_btn.setAutoDefault(False)
+        self._export_pdf_btn.setFixedHeight(self._button_height)
+        self._export_pdf_btn.setEnabled(bool(self._rows_data))
+        self._export_pdf_btn.clicked.connect(self._on_export_pdf)
+        btn_row.addWidget(self._export_pdf_btn)
+
         btn_row.addStretch(1)
 
         self._cancel_btn = QPushButton("Cancel")
@@ -519,3 +542,47 @@ class ShowTagsDialog(QDialog):
                     game, path_key, preset, new_entries
                 )
         self.accept()
+
+    def _on_export_pdf(self) -> None:
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        from app.services.chess_log_pdf_service import (
+            ChessLogPDFService,
+            default_chess_log_tags_pdf_filename,
+        )
+        suggested = default_chess_log_tags_pdf_filename()
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export to PDF", suggested, "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+
+        # Group row widgets by game, preserving display order.
+        tag_groups = []
+        current_game = None
+        current_rows = []
+        current_header: Optional[str] = None
+        multi_game = len(self._games) > 1
+
+        for i, row_widget in enumerate(self._row_widgets):
+            game = self._row_games[i]
+            if game is not current_game:
+                if current_rows:
+                    tag_groups.append({"header": current_header, "rows": current_rows})
+                current_game = game
+                current_rows = []
+                if multi_game:
+                    white = str(getattr(game, "white", "") or "").strip() or "Unknown"
+                    black = str(getattr(game, "black", "") or "").strip() or "Unknown"
+                    result = str(getattr(game, "result", "") or "").strip() or "*"
+                    date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
+                    moves = getattr(game, "moves", 0) or 0
+                    current_header = f"{white} - {black} {result} ({date} - {moves} moves)"
+                else:
+                    current_header = None
+            current_rows.append(row_widget.snapshot())
+
+        if current_rows:
+            tag_groups.append({"header": current_header, "rows": current_rows})
+
+        ChessLogPDFService(self.config).export_tags(Path(path), tag_groups)

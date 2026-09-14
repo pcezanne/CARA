@@ -12,9 +12,9 @@ The narrative panel is disabled (with an explanatory hint) when no LLM is config
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtGui import QColor, QFont, QFontMetrics
 from PyQt6.QtWidgets import (
     QComboBox,
@@ -60,6 +60,10 @@ class DetailChessLogChartsView(QWidget):
         self._config = config
         self._controller: Optional[ChessLogChartsController] = None
         self._chart_widgets: List[ChessLogCategoryChartWidget] = []
+        self._content_layout = None
+        # Session-scoped shallow-tag freshness: set after Show Shallow Tags runs,
+        # cleared when Data Source or Player filter changes.
+        self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]] = None
 
         self._build_ui()
         self._apply_styling()
@@ -131,6 +135,7 @@ class DetailChessLogChartsView(QWidget):
         content_layout.setContentsMargins(8, 8, 8, 8)
         content_layout.setSpacing(8)
         content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self._content_layout = content_layout
 
         content_layout.addWidget(self._build_selector())
 
@@ -277,6 +282,7 @@ class DetailChessLogChartsView(QWidget):
 
         self._narrative_edit = QTextEdit()
         self._narrative_edit.setReadOnly(True)
+        self._narrative_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self._narrative_edit.setPlaceholderText(
             "Click 'Generate Narrative Summary' to get an AI-written reflection on your Chess Log moments."
         )
@@ -300,6 +306,7 @@ class DetailChessLogChartsView(QWidget):
         self._flagged_box.setVisible(False)
         layout.addWidget(self._flagged_box)
 
+        frame.setProperty("section_name", "narrative")
         return frame
 
     # ------------------------------------------------------------------
@@ -356,11 +363,13 @@ class DetailChessLogChartsView(QWidget):
     # ------------------------------------------------------------------
 
     def _on_source_changed(self, index: int) -> None:
+        self._last_shallow_keys = None  # freshness invalidated
         self._reset_player_selection()
         if self._controller:
             self._controller.set_source_selection(index)
 
     def _on_player_changed(self, index: int) -> None:
+        self._last_shallow_keys = None  # freshness invalidated
         if not self._controller or index < 0:
             return
         raw_name = self._player_combo.itemData(index)
@@ -388,6 +397,7 @@ class DetailChessLogChartsView(QWidget):
         for preset in sorted(data):
             widget = ChessLogCategoryChartWidget(config=self._config)
             widget.set_series(data[preset], colors=self._cat_colors_for_preset(preset))
+            widget.setProperty("section_name", f"chart_{preset}")
             self._charts_layout.addWidget(widget)
             self._chart_widgets.append(widget)
 
@@ -505,6 +515,7 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_spinner.stop()
         self._shallow_status_label.setVisible(False)
         self._refresh_ai_state()
+        self._last_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         if not self._controller:
             return
         if not shallow_keys:
@@ -560,3 +571,173 @@ class DetailChessLogChartsView(QWidget):
             self._timeout_spin.blockSignals(True)
             self._timeout_spin.setValue(timeout)
             self._timeout_spin.blockSignals(False)
+
+    # ------------------------------------------------------------------
+    # Right-click context menu
+    # ------------------------------------------------------------------
+
+    def contextMenuEvent(self, event) -> None:
+        if not self._controller:
+            return
+        section_name = self._hit_section(event.globalPos())
+        from app.views.menus.chess_log_charts_context_menu import (
+            build_chess_log_charts_context_menu,
+        )
+        menu = build_chess_log_charts_context_menu(self, section_name=section_name)
+        menu.exec(event.globalPos())
+
+    def _hit_section(self, global_pos: QPoint) -> Optional[str]:
+        """Return the section_name of the widget under global_pos, or None."""
+        for chart_widget in self._chart_widgets:
+            top_left = chart_widget.mapToGlobal(QPoint(0, 0))
+            rect = QRect(top_left, chart_widget.size())
+            if rect.contains(global_pos):
+                name = chart_widget.property("section_name")
+                if name:
+                    return str(name)
+        if self._content_layout is not None:
+            for i in range(self._content_layout.count()):
+                item = self._content_layout.itemAt(i)
+                widget = item.widget() if item else None
+                if widget is None:
+                    continue
+                name = widget.property("section_name")
+                if not name:
+                    continue
+                top_left = widget.mapToGlobal(QPoint(0, 0))
+                rect = QRect(top_left, widget.size())
+                if rect.contains(global_pos):
+                    return str(name)
+        return None
+
+    def _copy_section_to_clipboard(self, section_name: str) -> None:
+        from PyQt6.QtWidgets import QApplication
+        if section_name.startswith("chart_"):
+            preset = section_name[len("chart_"):]
+            text = f"Category chart — {preset}: see Chess Log Charts tab in CARA."
+        elif section_name == "narrative":
+            text = self._narrative_edit.toPlainText().strip() or "(no narrative yet)"
+        else:
+            text = ""
+        if text:
+            QApplication.clipboard().setText(text)
+
+    def _copy_log_to_clipboard(self) -> None:
+        from PyQt6.QtWidgets import QApplication
+        lines: List[str] = []
+        player_text = self._player_combo.currentText()
+        source_text = self._source_combo.currentText()
+        lines.append(f"Chess Log — {player_text}")
+        lines.append(f"Source: {source_text}")
+        lines.append("")
+        for widget in self._chart_widgets:
+            preset = (widget.property("section_name") or "").replace("chart_", "")
+            lines.append(f"Category chart — {preset}: see Chess Log Charts tab in CARA.")
+        lines.append("")
+        narrative = self._narrative_edit.toPlainText().strip()
+        if narrative:
+            lines.append("Narrative Summary:")
+            lines.append(narrative)
+            lines.append("")
+        if self._last_shallow_keys and self._controller:
+            chess_log_ctrl = self._controller.get_chess_log_controller()
+            if chess_log_ctrl:
+                lines.append("Shallow Notes:")
+                games = self._controller.resolve_games()
+                seen: Set[Tuple[int, str, str]] = set()
+                for game in games:
+                    tags = chess_log_ctrl.get_tags_for_game(game)
+                    for path_key, all_entries in tags.items():
+                        if not all_entries:
+                            continue
+                        by_preset: Dict[str, List] = {}
+                        for e in all_entries:
+                            by_preset.setdefault(e.get("preset", ""), []).append(e)
+                        for preset, entries in by_preset.items():
+                            key = (game.game_number, path_key, preset)
+                            if key not in self._last_shallow_keys or key in seen:
+                                continue
+                            seen.add(key)
+                            white = str(getattr(game, "white", "") or "?")
+                            black = str(getattr(game, "black", "") or "?")
+                            cat = entries[0].get("cat", "") if entries else ""
+                            why = entries[0].get("why", "").strip() if entries else ""
+                            lines.append(
+                                f"  {white}–{black}  |  {path_key}  |  {preset}  |  {cat}  |  {why}"
+                            )
+        QApplication.clipboard().setText("\n".join(lines))
+
+    def _export_pdf_report(self) -> None:
+        from io import StringIO
+        from pathlib import Path
+
+        import chess.pgn
+        from PyQt6.QtWidgets import QFileDialog
+
+        from app.services.chess_log_pdf_service import (
+            ChessLogPDFService,
+            TagRowSnapshot,
+            default_chess_log_charts_pdf_filename,
+        )
+        from app.views.dialogs._tag_row_helpers import node_info as _node_info
+
+        player_name = self._player_combo.currentText()
+        suggested = default_chess_log_charts_pdf_filename(player_name)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export PDF Report", suggested, "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+
+        chart_pixmaps = []
+        for widget in self._chart_widgets:
+            preset = (widget.property("section_name") or "").replace("chart_", "")
+            chart_pixmaps.append((preset, widget.grab()))
+
+        narrative_text = self._narrative_edit.toPlainText().strip()
+
+        shallow_rows: List[TagRowSnapshot] = []
+        if self._last_shallow_keys and self._controller:
+            chess_log_ctrl = self._controller.get_chess_log_controller()
+            if chess_log_ctrl:
+                games = self._controller.resolve_games()
+                seen: Set[Tuple[int, str, str]] = set()
+                for game in games:
+                    pgn_game = None
+                    try:
+                        pgn = getattr(game, "pgn", None)
+                        if pgn:
+                            pgn_game = chess.pgn.read_game(StringIO(pgn))
+                    except Exception:
+                        pass
+                    tags = chess_log_ctrl.get_tags_for_game(game)
+                    for path_key, all_entries in tags.items():
+                        if not all_entries:
+                            continue
+                        by_preset: Dict[str, List] = {}
+                        for e in all_entries:
+                            by_preset.setdefault(e.get("preset", ""), []).append(e)
+                        for preset, entries in by_preset.items():
+                            k: Tuple[int, str, str] = (game.game_number, path_key, preset)
+                            if k not in self._last_shallow_keys or k in seen:
+                                continue
+                            seen.add(k)
+                            fen, played_move, move_label = _node_info(pgn_game, path_key)
+                            shallow_rows.append(TagRowSnapshot(
+                                move_label=move_label,
+                                preset=preset,
+                                entries=entries,
+                                fen=fen or None,
+                                played_move=played_move,
+                                show_ignore=True,
+                            ))
+
+        source_label = self._source_combo.currentText()
+        ChessLogPDFService(self._config).export_charts_report(
+            Path(path),
+            player_name,
+            source_label,
+            chart_pixmaps,
+            narrative_text,
+            shallow_rows,
+        )

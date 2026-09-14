@@ -99,6 +99,7 @@ class ShowShallowTagsDialog(QDialog):
                 self._row_pgn_games.append(pgn_game)
 
         self._row_widgets: List[_TagRowWidget] = []
+        self._rows_layout = None
         self._setup_ui()
         self.setWindowTitle("Show Shallow Tags")
 
@@ -179,10 +180,11 @@ class ShowShallowTagsDialog(QDialog):
             scroll.setFrameShape(QFrame.Shape.NoFrame)
 
             content = QWidget()
-            rows_layout = QVBoxLayout(content)
-            rows_layout.setSpacing(0)
-            rows_layout.setContentsMargins(0, 0, 0, 0)
-            rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            self._rows_layout = QVBoxLayout(content)
+            self._rows_layout.setSpacing(0)
+            self._rows_layout.setContentsMargins(0, 0, 0, 0)
+            self._rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+            rows_layout = self._rows_layout
 
             multi_game = len(set(id(g) for g in self._row_games)) > 1
             last_game = None
@@ -237,6 +239,15 @@ class ShowShallowTagsDialog(QDialog):
             root.addWidget(scroll)
 
         btn_row = QHBoxLayout()
+
+        has_rows = bool(self._rows)
+        self._export_pdf_btn = QPushButton("Export to PDF")
+        self._export_pdf_btn.setAutoDefault(False)
+        self._export_pdf_btn.setFixedHeight(self._button_height)
+        self._export_pdf_btn.setEnabled(has_rows)
+        self._export_pdf_btn.clicked.connect(self._on_export_pdf)
+        btn_row.addWidget(self._export_pdf_btn)
+
         btn_row.addStretch(1)
         self._close_btn = QPushButton("Close")
         self._close_btn.setDefault(True)
@@ -247,6 +258,51 @@ class ShowShallowTagsDialog(QDialog):
         root.addLayout(btn_row)
 
         self.setMinimumWidth(800)
+
+    def _on_export_pdf(self) -> None:
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        from app.services.chess_log_pdf_service import (
+            ChessLogPDFService,
+            default_chess_log_tags_pdf_filename,
+        )
+        suggested = default_chess_log_tags_pdf_filename(is_shallow_only=True)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export to PDF", suggested, "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+
+        multi_game = len(set(id(g) for g in self._row_games)) > 1
+        tag_groups = []
+        current_game = None
+        current_rows = []
+        current_header = None
+
+        for i, row_widget in enumerate(self._row_widgets):
+            game = self._row_games[i]
+            if game is not current_game:
+                if current_rows:
+                    tag_groups.append({"header": current_header, "rows": current_rows})
+                current_game = game
+                current_rows = []
+                if multi_game:
+                    white = str(getattr(game, "white", "") or "").strip() or "Unknown"
+                    black = str(getattr(game, "black", "") or "").strip() or "Unknown"
+                    result = str(getattr(game, "result", "") or "").strip() or "*"
+                    date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
+                    moves = getattr(game, "moves", 0) or 0
+                    current_header = f"{white} - {black} {result} ({date} - {moves} moves)"
+                else:
+                    current_header = None
+            current_rows.append(row_widget.snapshot())
+
+        if current_rows:
+            tag_groups.append({"header": current_header, "rows": current_rows})
+
+        ChessLogPDFService(self._config).export_tags(
+            Path(path), tag_groups, is_shallow_only=True
+        )
 
     def _make_live_edit_handler(self, game, path_key: str, preset: str, row: _TagRowWidget):
         def _handler():

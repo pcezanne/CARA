@@ -224,15 +224,16 @@ class TestShouldConfirmExtraMoment(unittest.TestCase):
         mock_dlg.assert_not_called()
         self.assertTrue(result)
 
-    def test_nag_declined_does_not_set_flags(self):
+    def test_nag_declined_still_sets_flags(self):
+        """Declining the nag still sets both flags — it fires at most once regardless of answer."""
         ctrl, gm = self._ctrl_with_three_moments(gid=1)
         gm.get_active_path.return_value = (99,)
         with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
              patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation", return_value=False):
             result = ctrl.should_confirm_extra_moment(None)
         self.assertFalse(result)
-        self.assertFalse(ctrl._nag_shown_this_session)
-        self.assertFalse(ctrl._nag_shown_by_game.get(1, False))
+        self.assertTrue(ctrl._nag_shown_this_session)
+        self.assertTrue(ctrl._nag_shown_by_game.get(1, False))
 
     def test_add_moment_no_longer_fires_nag(self):
         ctrl, gm = self._ctrl_with_three_moments()

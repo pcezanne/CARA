@@ -361,9 +361,10 @@ class ChessLogController:
         if self._nag_shown_by_game.get(gid, False):
             return True
         confirmed = self._confirm_extra_moment(parent_widget)
-        if confirmed:
-            self._nag_shown_by_game[gid] = True
-            self._nag_shown_this_session = True
+        # Suppress for the rest of this session and for this game's future sessions
+        # regardless of whether the user said Yes or No — the nag fires at most once.
+        self._nag_shown_by_game[gid] = True
+        self._nag_shown_this_session = True
         return confirmed
 
     def _confirm_extra_moment(self, parent_widget=None) -> bool:

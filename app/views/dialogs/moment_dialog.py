@@ -50,9 +50,9 @@ class MomentDialog(QDialog):
     _CCT_CHIPS: List[tuple[str, str]] = list(zip(CCT_ORDER, _CCT_TOOLTIPS))
 
     _3X3_PROMPTS: List[tuple[str, str]] = [
-        ("Why1", "Why did I make this move?"),
-        ("Why2", "Why was it suboptimal?"),
-        ("Why3", "Why is the engine's suggestion better?"),
+        ("Why1", "Why did I choose that move?"),
+        ("Why2", "Why is my move not ideal?"),
+        ("Why3", "Why is the better move better than my chosen move?"),
     ]
 
     def __init__(

@@ -33,9 +33,9 @@ _PRESET_ORDER = ["CLAMP", "CCT", "3x3", "Custom"]
 
 _3X3_KEYS = ["Why1", "Why2", "Why3"]
 _3X3_PROMPTS = {
-    "Why1": "Why did I make this move?",
-    "Why2": "Why was it suboptimal?",
-    "Why3": "Why is the engine's suggestion better?",
+    "Why1": "Why did I choose that move?",
+    "Why2": "Why is my move not ideal?",
+    "Why3": "Why is the better move better than my chosen move?",
 }
 
 # Scale matching manual analysis default (1.25 × 160 base = 200px board ≈ 204px widget)

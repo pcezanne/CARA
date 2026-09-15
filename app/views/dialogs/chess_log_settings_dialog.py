@@ -33,6 +33,7 @@ class ChessLogSettingsDialog(QDialog):
     """
 
     _PRESETS = ["CLAMP", "CCT", "3x3", "Custom"]
+    _PRESET_DISPLAY_NAMES = {"3x3": "3 Moments"}
 
     def __init__(self, config: Dict[str, Any], user_settings_service, parent=None) -> None:
         super().__init__(parent)
@@ -114,7 +115,7 @@ class ChessLogSettingsDialog(QDialog):
         preset_descriptions = {
             "CLAMP": "Checks · Loose Pieces · Alignment · Mobility · Promotion",
             "CCT": "Checks · Captures · Threats",
-            "3x3": "Three guided Whys per moment (Studer's method)",
+            "3x3": "Three guided Whys per game moment",
             "Custom": "Your own category vocabulary (manage below)",
         }
 
@@ -136,7 +137,7 @@ class ChessLogSettingsDialog(QDialog):
 
         for preset in self._PRESETS:
             row = QHBoxLayout()
-            rb = QRadioButton(preset)
+            rb = QRadioButton(self._PRESET_DISPLAY_NAMES.get(preset, preset))
             rb.setFont(QFont(self._label_font, self._label_size))
             rb.setChecked(preset == self._active_preset)
             self._preset_radio_group.addButton(rb)

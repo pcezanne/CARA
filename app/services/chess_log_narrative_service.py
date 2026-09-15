@@ -38,6 +38,8 @@ _SYSTEM_PROMPT = (
     "The Narrative Summary section builds the case: the patterns, the specific categories, the illuminating quotes, the qualitative texture. Do not end this section with an actionable takeaway or summary paragraph of its own, that belongs entirely in the Key Takeaways section below it, not duplicated here. "
     "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the narrative in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit detailed discussion of a low-signal category in the Narrative Summary (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
     "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
+    "When a preset's category letters are not all distinct (as with CCT, where both Checks and Captures start with C), never use a bare letter as shorthand for either one. Always use the full category name (Checks, Captures, Threats) to keep them unambiguous. This does not apply to CLAMP, where each letter maps to exactly one category and bare-letter shorthand (C, L, A, M, P) remains fine. "
+    "For CCT-tagged moments, a tag can describe either side of the board. A Checks, Captures, or Threats tag may mean the player's own candidate move created that problem, or it may mean the opponent's prior move created it and the player failed to respond to it. Read the why-note itself to tell which; do not assume a tag always means 'the player's move was the problem.' "
 )
 
 # Registry of per-preset glossary text.
@@ -66,9 +68,19 @@ _PRESET_GLOSSARIES: Dict[str, str] = {
         "- P — Passed Pawns: A pawn positioned to become unstoppable — the opponent's passed "
         "pawn not dealt with in time, or the player's own candidate move handing them one."
     ),
-    # TODO: Add CCT glossary text when Paul provides it.
-    "CCT": "",
-    # TODO: Add 3x3 glossary text when Paul provides it.
+    "CCT": (
+        "- C — Checks: A checking move — either one the opponent's last move enabled that "
+        "wasn't accounted for, or one the player's own candidate move allows in return.\n"
+        "- C — Captures: A piece or square left undefended or under-defended, the "
+        "opponent's loose piece going unclaimed, or one of the player's own left hanging "
+        "by their candidate move.\n"
+        "- T — Threats: An aggressive move, such as attacking a higher-value piece, "
+        "creating a mating sequence, or setting up a tactical fork, that forces the "
+        "opponent to respond defensively on their very next turn to avoid immediate "
+        "material or positional loss."
+    ),
+    # 3x3 uses a structural Why-questions block rather than a letter glossary — see
+    # _3X3_STRUCTURE_BLOCK and _format_3x3_structure() below.
     "3x3": "",
     # TODO: Add Custom glossary text when Paul provides it.
     "Custom": "",
@@ -172,7 +184,9 @@ def build_prompt(
     )
 
     glossary_block = _format_glossary(preset_names)
-    glossary_section = f"\n{glossary_block}\n\n" if glossary_block else "\n"
+    threexthree_block = _format_3x3_structure(preset_names)
+    combined = "\n\n".join(b for b in (glossary_block, threexthree_block) if b)
+    glossary_section = f"\n{combined}\n\n" if combined else "\n"
 
     if series_map:
         category_counts_block = _format_trend_counts(series_map)
@@ -299,6 +313,25 @@ def _format_glossary(preset_names: Set[str]) -> str:
         if text:
             blocks.append(f"## Glossary — {preset}\n\n{text}")
     return "\n\n".join(blocks)
+
+
+_3X3_STRUCTURE_BLOCK = (
+    "## Why-note structure — 3x3\n\n"
+    "Each 3x3-tagged moment may include answers to up to three questions, always "
+    "asked in this order, though the player may skip any of them:\n\n"
+    "1. Why did I choose that move?\n"
+    "2. Why is my move not ideal?\n"
+    "3. Why is the better move better than my chosen move?\n\n"
+    "These are the exact three questions from GM Noel Studer's 3x3 method. Treat a "
+    "missing answer to one of the three as simply unanswered, not as evidence of "
+    "anything. All three always describe the player's own chosen move and their own "
+    "reasoning about it, never the opponent's move."
+)
+
+
+def _format_3x3_structure(preset_names: Set[str]) -> str:
+    """Emit the 3x3 Why-questions block iff 3x3 data is present in the filtered data."""
+    return _3X3_STRUCTURE_BLOCK if "3x3" in preset_names else ""
 
 
 def _bin_month_label(lab0: str, lab1: str) -> str:

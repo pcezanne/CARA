@@ -18,6 +18,7 @@ from app.services.chess_log_narrative_service import (
     _PRESET_GLOSSARIES,
     _bin_month_label,
     _format_trend_counts,
+    _3X3_STRUCTURE_BLOCK,
     build_prompt,
     generate_narrative,
     _parse_response,
@@ -60,6 +61,10 @@ def _clamp(cat: str, why: str = "") -> dict:
 
 def _cct(cat: str, why: str = "") -> dict:
     return ChessLogStorageService.make_entry("CCT", cat, why)
+
+
+def _threex(key: str, why: str = "") -> dict:
+    return ChessLogStorageService.make_entry("3x3", key, why)
 
 
 # ---------------------------------------------------------------------------
@@ -797,6 +802,102 @@ class TestGenerateNarrativeThinkingGating(unittest.TestCase):
     def test_dated_sonnet5_variant_disables_thinking(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         self.assertEqual(self._run("claude-sonnet-5-20260901", game), {"type": "disabled"})
+
+
+# ---------------------------------------------------------------------------
+# CCT glossary — content and conditional emission
+# ---------------------------------------------------------------------------
+
+class TestCCTGlossary(unittest.TestCase):
+
+    def test_cct_glossary_appears_when_cct_data_present(self):
+        game = _make_game(entries_per_path={"0": [_cct("Checks")]})
+        prompt = build_prompt([game])
+        self.assertIn("## Glossary — CCT", prompt)
+
+    def test_cct_glossary_threats_definition_verbatim(self):
+        game = _make_game(entries_per_path={"0": [_cct("Threats")]})
+        prompt = build_prompt([game])
+        self.assertIn("forces the opponent to respond defensively on their very next turn", prompt)
+
+    def test_cct_glossary_checks_wording(self):
+        game = _make_game(entries_per_path={"0": [_cct("Checks")]})
+        prompt = build_prompt([game])
+        self.assertIn("C — Checks: A checking move", prompt)
+
+    def test_cct_glossary_captures_wording(self):
+        game = _make_game(entries_per_path={"0": [_cct("Captures")]})
+        prompt = build_prompt([game])
+        self.assertIn("C — Captures: A piece or square left undefended", prompt)
+
+    def test_cct_glossary_absent_when_no_cct_data(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game])
+        self.assertNotIn("## Glossary — CCT", prompt)
+
+
+# ---------------------------------------------------------------------------
+# 3x3 structural block — content and conditional emission
+# ---------------------------------------------------------------------------
+
+class Test3x3StructureBlock(unittest.TestCase):
+
+    def test_3x3_block_appears_when_3x3_data_present(self):
+        game = _make_game(entries_per_path={"0": [_threex("Why1", "I saw a threat")]})
+        prompt = build_prompt([game])
+        self.assertIn("## Why-note structure — 3x3", prompt)
+
+    def test_3x3_block_contains_exact_studer_questions(self):
+        game = _make_game(entries_per_path={"0": [_threex("Why1", "text")]})
+        prompt = build_prompt([game])
+        self.assertIn("1. Why did I choose that move?", prompt)
+        self.assertIn("2. Why is my move not ideal?", prompt)
+        self.assertIn("3. Why is the better move better than my chosen move?", prompt)
+
+    def test_3x3_block_questions_in_order(self):
+        game = _make_game(entries_per_path={"0": [_threex("Why2", "text")]})
+        prompt = build_prompt([game])
+        idx1 = prompt.find("1. Why did I choose that move?")
+        idx2 = prompt.find("2. Why is my move not ideal?")
+        idx3 = prompt.find("3. Why is the better move better than my chosen move?")
+        self.assertLess(idx1, idx2)
+        self.assertLess(idx2, idx3)
+
+    def test_3x3_block_studer_attribution_present(self):
+        game = _make_game(entries_per_path={"0": [_threex("Why3", "text")]})
+        prompt = build_prompt([game])
+        self.assertIn("GM Noel Studer", prompt)
+
+    def test_3x3_block_absent_when_no_3x3_data(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        prompt = build_prompt([game])
+        self.assertNotIn("## Why-note structure — 3x3", prompt)
+
+    def test_3x3_structure_block_constant_matches_questions(self):
+        self.assertIn("1. Why did I choose that move?", _3X3_STRUCTURE_BLOCK)
+        self.assertIn("2. Why is my move not ideal?", _3X3_STRUCTURE_BLOCK)
+        self.assertIn("3. Why is the better move better than my chosen move?", _3X3_STRUCTURE_BLOCK)
+
+
+# ---------------------------------------------------------------------------
+# _SYSTEM_PROMPT — CCT disambiguation and bidirectional-framing rules
+# ---------------------------------------------------------------------------
+
+class TestSystemPromptCCTRules(unittest.TestCase):
+
+    def _get_system_prompt(self) -> str:
+        from app.services.chess_log_narrative_service import _SYSTEM_PROMPT
+        return _SYSTEM_PROMPT
+
+    def test_letter_disambiguation_rule_present(self):
+        sp = self._get_system_prompt()
+        self.assertIn("never use a bare letter as shorthand", sp)
+        self.assertIn("Checks, Captures, Threats", sp)
+
+    def test_bidirectional_framing_rule_present(self):
+        sp = self._get_system_prompt()
+        self.assertIn("a tag can describe either side of the board", sp)
+        self.assertIn("do not assume a tag always means", sp)
 
 
 if __name__ == "__main__":

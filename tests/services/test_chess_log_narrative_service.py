@@ -329,10 +329,12 @@ class TestBuildPromptNarrativeInstruction(unittest.TestCase):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         prompt = build_prompt([game])
         self.assertIn("5 to 8 paragraphs", prompt)
-        self.assertIn("3 to 5 items", prompt)
+        self.assertIn("1 to 3 short paragraphs", prompt)
+        self.assertIn("not a numbered or bulleted list", prompt)
         self.assertIn("## Narrative Summary", prompt)
         self.assertIn("## Key Takeaways", prompt)
         self.assertNotIn("3–5 paragraphs", prompt)
+        self.assertNotIn("3 to 5 items", prompt)
 
 
 # ---------------------------------------------------------------------------

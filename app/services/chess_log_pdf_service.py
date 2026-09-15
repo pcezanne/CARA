@@ -480,6 +480,35 @@ class ChessLogPDFService(BasePDFReportService):
         painter.drawEllipse(QPointF(cx, y + size * 0.78), size * 0.055, size * 0.055)
         painter.restore()
 
+    @staticmethod
+    def _parse_bold_spans(text: str) -> List[Tuple[str, bool]]:
+        """Split *text* into (segment, is_bold) runs on ``**...** `` markers.
+
+        An unmatched trailing ``**`` (odd number of markers) is treated as a
+        literal string so it reaches the caller instead of opening a span."""
+        spans: List[Tuple[str, bool]] = []
+        i, n = 0, len(text)
+        bold = False
+        buf: List[str] = []
+        while i < n:
+            if i + 1 < n and text[i] == "*" and text[i + 1] == "*":
+                # Only open a new bold span if a closing ** exists ahead.
+                if not bold and text.find("**", i + 2) == -1:
+                    buf.append(text[i:])
+                    i = n
+                    continue
+                if buf:
+                    spans.append(("".join(buf), bold))
+                    buf = []
+                bold = not bold
+                i += 2
+            else:
+                buf.append(text[i])
+                i += 1
+        if buf:
+            spans.append(("".join(buf), bold))
+        return spans
+
     def _draw_narrative_paginated(
         self,
         painter: QPainter,
@@ -488,17 +517,19 @@ class ChessLogPDFService(BasePDFReportService):
         y: float,
         text: str,
     ) -> float:
-        """Draw narrative text with automatic page breaks before the footer."""
+        """Draw narrative text with automatic page breaks before the footer.
+
+        Supports ``**bold**`` markdown: bold spans render with _font_body_bold
+        and the literal ``**`` markers are never passed to drawText."""
         painter.setFont(self._font_body)
         painter.setPen(self._text)
-        fm = QFontMetrics(self._font_body)
-        line_h = float(fm.height())
+        fm_body = QFontMetrics(self._font_body)
+        fm_bold = QFontMetrics(self._font_body_bold)
+        line_h = float(fm_body.height())
         cx = content.left()
         cw = content.width()
-        flags_wrap = int(
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap
-        )
-        flags_draw = int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        space_w = float(fm_body.horizontalAdvance(" "))
+        baseline = float(fm_body.ascent())
 
         for para in text.split("\n"):
             stripped = para.strip()
@@ -517,32 +548,45 @@ class ChessLogPDFService(BasePDFReportService):
                     painter.setPen(self._text)
                 continue
 
-            # Body text: word-wrap line by line with page-break checks
-            words = stripped.split()
-            cur = ""
-            for word in words:
-                candidate = (cur + " " + word).strip() if cur else word
-                if cur:
-                    br = painter.boundingRect(
-                        QRectF(cx, 0, cw, 2000), flags_wrap, candidate
-                    )
-                    wraps = float(br.height()) > line_h * 1.3
+            # Body text: tokenize with bold-span awareness, wrap, draw word-by-word.
+            word_runs: List[Tuple[str, bool]] = [
+                (w, bold)
+                for seg, bold in self._parse_bold_spans(stripped)
+                for w in seg.split()
+                if w
+            ]
+            if not word_runs:
+                continue
+
+            # Group words into wrapped lines.
+            lines: List[List[Tuple[str, bool]]] = []
+            cur_line: List[Tuple[str, bool]] = []
+            cur_width = 0.0
+            for word, is_bold in word_runs:
+                word_w = float((fm_bold if is_bold else fm_body).horizontalAdvance(word))
+                needed = word_w if not cur_line else space_w + word_w
+                if cur_line and cur_width + needed > cw:
+                    lines.append(cur_line)
+                    cur_line = [(word, is_bold)]
+                    cur_width = word_w
                 else:
-                    wraps = False
-                if wraps:
-                    y, _ = self._ensure_space(painter, writer, content, y, line_h)
-                    painter.setFont(self._font_body)
-                    painter.setPen(self._text)
-                    painter.drawText(QRectF(cx, y, cw, line_h + 2), flags_draw, cur)
-                    y += line_h
-                    cur = word
-                else:
-                    cur = candidate
-            if cur:
+                    cur_line.append((word, is_bold))
+                    cur_width += needed
+            if cur_line:
+                lines.append(cur_line)
+
+            # Draw each line with per-word font switching.
+            for line_words in lines:
                 y, _ = self._ensure_space(painter, writer, content, y, line_h)
-                painter.setFont(self._font_body)
                 painter.setPen(self._text)
-                painter.drawText(QRectF(cx, y, cw, line_h + 2), flags_draw, cur)
+                x = cx
+                for idx, (word, is_bold) in enumerate(line_words):
+                    fm = fm_bold if is_bold else fm_body
+                    painter.setFont(self._font_body_bold if is_bold else self._font_body)
+                    painter.drawText(QPointF(x, y + baseline), word)
+                    x += fm.horizontalAdvance(word)
+                    if idx < len(line_words) - 1:
+                        x += space_w
                 y += line_h
             y += line_h * 0.3  # paragraph gap
 

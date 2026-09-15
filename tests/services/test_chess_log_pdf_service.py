@@ -142,5 +142,112 @@ class TestExportTagsSmoke(unittest.TestCase):
             tmp_path.unlink(missing_ok=True)
 
 
+class TestParseBoldSpans(unittest.TestCase):
+    """Unit tests for ChessLogPDFService._parse_bold_spans — no Qt needed."""
+
+    def _parse(self, text):
+        if _QT_OK:
+            return ChessLogPDFService._parse_bold_spans(text)
+        # Fallback: import directly without Qt guard
+        from app.services.chess_log_pdf_service import ChessLogPDFService as _Svc
+        return _Svc._parse_bold_spans(text)
+
+    def test_empty_string(self):
+        self.assertEqual(self._parse(""), [])
+
+    def test_no_markers(self):
+        self.assertEqual(self._parse("hello world"), [("hello world", False)])
+
+    def test_single_bold_span(self):
+        result = self._parse("**bold**")
+        self.assertEqual(result, [("bold", True)])
+
+    def test_bold_in_middle(self):
+        result = self._parse("before **bold** after")
+        self.assertEqual(result, [("before ", False), ("bold", True), (" after", False)])
+
+    def test_two_bold_spans(self):
+        result = self._parse("**a** and **b**")
+        self.assertIn(("a", True), result)
+        self.assertIn(("b", True), result)
+
+    def test_unmatched_trailing_marker_treated_as_literal(self):
+        result = self._parse("text **orphan")
+        joined = "".join(s for s, _ in result)
+        self.assertIn("**orphan", joined)
+        # None of the runs should be bold since there's no closing marker.
+        self.assertTrue(all(not bold for _, bold in result))
+
+
+@requires_qt
+class TestDrawNarrativePaginated(unittest.TestCase):
+    """drawText-spy tests for bold-span rendering in _draw_narrative_paginated."""
+
+    from unittest.mock import MagicMock
+
+    def _make_service(self):
+        return ChessLogPDFService({})
+
+    def _run(self, text):
+        from unittest.mock import MagicMock
+        from PyQt6.QtCore import QRectF
+        svc = self._make_service()
+        painter = MagicMock()
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 700)
+        svc._draw_narrative_paginated(painter, writer, content, 0.0, text)
+        return svc, painter
+
+    def test_no_asterisks_reach_draw_text(self):
+        _, painter = self._run("Regular **bold phrase** rest of line.")
+        drawn_strings = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        self.assertFalse(
+            any("**" in s for s in drawn_strings),
+            f"raw ** markers reached drawText: {drawn_strings}",
+        )
+
+    def test_bold_font_used_for_bold_span(self):
+        svc, painter = self._run("Plain **emphatic** end.")
+        bold_calls = [
+            c for c in painter.setFont.call_args_list
+            if c.args and c.args[0] == svc._font_body_bold
+        ]
+        self.assertGreater(len(bold_calls), 0,
+                           "Expected at least one setFont(_font_body_bold) call")
+
+    def test_plain_text_no_bold_font_calls(self):
+        svc, painter = self._run("Completely plain sentence with no markers.")
+        bold_calls = [
+            c for c in painter.setFont.call_args_list
+            if c.args and c.args[0] == svc._font_body_bold
+        ]
+        self.assertEqual(len(bold_calls), 0,
+                         "No bold font expected for plain text")
+
+    def test_heading_does_not_call_draw_text_directly(self):
+        """Heading lines go through _section_heading, not the word-draw loop."""
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = self._make_service()
+        painter = MagicMock()
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 700)
+        with patch.object(svc, "_section_heading", return_value=10.0) as mock_sh:
+            svc._draw_narrative_paginated(painter, writer, content, 0.0,
+                                          "## My Heading\nBody text here.")
+        mock_sh.assert_called_once()
+        drawn_strings = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        self.assertFalse(
+            any("My Heading" in s for s in drawn_strings),
+            "Heading text should not reach drawText directly",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

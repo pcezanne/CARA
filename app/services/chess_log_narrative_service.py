@@ -36,7 +36,7 @@ _SYSTEM_PROMPT = (
     "## Narrative Summary\n"
     "## Key Takeaways\n\n"
     "The Narrative Summary section builds the case: the patterns, the specific categories, the illuminating quotes, the qualitative texture. Do not end this section with an actionable takeaway or summary paragraph of its own, that belongs entirely in the Key Takeaways section below it, not duplicated here. "
-    "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 3 to 5 distinct, concrete, actionable items, each grounded in a specific category or pattern from the Narrative Summary above, not a miniature restatement of the whole thing. If you are running short on space, compress or omit detailed discussion of a low-signal category in the Narrative Summary (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
+    "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the narrative in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit detailed discussion of a low-signal category in the Narrative Summary (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
     "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
 )
 
@@ -105,9 +105,11 @@ _NARRATIVE_STEP = (
     "themes emerge, where I seem to be making progress, and what areas still need "
     "attention. Reference specific categories and quote a few of my own words where "
     "they are illuminating.\n\n"
-    "2. **Key Takeaways** (3 to 5 items): distinct, actionable next steps grounded "
-    "in the categories and patterns discussed above. Each item should stand on its "
-    "own, not restate the narrative in miniature.\n\n"
+    "2. **Key Takeaways** (1 to 3 short paragraphs of continuous prose, not a "
+    "numbered or bulleted list): each paragraph anchored to a specific quote or "
+    "short phrase from my own why-notes or whole-game notes, and using that anchor "
+    "to name a concrete, actionable next step. Do not restate the narrative in "
+    "miniature.\n\n"
     "Format both as markdown sections with the exact headers "
     '"## Narrative Summary" and "## Key Takeaways", in that order.\n'
 )

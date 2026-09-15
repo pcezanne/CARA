@@ -61,6 +61,10 @@ class DetailChessLogChartsView(QWidget):
         self._controller: Optional[ChessLogChartsController] = None
         self._chart_widgets: List[ChessLogCategoryChartWidget] = []
         self._content_layout = None
+        # Raw narrative string from the LLM — preserved separately so PDF export
+        # and clipboard always get the original markdown (including ## and **),
+        # not the plain text that QTextEdit.toPlainText() returns after setMarkdown.
+        self._last_narrative: str = ""
         # Session-scoped shallow-tag freshness: set after Show Shallow Tags runs,
         # cleared when Data Source or Player filter changes.
         self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]] = None
@@ -431,7 +435,8 @@ class DetailChessLogChartsView(QWidget):
             self._set_placeholder_text("No players found in this data.")
 
     def _on_narrative_ready(self, narrative: str, flags: List[str]) -> None:
-        self._narrative_edit.setPlainText(narrative)
+        self._last_narrative = narrative
+        self._narrative_edit.setMarkdown(narrative)
         if flags:
             self._flagged_label.setText("\n".join(f"• {f}" for f in flags))
             self._flagged_box.setVisible(True)
@@ -440,6 +445,7 @@ class DetailChessLogChartsView(QWidget):
         self._refresh_ai_state()
 
     def _on_narrative_failed(self, message: str) -> None:
+        self._last_narrative = ""
         self._narrative_edit.setPlainText(f"Error: {message}")
         self._refresh_ai_state()
 
@@ -621,7 +627,7 @@ class DetailChessLogChartsView(QWidget):
             preset = section_name[len("chart_"):]
             text = f"Category chart — {preset}: see Chess Log Charts tab in CARA."
         elif section_name == "narrative":
-            text = self._narrative_edit.toPlainText().strip() or "(no narrative yet)"
+            text = self._last_narrative.strip() or "(no narrative yet)"
         else:
             text = ""
         if text:
@@ -639,7 +645,7 @@ class DetailChessLogChartsView(QWidget):
             preset = (widget.property("section_name") or "").replace("chart_", "")
             lines.append(f"Category chart — {preset}: see Chess Log Charts tab in CARA.")
         lines.append("")
-        narrative = self._narrative_edit.toPlainText().strip()
+        narrative = self._last_narrative.strip()
         if narrative:
             lines.append("Narrative Summary:")
             lines.append(narrative)
@@ -699,7 +705,7 @@ class DetailChessLogChartsView(QWidget):
             preset = (widget.property("section_name") or "").replace("chart_", "")
             chart_pixmaps.append((preset, widget.grab()))
 
-        narrative_text = self._narrative_edit.toPlainText().strip()
+        narrative_text = self._last_narrative.strip()
 
         shallow_rows: List[TagRowSnapshot] = []
         if self._last_shallow_keys and self._controller:

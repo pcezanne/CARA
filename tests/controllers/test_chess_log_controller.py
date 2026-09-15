@@ -121,7 +121,9 @@ class TestAddMomentBelowCap(unittest.TestCase):
         self.assertFalse(ctrl.add_moment_at_active_path([{"preset": "CCT", "cat": "C", "why": ""}]))
 
 
-class TestFourthMomentConfirmation(unittest.TestCase):
+class TestAddMomentNagRemoved(unittest.TestCase):
+    """add_moment_at_active_path no longer fires the nag — nag moved to should_confirm_extra_moment."""
+
     def _ctrl_with_three_moments(self) -> ChessLogController:
         game = make_game()
         ctrl, _ = make_controller(game)
@@ -133,30 +135,112 @@ class TestFourthMomentConfirmation(unittest.TestCase):
         }
         return ctrl
 
-    def test_fourth_moment_confirmation_accepted(self):
+    def test_fourth_moment_added_without_nag(self):
         ctrl = self._ctrl_with_three_moments()
         with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0.0.0"), \
-             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation", return_value=True):
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
             result = ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "P", "why": ""}])
         self.assertTrue(result)
         self.assertEqual(ChessLogStorageService.count_tags(ctrl._cached_paths_data), 4)
+        mock_dlg.assert_not_called()
 
-    def test_fourth_moment_confirmation_declined(self):
+    def test_adding_to_existing_path_succeeds(self):
         ctrl = self._ctrl_with_three_moments()
-        with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0.0.0"), \
-             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation", return_value=False):
-            result = ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": ""}])
-        self.assertFalse(result)
-        self.assertEqual(ChessLogStorageService.count_tags(ctrl._cached_paths_data), 3)
-
-    def test_adding_to_existing_path_skips_confirmation(self):
-        """Adding a second CCT letter to an already-tagged path stays at 3 moments — no dialog."""
-        ctrl = self._ctrl_with_three_moments()
-        with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0"):  # already exists
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0"):
             result = ctrl.add_moment_at_active_path([{"preset": "CCT", "cat": "T", "why": ""}])
         self.assertTrue(result)
         self.assertEqual(ChessLogStorageService.count_tags(ctrl._cached_paths_data), 3)
         self.assertEqual(len(ctrl._cached_paths_data["0.0"]), 2)
+
+
+class TestShouldConfirmExtraMoment(unittest.TestCase):
+    """should_confirm_extra_moment: nag fires at the right time and is suppressed correctly."""
+
+    def _ctrl_with_three_moments(self, gid: int = 1) -> tuple[ChessLogController, MagicMock]:
+        game = make_game(game_number=gid)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M")],
+            "0.0": [ChessLogStorageService.make_entry("CLAMP", "L")],
+            "0.0.0": [ChessLogStorageService.make_entry("CCT", "C")],
+        }
+        return ctrl, gm
+
+    def test_nag_fires_on_fourth_new_moment_when_never_shown(self):
+        ctrl, gm = self._ctrl_with_three_moments()
+        gid = 1
+        gm.get_active_path.return_value = (99,)  # maps to a fresh path key
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation", return_value=True) as mock_dlg:
+            result = ctrl.should_confirm_extra_moment(None)
+        mock_dlg.assert_called_once()
+        self.assertTrue(result)
+        self.assertTrue(ctrl._nag_shown_this_session)
+        self.assertTrue(ctrl._nag_shown_by_game.get(gid, False))
+
+    def test_nag_suppressed_by_session_flag(self):
+        ctrl, gm = self._ctrl_with_three_moments()
+        ctrl._nag_shown_this_session = True
+        gm.get_active_path.return_value = (99,)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
+            result = ctrl.should_confirm_extra_moment(None)
+        mock_dlg.assert_not_called()
+        self.assertTrue(result)
+
+    def test_nag_suppressed_by_per_game_flag(self):
+        ctrl, gm = self._ctrl_with_three_moments(gid=1)
+        ctrl._nag_shown_by_game[1] = True
+        ctrl._nag_shown_this_session = False
+        gm.get_active_path.return_value = (99,)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
+            result = ctrl.should_confirm_extra_moment(None)
+        mock_dlg.assert_not_called()
+        self.assertTrue(result)
+
+    def test_nag_does_not_fire_for_reused_path(self):
+        ctrl, gm = self._ctrl_with_three_moments()
+        gm.get_active_path.return_value = ()
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
+            result = ctrl.should_confirm_extra_moment(None)
+        mock_dlg.assert_not_called()
+        self.assertTrue(result)
+
+    def test_nag_does_not_fire_below_threshold(self):
+        game = make_game()
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M")],
+            "0.0": [ChessLogStorageService.make_entry("CLAMP", "L")],
+        }
+        gm.get_active_path.return_value = ()
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
+            result = ctrl.should_confirm_extra_moment(None)
+        mock_dlg.assert_not_called()
+        self.assertTrue(result)
+
+    def test_nag_declined_does_not_set_flags(self):
+        ctrl, gm = self._ctrl_with_three_moments(gid=1)
+        gm.get_active_path.return_value = (99,)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation", return_value=False):
+            result = ctrl.should_confirm_extra_moment(None)
+        self.assertFalse(result)
+        self.assertFalse(ctrl._nag_shown_this_session)
+        self.assertFalse(ctrl._nag_shown_by_game.get(1, False))
+
+    def test_add_moment_no_longer_fires_nag(self):
+        ctrl, gm = self._ctrl_with_three_moments()
+        gm.get_active_path.return_value = ()
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation") as mock_dlg:
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": ""}])
+        mock_dlg.assert_not_called()
 
 
 class TestSaveAndClear(unittest.TestCase):
@@ -428,7 +512,7 @@ class TestMultiGameCache(unittest.TestCase):
         store_calls = []
         original = ChessLogStorageService.store_tags
 
-        def fake_store(game, data, config):
+        def fake_store(game, data, config, nag_shown=False):
             store_calls.append((game.game_number, dict(data)))
             return original(game, data, config)
 
@@ -453,7 +537,7 @@ class TestMultiGameCache(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game, data, config):
+        def fake_store(game, data, config, nag_shown=False):
             captured["data"] = dict(data)
             return True
 
@@ -541,7 +625,7 @@ class TestMultiGameCache(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game, data, config):
+        def fake_store(game, data, config, nag_shown=False):
             captured[game.game_number] = {
                 pk: [e["why"] for e in entries]
                 for pk, entries in data.items()

@@ -44,6 +44,13 @@ class ChessLogController:
         self._multi_cache: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
         self._dirty_games: Dict[int, Any] = {}  # game_number -> GameData
 
+        # Nag persistence: once the "more than three moments?" nag has been shown
+        # for a game, it is suppressed for the rest of the session (global flag)
+        # and for all future sessions for that specific game (per-game flag
+        # persisted in the CARAChessLog payload).
+        self._nag_shown_by_game: Dict[int, bool] = {}
+        self._nag_shown_this_session: bool = False
+
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
 
@@ -89,11 +96,10 @@ class ChessLogController:
         Args:
             entries: One or more {preset, cat, why, ...} dicts, all for the same
                      moment.  CCT with two letters = two entries, still one moment.
-            parent_widget: Qt parent for the confirmation dialog (may be None).
+            parent_widget: Unused; kept for signature compatibility.
 
         Returns:
-            True if the moment was added; False if the user declined confirmation
-            or there was nothing to add.
+            True if the moment was added; False if there was nothing to add.
         """
         if not entries:
             return False
@@ -104,13 +110,6 @@ class ChessLogController:
             self._load_into_cache(game)
 
         path_key = encode_path(self._game_controller.get_game_model().get_active_path())
-        is_new_moment = path_key not in self._cached_paths_data or not self._cached_paths_data[path_key]
-        current_count = ChessLogStorageService.count_tags(self._cached_paths_data)
-
-        if is_new_moment and current_count >= 3:
-            if not self._confirm_extra_moment(parent_widget):
-                return False
-
         tagged = [ChessLogStorageService.make_entry(e["preset"], e["cat"], e.get("why", "")) for e in entries]
         preset_of_new = tagged[0].get("preset") if tagged else None
         if path_key in self._cached_paths_data:
@@ -128,7 +127,10 @@ class ChessLogController:
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return False
-        ok = ChessLogStorageService.store_tags(game, self._cached_paths_data, self.config)
+        ok = ChessLogStorageService.store_tags(
+            game, self._cached_paths_data, self.config,
+            nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
+        )
         if ok:
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
@@ -255,7 +257,10 @@ class ChessLogController:
                 if gid == self._cached_game_id
                 else self._multi_cache.get(gid, {})
             )
-            ok = ChessLogStorageService.store_tags(game, data, self.config)
+            ok = ChessLogStorageService.store_tags(
+                game, data, self.config,
+                nag_shown=self._nag_shown_by_game.get(gid, False),
+            )
             if ok:
                 saved += 1
                 self._mark_database_unsaved(game)
@@ -310,8 +315,10 @@ class ChessLogController:
         gid = game.game_number
         if gid in self._multi_cache:
             self._cached_paths_data = self._multi_cache.pop(gid)
+            # Keep any in-session nag flag set for this game; don't overwrite from disk.
         else:
             self._cached_paths_data = ChessLogStorageService.load_tags(game)
+            self._nag_shown_by_game[gid] = ChessLogStorageService.load_nag_shown(game)
         self._cached_game_id = gid
 
     def _mark_database_unsaved(self, game) -> None:
@@ -324,6 +331,41 @@ class ChessLogController:
         except Exception:
             pass
 
+    def should_confirm_extra_moment(self, parent_widget=None) -> bool:
+        """Return True if the caller should proceed with opening Tag This Moment.
+
+        Returns False only when: the player is attempting to tag a *new* path,
+        the current game already has >= 3 moments, the nag hasn't been shown yet
+        for this game or this session, AND the user said "no" to the nag.
+
+        Called by DetailMovesListView._on_tag_moment BEFORE opening MomentDialog
+        so the user is asked before investing typing effort — not after.
+        """
+        game = self._game_controller.get_game_model().active_game
+        if game is None:
+            return True
+        if game.game_number != self._cached_game_id:
+            self._load_into_cache(game)
+        path_key = encode_path(self._game_controller.get_game_model().get_active_path())
+        is_new_moment = (
+            path_key not in self._cached_paths_data
+            or not self._cached_paths_data[path_key]
+        )
+        if not is_new_moment:
+            return True
+        if ChessLogStorageService.count_tags(self._cached_paths_data) < 3:
+            return True
+        gid = game.game_number
+        if self._nag_shown_this_session:
+            return True
+        if self._nag_shown_by_game.get(gid, False):
+            return True
+        confirmed = self._confirm_extra_moment(parent_widget)
+        if confirmed:
+            self._nag_shown_by_game[gid] = True
+            self._nag_shown_this_session = True
+        return confirmed
+
     def _confirm_extra_moment(self, parent_widget=None) -> bool:
         """Show the 4th-moment 'Are you sure?' confirmation dialog."""
         try:
@@ -332,8 +374,10 @@ class ChessLogController:
                 self.config,
                 "Chess Log — More than three moments?",
                 "You already have three tagged moments in this game. "
-                "Studer's 3×3 method suggests focusing on at most three — "
-                "piling on more can dilute the lesson rather than sharpen it.\n\n"
+                "Three tends to be the sweet spot — enough to see a pattern, "
+                "few enough that each one still stands out when you review the "
+                "game later. Piling on more can dilute the lesson rather than "
+                "sharpen it.\n\n"
                 "Add this moment anyway?",
                 parent_widget,
             )

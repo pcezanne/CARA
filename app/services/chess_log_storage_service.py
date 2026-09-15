@@ -26,7 +26,11 @@ class ChessLogStorageService:
     for integrity verification — same pattern as CARAAnnotations / CARANotes.
 
     Storage schema (before compression):
-        {"_v": 1, "paths": {path_key: [entry, ...]}}
+        {"_v": 1, "paths": {path_key: [entry, ...]}, "nag_shown": true}
+
+    "nag_shown" is omitted when False (backward-compatible; readers default to False
+    via .get()).  It records that the user has already been shown the "more than three
+    moments?" nag for this game so it is suppressed on future saves/sessions.
 
     One path key = one moment. A path's list may hold multiple entries so that
     a CCT tag with two letters (both apply to the same moment) costs one moment
@@ -97,16 +101,40 @@ class ChessLogStorageService:
             return {}
 
     @staticmethod
+    def load_nag_shown(game: GameData) -> bool:
+        """Read the nag_shown flag from the CARAChessLog payload.
+
+        Returns False on missing tag, missing key, or any error.  Does not
+        re-verify the checksum — callers should call load_tags first if data
+        integrity matters; a corrupt tag means load_tags already stripped it.
+        """
+        if game is None or not hasattr(game, "pgn") or game.pgn is None:
+            return False
+        try:
+            chess_game = chess.pgn.read_game(StringIO(game.pgn))
+            if not chess_game or ChessLogStorageService.TAG_NAME not in chess_game.headers:
+                return False
+            encoded = chess_game.headers[ChessLogStorageService.TAG_NAME]
+            json_text = decode_and_decompress_to_str(encoded)
+            payload = json.loads(json_text)
+            return bool(payload.get("nag_shown", False))
+        except Exception:
+            return False
+
+    @staticmethod
     def store_tags(
         game: GameData,
         paths_data: Dict[str, List[Dict[str, Any]]],
         config: Optional[Dict[str, Any]] = None,
+        nag_shown: bool = False,
     ) -> bool:
         """Store Chess Log moments into game PGN (in-memory). Returns True on success."""
         if game is None or not hasattr(game, "pgn") or game.pgn is None:
             return False
         try:
-            payload = {"_v": 1, "paths": paths_data}
+            payload: Dict[str, Any] = {"_v": 1, "paths": paths_data}
+            if nag_shown:
+                payload["nag_shown"] = True
             json_text = json.dumps(payload, ensure_ascii=False)
             data_bytes = json_text.encode("utf-8")
             checksum = compute_checksum(data_bytes)

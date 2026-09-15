@@ -270,5 +270,54 @@ class TestNoneAndInvalidGame(unittest.TestCase):
         self.assertEqual(ChessLogStorageService.load_tags(game), {})
 
 
+class TestNagShown(unittest.TestCase):
+    def test_store_tags_writes_nag_shown_true(self):
+        game = make_game()
+        paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "M")]}
+        ChessLogStorageService.store_tags(game, paths_data, nag_shown=True)
+        self.assertTrue(ChessLogStorageService.load_nag_shown(game))
+
+    def test_store_tags_omits_nag_shown_key_when_false(self):
+        """nag_shown=False must not write the key at all (backward-compat)."""
+        game = make_game()
+        paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "M")]}
+        ChessLogStorageService.store_tags(game, paths_data, nag_shown=False)
+        import re
+        from app.utils.pgn_tag_compression import decode_and_decompress_to_str
+        import chess.pgn
+        from io import StringIO
+        chess_game = chess.pgn.read_game(StringIO(game.pgn))
+        encoded = chess_game.headers[ChessLogStorageService.TAG_NAME]
+        payload = json.loads(decode_and_decompress_to_str(encoded))
+        self.assertNotIn("nag_shown", payload)
+
+    def test_load_nag_shown_defaults_false_for_missing_tag(self):
+        game = make_game()
+        self.assertFalse(ChessLogStorageService.load_nag_shown(game))
+
+    def test_load_nag_shown_defaults_false_for_missing_key(self):
+        """Payload with only 'paths' (no 'nag_shown') returns False."""
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {}, nag_shown=False)
+        self.assertFalse(ChessLogStorageService.load_nag_shown(game))
+
+    def test_nag_shown_survives_round_trip_with_paths(self):
+        """nag_shown=True must coexist with paths round-tripping correctly."""
+        game = make_game()
+        paths_data = {"0": [ChessLogStorageService.make_entry("CCT", "Threats", "fork")]}
+        ChessLogStorageService.store_tags(game, paths_data, nag_shown=True)
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["cat"], "Threats")
+        self.assertTrue(ChessLogStorageService.load_nag_shown(game))
+
+    def test_load_nag_shown_returns_false_for_none_game(self):
+        self.assertFalse(ChessLogStorageService.load_nag_shown(None))
+
+    def test_load_nag_shown_returns_false_for_none_pgn(self):
+        game = make_game(pgn=None)
+        self.assertFalse(ChessLogStorageService.load_nag_shown(game))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -33,7 +33,7 @@ class ChessLogSettingsDialog(QDialog):
     """
 
     _PRESETS = ["CLAMP", "CCT", "3x3", "Custom"]
-    _PRESET_DISPLAY_NAMES = {"3x3": "3 Moments"}
+    _PRESET_DISPLAY_NAMES = {"3x3": "3x3 Method"}
 
     def __init__(self, config: Dict[str, Any], user_settings_service, parent=None) -> None:
         super().__init__(parent)

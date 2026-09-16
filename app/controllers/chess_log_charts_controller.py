@@ -346,7 +346,7 @@ class ChessLogChartsController(QObject):
         self._shallow_thread: Optional[ChessLogShallowThread] = None
 
         # Narrative-panel ephemeral settings (not persisted except timeout).
-        self._narrative_token_limit: int = 8000
+        self._narrative_token_limit: int = 12000
         self._narrative_model_override: Optional[str] = None
         self._chess_log_controller: Optional[Any] = None
 
@@ -575,6 +575,12 @@ class ChessLogChartsController(QObject):
 
     def request_narrative(self) -> None:
         """Start the narrative generation worker (idempotent: cancels running thread)."""
+        if self._source_selection == 0:
+            self.narrative_failed.emit("Please select a Data Source first.")
+            return
+        if not self._current_player:
+            self.narrative_failed.emit("Please select a player first.")
+            return
         provider_tuple = resolve_default_provider(self._user_settings)
         if not provider_tuple:
             self.narrative_failed.emit("No AI provider configured.")

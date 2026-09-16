@@ -256,7 +256,7 @@ class DetailChessLogChartsView(QWidget):
         self._tokens_spin.setButtonSymbols(QSpinBox.ButtonSymbols.NoButtons)
         self._tokens_spin.setRange(256, 16000)
         self._tokens_spin.setSingleStep(100)
-        self._tokens_spin.setValue(8000)
+        self._tokens_spin.setValue(12000)  # GFM tables render natively in Qt 6.4+; requirements.txt pins 6.11
         self._tokens_spin.setFixedWidth(70)
         self._tokens_spin.valueChanged.connect(self._on_narrative_tokens_changed)
         model_row.addWidget(self._tokens_spin)

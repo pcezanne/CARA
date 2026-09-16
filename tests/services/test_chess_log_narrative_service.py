@@ -297,8 +297,31 @@ class TestSystemPromptInstructions(unittest.TestCase):
 
     def test_key_takeaways_section_instruction_present(self):
         sp = self._get_system_prompt()
+        self.assertIn("## Patterns & Recurrent Themes", sp)
+        self.assertIn("## Tactical Breakdown", sp)
         self.assertIn("## Key Takeaways", sp)
         self.assertIn("must never be dropped", sp)
+
+    def test_system_prompt_declares_three_sections_in_order(self):
+        sp = self._get_system_prompt()
+        themes_pos = sp.find("## Patterns & Recurrent Themes")
+        breakdown_pos = sp.find("## Tactical Breakdown")
+        takeaways_pos = sp.find("## Key Takeaways")
+        self.assertGreater(themes_pos, -1, "## Patterns & Recurrent Themes not found")
+        self.assertGreater(breakdown_pos, -1, "## Tactical Breakdown not found")
+        self.assertGreater(takeaways_pos, -1, "## Key Takeaways not found")
+        self.assertLess(themes_pos, breakdown_pos, "Themes must precede Breakdown")
+        self.assertLess(breakdown_pos, takeaways_pos, "Breakdown must precede Takeaways")
+
+    def test_system_prompt_has_citation_format_rule(self):
+        sp = self._get_system_prompt()
+        self.assertIn("full move+color pairing", sp)
+        self.assertIn("NotThePainter vs mattsartin", sp)
+
+    def test_system_prompt_has_quote_density_cap(self):
+        sp = self._get_system_prompt()
+        self.assertIn("1 to 2", sp)
+        self.assertIn("per theme", sp)
 
     def test_period_listing_instruction_present(self):
         sp = self._get_system_prompt()
@@ -330,14 +353,27 @@ class TestSystemPromptInstructions(unittest.TestCase):
 
 class TestBuildPromptNarrativeInstruction(unittest.TestCase):
 
-    def test_narrative_step_asks_for_two_sections_with_correct_counts(self):
+    def test_narrative_step_asks_for_three_sections_in_order(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         prompt = build_prompt([game])
-        self.assertIn("5 to 8 paragraphs", prompt)
+        self.assertIn("## Patterns & Recurrent Themes", prompt)
+        self.assertIn("## Tactical Breakdown", prompt)
+        self.assertIn("## Key Takeaways", prompt)
+        # Headers appear in the correct order
+        themes_pos = prompt.find("## Patterns & Recurrent Themes")
+        breakdown_pos = prompt.find("## Tactical Breakdown")
+        takeaways_pos = prompt.find("## Key Takeaways")
+        self.assertLess(themes_pos, breakdown_pos)
+        self.assertLess(breakdown_pos, takeaways_pos)
+        # Correct section sizes
+        self.assertIn("2 to 4 paragraphs", prompt)
         self.assertIn("1 to 3 short paragraphs", prompt)
         self.assertIn("not a numbered or bulleted list", prompt)
-        self.assertIn("## Narrative Summary", prompt)
-        self.assertIn("## Key Takeaways", prompt)
+        # Table format cue present
+        self.assertIn("| Area | Observed Issue | Strategic Impact |", prompt)
+        # Old two-section header must be gone
+        self.assertNotIn("## Narrative Summary", prompt)
+        self.assertNotIn("5 to 8 paragraphs", prompt)
         self.assertNotIn("3–5 paragraphs", prompt)
         self.assertNotIn("3 to 5 items", prompt)
 

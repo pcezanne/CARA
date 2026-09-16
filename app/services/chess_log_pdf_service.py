@@ -481,6 +481,270 @@ class ChessLogPDFService(BasePDFReportService):
         painter.restore()
 
     @staticmethod
+    def _is_table_separator(line: str) -> bool:
+        """Return True iff *line* is a GFM pipe-table alignment separator row.
+
+        Accepts any mix of dashes, colons, spaces between pipes — the only hard
+        requirement is that there are at least two pipe-delimited cells and every
+        cell contains only ``-``, ``:``, and whitespace.
+        """
+        stripped = line.strip().strip("|")
+        if not stripped:
+            return False
+        cells = [c.strip() for c in stripped.split("|")]
+        if len(cells) < 2:
+            return False
+        return all(c and all(ch in "-: " for ch in c) for c in cells)
+
+    @staticmethod
+    def _parse_pipe_table(
+        lines: List[str],
+    ) -> Tuple[List[str], List[List[str]]]:
+        """Parse a GFM pipe-table block into (header_cells, [body_row_cells, ...]).
+
+        *lines* must be: header row, separator row, then zero or more body rows.
+        Cell strings are stripped of surrounding whitespace.  Rows with too many
+        or too few cells are normalized to the header's column count (padded with
+        empty strings or truncated) so the caller never index-errors.
+        """
+        if len(lines) < 2:
+            return [], []
+
+        def _split_row(raw: str) -> List[str]:
+            return [c.strip() for c in raw.strip().strip("|").split("|")]
+
+        header = _split_row(lines[0])
+        n_cols = len(header)
+        body: List[List[str]] = []
+        for raw in lines[2:]:  # skip separator
+            row = _split_row(raw)
+            if len(row) < n_cols:
+                row += [""] * (n_cols - len(row))
+            elif len(row) > n_cols:
+                row = row[:n_cols]
+            body.append(row)
+        return header, body
+
+    def _count_cell_lines(
+        self,
+        spans: List[Tuple[str, bool]],
+        available_width: float,
+    ) -> int:
+        """Count wrapped lines using the identical algorithm as _draw_wrapped_spans.
+
+        Using the same manual horizontalAdvance-based word-wrap guarantees that
+        the measured line count matches the actual lines drawn, preventing cells
+        from overrunning their allocated height.
+        """
+        fm_body = QFontMetrics(self._font_body)
+        fm_bold = QFontMetrics(self._font_body_bold)
+        space_w = float(fm_body.horizontalAdvance(" "))
+
+        word_runs = [(w, bold) for seg, bold in spans for w in seg.split() if w]
+        if not word_runs:
+            return 0
+
+        n_lines = 0
+        cur_line: List[Tuple[str, bool]] = []
+        cur_width = 0.0
+        for word, is_bold in word_runs:
+            word_w = float((fm_bold if is_bold else fm_body).horizontalAdvance(word))
+            needed = word_w if not cur_line else space_w + word_w
+            if cur_line and cur_width + needed > available_width:
+                n_lines += 1
+                cur_line = [(word, is_bold)]
+                cur_width = word_w
+            else:
+                cur_line.append((word, is_bold))
+                cur_width += needed
+        if cur_line:
+            n_lines += 1
+        return n_lines
+
+    def _measure_pipe_table_row(
+        self,
+        painter: QPainter,
+        col_widths: List[float],
+        cells: List[str],
+        font,
+        pad: float,
+    ) -> float:
+        """Return the rendered height for one pipe-table row given column widths.
+
+        Uses _count_cell_lines (same algorithm as _draw_wrapped_spans) so the
+        measured height always equals the actually drawn height.
+        """
+        fm_body = QFontMetrics(self._font_body)
+        line_h = float(fm_body.height())
+        max_lines = 0
+        for i, text in enumerate(cells):
+            if i >= len(col_widths):
+                break
+            available_w = max(1.0, col_widths[i] - 2 * pad)
+            spans = self._parse_bold_spans(text)
+            n = self._count_cell_lines(spans, available_w)
+            max_lines = max(max_lines, n)
+        return max(1, max_lines) * line_h + 2 * pad
+
+    def _draw_wrapped_spans(
+        self,
+        painter: QPainter,
+        rect: QRectF,
+        spans: List[Tuple[str, bool]],
+        pad: float,
+    ) -> None:
+        """Draw (word, is_bold) spans word-wrapped into *rect* with *pad* padding."""
+        fm_body = QFontMetrics(self._font_body)
+        fm_bold = QFontMetrics(self._font_body_bold)
+        line_h = float(fm_body.height())
+        space_w = float(fm_body.horizontalAdvance(" "))
+        baseline = float(fm_body.ascent())
+
+        word_runs: List[Tuple[str, bool]] = [
+            (w, bold) for seg, bold in spans for w in seg.split() if w
+        ]
+        if not word_runs:
+            return
+
+        cw = rect.width() - 2 * pad
+        wrapped: List[List[Tuple[str, bool]]] = []
+        cur_line: List[Tuple[str, bool]] = []
+        cur_width = 0.0
+        for word, is_bold in word_runs:
+            word_w = float((fm_bold if is_bold else fm_body).horizontalAdvance(word))
+            needed = word_w if not cur_line else space_w + word_w
+            if cur_line and cur_width + needed > cw:
+                wrapped.append(cur_line)
+                cur_line = [(word, is_bold)]
+                cur_width = word_w
+            else:
+                cur_line.append((word, is_bold))
+                cur_width += needed
+        if cur_line:
+            wrapped.append(cur_line)
+
+        y = rect.top() + pad
+        x0 = rect.left() + pad
+        for line_words in wrapped:
+            x = x0
+            for idx, (word, is_bold) in enumerate(line_words):
+                fm = fm_bold if is_bold else fm_body
+                painter.setFont(self._font_body_bold if is_bold else self._font_body)
+                painter.setPen(self._text)
+                painter.drawText(QPointF(x, y + baseline), word)
+                x += fm.horizontalAdvance(word)
+                if idx < len(line_words) - 1:
+                    x += space_w
+            y += line_h
+
+    def _table_col_widths(self, n_cols: int, content_width: float) -> List[float]:
+        """Return column widths for a pipe table given column count and available width."""
+        if n_cols == 3:
+            return [
+                content_width * 0.20,
+                content_width * 0.40,
+                content_width * 0.40,
+            ]
+        return [content_width / max(1, n_cols)] * n_cols
+
+    def _measure_table_start_height(
+        self,
+        painter: QPainter,
+        header: List[str],
+        body: List[List[str]],
+        content_width: float,
+    ) -> float:
+        """Return header_h + first_body_h for a table — used by the heading lookahead."""
+        col_widths = self._table_col_widths(len(header), content_width)
+        pad = 4.0
+        hdr_h = self._measure_pipe_table_row(
+            painter, col_widths, header, self._font_body_bold, pad
+        )
+        first_body_h = (
+            self._measure_pipe_table_row(
+                painter, col_widths, body[0], self._font_body, pad
+            )
+            if body
+            else 0.0
+        )
+        return hdr_h + first_body_h
+
+    def _draw_pipe_table_paginated(
+        self,
+        painter: QPainter,
+        writer,
+        content: QRectF,
+        y: float,
+        header: List[str],
+        body: List[List[str]],
+    ) -> float:
+        """Draw a bordered pipe table and return the y after the last row.
+
+        Column widths: fixed 20/40/40 split for the canonical 3-column schema
+        (Area, Observed Issue, Strategic Impact). Falls back to equal split for
+        other column counts.
+
+        TODO: measure max cell width per column and derive proportional widths.
+        """
+        n_cols = len(header)
+        col_widths = self._table_col_widths(n_cols, content.width())
+
+        pad = 4.0
+        border_pen = QPen(self._rule, 0.5)
+
+        first_body_h = (
+            self._measure_pipe_table_row(
+                painter, col_widths, body[0], self._font_body, pad
+            )
+            if body
+            else 0.0
+        )
+        header_h = self._measure_pipe_table_row(
+            painter, col_widths, header, self._font_body_bold, pad
+        )
+
+        # Ensure header stays with first body row (or just itself if no body).
+        y, _ = self._ensure_space(
+            painter, writer, content, y, header_h + first_body_h
+        )
+
+        # Draw header row.
+        x = content.left()
+        painter.fillRect(QRectF(x, y, content.width(), header_h), self._card)
+        for i, cell in enumerate(header):
+            if i >= n_cols:
+                break
+            cell_rect = QRectF(x, y, col_widths[i], header_h)
+            painter.setPen(border_pen)
+            painter.drawRect(cell_rect)
+            self._draw_wrapped_spans(
+                painter, cell_rect, self._parse_bold_spans(cell), pad
+            )
+            x += col_widths[i]
+        y += header_h
+
+        # Draw body rows atomically (measure then ensure_space then draw).
+        for row in body:
+            row_h = self._measure_pipe_table_row(
+                painter, col_widths, row, self._font_body, pad
+            )
+            y, _ = self._ensure_space(painter, writer, content, y, row_h)
+            x = content.left()
+            for i, cell in enumerate(row):
+                if i >= n_cols:
+                    break
+                cell_rect = QRectF(x, y, col_widths[i], row_h)
+                painter.setPen(border_pen)
+                painter.drawRect(cell_rect)
+                self._draw_wrapped_spans(
+                    painter, cell_rect, self._parse_bold_spans(cell), pad
+                )
+                x += col_widths[i]
+            y += row_h
+
+        return y + self._ROW_GAP
+
+    @staticmethod
     def _parse_bold_spans(text: str) -> List[Tuple[str, bool]]:
         """Split *text* into (segment, is_bold) runs on ``**...** `` markers.
 
@@ -519,8 +783,10 @@ class ChessLogPDFService(BasePDFReportService):
     ) -> float:
         """Draw narrative text with automatic page breaks before the footer.
 
-        Supports ``**bold**`` markdown: bold spans render with _font_body_bold
-        and the literal ``**`` markers are never passed to drawText."""
+        Supports ``**bold**`` markdown (bold spans render with _font_body_bold,
+        literal ``**`` markers never reach drawText) and GFM pipe tables (rendered
+        as bordered cells via _draw_pipe_table_paginated).
+        """
         painter.setFont(self._font_body)
         painter.setPen(self._text)
         fm_body = QFontMetrics(self._font_body)
@@ -531,22 +797,73 @@ class ChessLogPDFService(BasePDFReportService):
         space_w = float(fm_body.horizontalAdvance(" "))
         baseline = float(fm_body.ascent())
 
-        for para in text.split("\n"):
+        all_lines = text.split("\n")
+        i = 0
+        while i < len(all_lines):
+            para = all_lines[i]
             stripped = para.strip()
+
             if not stripped:
                 y += line_h * 0.5
+                i += 1
                 continue
 
-            # Markdown heading: render as a styled section heading
+            # Markdown heading: render as a styled section heading.
             if stripped.startswith("#"):
                 heading_text = stripped.lstrip("#").strip()
                 if heading_text:
+                    # Look ahead past blank lines: if the next content is a pipe
+                    # table, use the table's header+first-body height as keep_with
+                    # so this section heading never orphans when the table jumps
+                    # to a new page.
+                    keep_with = line_h * 2
+                    j = i + 1
+                    while j < len(all_lines) and not all_lines[j].strip():
+                        j += 1
+                    if j < len(all_lines) and all_lines[j].strip().startswith("|"):
+                        sep_idx = j + 1
+                        while sep_idx < len(all_lines) and not all_lines[sep_idx].strip():
+                            sep_idx += 1
+                        if sep_idx < len(all_lines) and self._is_table_separator(all_lines[sep_idx]):
+                            tbl_block = [all_lines[j], all_lines[sep_idx]]
+                            k = sep_idx + 1
+                            while k < len(all_lines) and all_lines[k].strip().startswith("|"):
+                                tbl_block.append(all_lines[k])
+                                k += 1
+                            hdr, bdy = self._parse_pipe_table(tbl_block)
+                            if hdr:
+                                keep_with = self._measure_table_start_height(
+                                    painter, hdr, bdy, content.width()
+                                )
                     y = self._section_heading(
-                        painter, writer, content, y, heading_text, keep_with=line_h * 2
+                        painter, writer, content, y, heading_text, keep_with=keep_with
                     )
                     painter.setFont(self._font_body)
                     painter.setPen(self._text)
+                i += 1
                 continue
+
+            # GFM pipe table: detected when the current line starts with "|" and
+            # the next non-empty line is an alignment separator row (| --- | --- |).
+            # Consume the entire block and delegate to _draw_pipe_table_paginated.
+            if stripped.startswith("|"):
+                next_idx = i + 1
+                while next_idx < len(all_lines) and not all_lines[next_idx].strip():
+                    next_idx += 1
+                if next_idx < len(all_lines) and self._is_table_separator(all_lines[next_idx]):
+                    block = [all_lines[i], all_lines[next_idx]]
+                    j = next_idx + 1
+                    while j < len(all_lines) and all_lines[j].strip().startswith("|"):
+                        block.append(all_lines[j])
+                        j += 1
+                    header, body = self._parse_pipe_table(block)
+                    if header:
+                        y = self._draw_pipe_table_paginated(
+                            painter, writer, content, y, header, body
+                        )
+                        y += line_h * 0.3
+                    i = j
+                    continue
 
             # Body text: tokenize with bold-span awareness, wrap, draw word-by-word.
             word_runs: List[Tuple[str, bool]] = [
@@ -556,6 +873,7 @@ class ChessLogPDFService(BasePDFReportService):
                 if w
             ]
             if not word_runs:
+                i += 1
                 continue
 
             # Group words into wrapped lines.
@@ -589,6 +907,7 @@ class ChessLogPDFService(BasePDFReportService):
                         x += space_w
                 y += line_h
             y += line_h * 0.3  # paragraph gap
+            i += 1
 
         return y
 

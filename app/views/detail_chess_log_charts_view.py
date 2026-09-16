@@ -205,8 +205,6 @@ class DetailChessLogChartsView(QWidget):
         player_row.addWidget(player_label)
         self._player_combo = QComboBox()
         self._player_combo.setFont(selector_font)
-        self._player_combo.setEditable(True)
-        self._player_combo.lineEdit().setReadOnly(True)
         self._player_combo.setPlaceholderText("Select player")
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.currentIndexChanged.connect(self._on_player_changed)

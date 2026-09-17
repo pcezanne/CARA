@@ -146,7 +146,13 @@ class ChessLogPDFService(BasePDFReportService):
                     content.left(), y, content.width(),
                     self._font_body, self._muted,
                 )
-                y += 6.0
+            generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+            y = self._draw_text_line(
+                painter, generated_str,
+                content.left(), y, content.width(),
+                self._font_body, self._muted,
+            )
+            y += 6.0
 
             for preset, pixmap in chart_pixmaps:
                 if pixmap is None or pixmap.isNull():
@@ -199,7 +205,7 @@ class ChessLogPDFService(BasePDFReportService):
     # ------------------------------------------------------------------
 
     def _draw_report_header(self, painter: QPainter, content: QRectF, title: str) -> float:
-        logo_sz = self._logo_size
+        logo_sz = min(self._logo_size, 36.0)
         logo_rect = QRectF(
             content.right() - logo_sz, content.top(), logo_sz, logo_sz
         )
@@ -217,10 +223,10 @@ class ChessLogPDFService(BasePDFReportService):
             content.left(), y + 2.0, title_w,
             self._font_title, self._accent,
         )
-        y += 6.0
+        rule_y = max(y + 6.0, content.top() + logo_sz + 4.0)
         painter.setPen(QPen(self._rule, 1.5))
-        painter.drawLine(int(content.left()), int(y), int(content.right()), int(y))
-        return y + 12.0
+        painter.drawLine(int(content.left()), int(rule_y), int(content.right()), int(rule_y))
+        return rule_y + 12.0
 
     def _measure_tag_row_height(
         self,
@@ -497,6 +503,74 @@ class ChessLogPDFService(BasePDFReportService):
         return all(c and all(ch in "-: " for ch in c) for c in cells)
 
     @staticmethod
+    def _is_bullet_line(line: str) -> bool:
+        """Return True iff *line* is a GFM bullet list item (``- ``, ``* ``, or ``+ ``)."""
+        stripped = line.lstrip()
+        if not stripped.startswith(("- ", "* ", "+ ")):
+            return False
+        return bool(stripped[2:].strip())
+
+    @staticmethod
+    def _parse_bullet_line(line: str) -> str:
+        """Strip the bullet marker and return the remaining content verbatim."""
+        stripped = line.lstrip()
+        return stripped[2:].strip() if stripped[:2] in ("- ", "* ", "+ ") else stripped
+
+    def _measure_bullet_line(
+        self,
+        content: QRectF,
+        text: str,
+        bullet_indent: float,
+        bullet_gap: float,
+        pad: float,
+    ) -> float:
+        """Return the pixel height needed to render one bullet item.
+
+        Uses _count_cell_lines (same span-aware algorithm as _draw_wrapped_spans)
+        so bold lead-in words — which are wider than their plain equivalents —
+        are measured at bold width, matching what will actually be drawn.
+        """
+        fm_body = QFontMetrics(self._font_body)
+        line_h = float(fm_body.height())
+        body_w = content.width() - bullet_indent - bullet_gap
+        spans = self._parse_bold_spans(text)
+        n_lines = self._count_cell_lines(spans, body_w)
+        return max(n_lines, 1) * line_h + 2 * pad
+
+    def _draw_bullet_line_paginated(
+        self,
+        painter: QPainter,
+        writer: QPdfWriter,
+        content: QRectF,
+        y: float,
+        text: str,
+    ) -> float:
+        """Render one bullet item atomically (measure, ensure space, draw)."""
+        bullet_indent = 12.0
+        bullet_gap = 6.0
+        pad = 2.0
+        fm_body = QFontMetrics(self._font_body)
+        line_h = float(fm_body.height())
+        baseline = float(fm_body.ascent())
+
+        h = self._measure_bullet_line(content, text, bullet_indent, bullet_gap, pad)
+        y, _ = self._ensure_space(painter, writer, content, y, h)
+
+        # Bullet glyph drawn at a fixed left offset, outside the body rect.
+        painter.setFont(self._font_body)
+        painter.setPen(self._text)
+        painter.drawText(QPointF(content.left() + bullet_indent, y + pad + baseline), "•")
+
+        body_rect = QRectF(
+            content.left() + bullet_indent + bullet_gap,
+            y + pad,
+            content.width() - bullet_indent - bullet_gap,
+            h - 2 * pad,
+        )
+        self._draw_wrapped_spans(painter, body_rect, self._parse_bold_spans(text), pad=0.0)
+        return y + h + line_h * 0.15
+
+    @staticmethod
     def _parse_pipe_table(
         lines: List[str],
     ) -> Tuple[List[str], List[List[str]]]:
@@ -708,7 +782,7 @@ class ChessLogPDFService(BasePDFReportService):
             painter, writer, content, y, header_h + first_body_h
         )
 
-        # Draw header row.
+        # Draw header row — cells always rendered bold.
         x = content.left()
         painter.fillRect(QRectF(x, y, content.width(), header_h), self._card)
         for i, cell in enumerate(header):
@@ -718,12 +792,13 @@ class ChessLogPDFService(BasePDFReportService):
             painter.setPen(border_pen)
             painter.drawRect(cell_rect)
             self._draw_wrapped_spans(
-                painter, cell_rect, self._parse_bold_spans(cell), pad
+                painter, cell_rect, [(cell.strip(), True)], pad
             )
             x += col_widths[i]
         y += header_h
 
         # Draw body rows atomically (measure then ensure_space then draw).
+        # First column (Skill) is always rendered bold.
         for row in body:
             row_h = self._measure_pipe_table_row(
                 painter, col_widths, row, self._font_body, pad
@@ -736,9 +811,8 @@ class ChessLogPDFService(BasePDFReportService):
                 cell_rect = QRectF(x, y, col_widths[i], row_h)
                 painter.setPen(border_pen)
                 painter.drawRect(cell_rect)
-                self._draw_wrapped_spans(
-                    painter, cell_rect, self._parse_bold_spans(cell), pad
-                )
+                spans = [(cell.strip(), True)] if i == 0 else self._parse_bold_spans(cell)
+                self._draw_wrapped_spans(painter, cell_rect, spans, pad)
                 x += col_widths[i]
             y += row_h
 
@@ -864,6 +938,25 @@ class ChessLogPDFService(BasePDFReportService):
                         y += line_h * 0.3
                     i = j
                     continue
+
+            # GFM bullet list: consume the whole contiguous run atomically so each
+            # bullet item is measured and placed as one unit.
+            if self._is_bullet_line(para):
+                j = i
+                while j < len(all_lines):
+                    if self._is_bullet_line(all_lines[j]):
+                        y = self._draw_bullet_line_paginated(
+                            painter, writer, content, y,
+                            self._parse_bullet_line(all_lines[j]),
+                        )
+                        j += 1
+                    elif not all_lines[j].strip():
+                        j += 1
+                    else:
+                        break
+                y += line_h * 0.25
+                i = j
+                continue
 
             # Body text: tokenize with bold-span awareness, wrap, draw word-by-word.
             word_runs: List[Tuple[str, bool]] = [

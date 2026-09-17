@@ -291,12 +291,12 @@ class TestParsePipeTable(unittest.TestCase):
 
     def test_three_column_table(self):
         lines = [
-            "| Area | Observed Issue | Strategic Impact |",
+            "| Skill | Observed Issue | Strategic Impact |",
             "| --- | --- | --- |",
             "| Checks | Often missed | Allows counterplay |",
         ]
         header, body = self._parse(lines)
-        self.assertEqual(header, ["Area", "Observed Issue", "Strategic Impact"])
+        self.assertEqual(header, ["Skill", "Observed Issue", "Strategic Impact"])
         self.assertEqual(len(body), 1)
         self.assertEqual(body[0], ["Checks", "Often missed", "Allows counterplay"])
 
@@ -406,7 +406,7 @@ class TestDrawNarrativePaginatedTableDetection(unittest.TestCase):
 
         narrative = (
             "## Tactical Breakdown\n\n"
-            "| Area | Observed Issue | Strategic Impact |\n"
+            "| Skill | Observed Issue | Strategic Impact |\n"
             "| --- | --- | --- |\n"
             "| Checks | Missed fork | Drops material |\n"
         )
@@ -444,7 +444,7 @@ class TestDrawNarrativePaginatedTableDetection(unittest.TestCase):
     def test_draw_rect_called_for_table_cells(self):
         narrative = (
             "## Tactical Breakdown\n\n"
-            "| Area | Observed Issue | Strategic Impact |\n"
+            "| Skill | Observed Issue | Strategic Impact |\n"
             "| --- | --- | --- |\n"
             "| Checks | Missed tactics | Drops material |\n"
             "| Loose Pieces | Left hanging | Opponent gains tempo |\n"
@@ -456,7 +456,7 @@ class TestDrawNarrativePaginatedTableDetection(unittest.TestCase):
 
     def test_raw_pipe_chars_do_not_reach_draw_text(self):
         narrative = (
-            "| Area | Observed Issue | Strategic Impact |\n"
+            "| Skill | Observed Issue | Strategic Impact |\n"
             "| --- | --- | --- |\n"
             "| Checks | Missed fork | Loses piece |\n"
         )
@@ -488,7 +488,7 @@ class TestDrawNarrativePaginatedTableDetection(unittest.TestCase):
 
     def test_header_cell_text_reaches_draw_text(self):
         narrative = (
-            "| Area | Observed Issue | Strategic Impact |\n"
+            "| Skill | Observed Issue | Strategic Impact |\n"
             "| --- | --- | --- |\n"
             "| Checks | Something | Something else |\n"
         )
@@ -498,8 +498,8 @@ class TestDrawNarrativePaginatedTableDetection(unittest.TestCase):
             for a in call.args if isinstance(a, str)
         ]
         self.assertTrue(
-            any("Area" in s for s in drawn_strings),
-            "Header cell text 'Area' did not reach drawText",
+            any("Skill" in s for s in drawn_strings),
+            "Header cell text 'Skill' did not reach drawText",
         )
 
 
@@ -516,7 +516,7 @@ class TestExportChartsReportWithTable(unittest.TestCase):
             "## Patterns & Recurrent Themes\n\n"
             "You tend to rush in the middlegame.\n\n"
             "## Tactical Breakdown\n\n"
-            "| Area | Observed Issue | Strategic Impact |\n"
+            "| Skill | Observed Issue | Strategic Impact |\n"
             "| --- | --- | --- |\n"
             "| Checks | Missed back-rank threats | Allows opponent counterplay |\n"
             "| Loose Pieces | Left pieces undefended | Material loss under pressure |\n\n"
@@ -538,6 +538,232 @@ class TestExportChartsReportWithTable(unittest.TestCase):
             self.assertGreater(tmp_path.stat().st_size, 0, "PDF file is empty")
         finally:
             tmp_path.unlink(missing_ok=True)
+
+
+# ---------------------------------------------------------------------------
+# _is_bullet_line — no Qt needed
+# ---------------------------------------------------------------------------
+
+class TestIsBulletLine(unittest.TestCase):
+
+    def setUp(self):
+        if not _QT_OK:
+            self.skipTest("Qt platform plugin unavailable")
+        self._svc = ChessLogPDFService({})
+
+    def _check(self, line, expected):
+        self.assertEqual(self._svc._is_bullet_line(line), expected, repr(line))
+
+    def test_dash_bullet(self):
+        self._check("- foo", True)
+
+    def test_asterisk_bullet(self):
+        self._check("* foo", True)
+
+    def test_plus_bullet(self):
+        self._check("+ foo", True)
+
+    def test_leading_whitespace(self):
+        self._check("  - foo", True)
+
+    def test_bare_dash_not_bullet(self):
+        self._check("-", False)
+
+    def test_dash_space_only_not_bullet(self):
+        self._check("- ", False)
+
+    def test_no_space_after_dash_not_bullet(self):
+        self._check("-foo", False)
+
+    def test_regular_prose_not_bullet(self):
+        self._check("regular prose", False)
+
+    def test_empty_not_bullet(self):
+        self._check("", False)
+
+
+# ---------------------------------------------------------------------------
+# _parse_bullet_line — no Qt needed
+# ---------------------------------------------------------------------------
+
+class TestParseBulletLine(unittest.TestCase):
+
+    def setUp(self):
+        if not _QT_OK:
+            self.skipTest("Qt platform plugin unavailable")
+        self._svc = ChessLogPDFService({})
+
+    def test_strips_dash_marker(self):
+        result = self._svc._parse_bullet_line("- **Bold.** rest")
+        self.assertEqual(result, "**Bold.** rest")
+
+    def test_strips_asterisk_marker(self):
+        result = self._svc._parse_bullet_line("  * foo bar")
+        self.assertEqual(result, "foo bar")
+
+    def test_strips_plus_marker(self):
+        result = self._svc._parse_bullet_line("+ trailing")
+        self.assertEqual(result, "trailing")
+
+
+# ---------------------------------------------------------------------------
+# _draw_narrative_paginated — bullet detection
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMeasureBulletLineSpanAware(unittest.TestCase):
+    """Regression tests: _measure_bullet_line must use span-aware measurement.
+
+    Bug: the original implementation reassembled spans to plain text and called
+    painter.boundingRect(plain), which measured all words at body-font width.
+    Bold lead-in words are wider than their plain equivalents, so the measured
+    height was too small and _ensure_space reserved too little room, causing
+    adjacent bullets to overlap.
+
+    Fix: replaced the boundingRect call with _count_cell_lines (the same
+    per-word bold/plain algorithm used by _draw_wrapped_spans) so measurement
+    and drawing always agree.
+    """
+
+    def setUp(self):
+        self._svc = ChessLogPDFService({})
+
+    def _span_aware_h(self, text, content_w, bullet_indent=12.0, bullet_gap=6.0, pad=2.0):
+        """Ground-truth height: _count_cell_lines × line_h + 2×pad."""
+        from PyQt6.QtGui import QFontMetrics
+        fm_body = QFontMetrics(self._svc._font_body)
+        line_h = float(fm_body.height())
+        body_w = content_w - bullet_indent - bullet_gap
+        spans = self._svc._parse_bold_spans(text)
+        n = self._svc._count_cell_lines(spans, body_w)
+        return max(n, 1) * line_h + 2 * pad
+
+    def test_height_matches_count_cell_lines(self):
+        """Result must equal _count_cell_lines-based height, not plain-text boundingRect."""
+        from PyQt6.QtCore import QRectF
+        content = QRectF(0, 0, 200, 700)
+        text = (
+            "**Rushing calculation in sharp positions.** "
+            "You repeatedly find yourself playing the first forcing move without "
+            "checking whether the opponent has a quiet intermediate move."
+        )
+        expected = self._span_aware_h(text, content.width())
+        actual = self._svc._measure_bullet_line(content, text, 12.0, 6.0, 2.0)
+        self.assertAlmostEqual(actual, expected, places=1)
+
+    def test_all_bold_text_uses_bold_widths(self):
+        """All-bold text: returned height reflects bold word widths, not plain word widths.
+
+        Directly demonstrates the fixed bug: the old approach measured with fm_body for
+        all words, but bold words are wider, so bold-aware line count >= plain-text count.
+        The fixed method must return the bold-aware height.
+        """
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QFontMetrics
+        content = QRectF(0, 0, 200, 700)
+        bullet_indent, bullet_gap, pad = 12.0, 6.0, 2.0
+        body_w = content.width() - bullet_indent - bullet_gap
+        # All-bold text maximises the bold vs. plain width difference.
+        text = "**Book moves and opening habits suppressing live calculation throughout the game.**"
+        fm_body = QFontMetrics(self._svc._font_body)
+        line_h = float(fm_body.height())
+        space_w = float(fm_body.horizontalAdvance(" "))
+        spans = self._svc._parse_bold_spans(text)
+        # Bold-aware (correct) line count.
+        bold_n = self._svc._count_cell_lines(spans, body_w)
+        # Plain-text (old broken) line count — measure all words at fm_body width.
+        words = [w for seg, _ in spans for w in seg.split() if w]
+        plain_n, cur, cur_w = 0, [], 0.0
+        for word in words:
+            ww = float(fm_body.horizontalAdvance(word))
+            needed = ww if not cur else space_w + ww
+            if cur and cur_w + needed > body_w:
+                plain_n += 1
+                cur, cur_w = [word], ww
+            else:
+                cur.append(word)
+                cur_w += needed
+        if cur:
+            plain_n += 1
+        # Bold words must be at least as wide as plain (bold_n >= plain_n always true).
+        self.assertGreaterEqual(bold_n, plain_n)
+        # The fixed method must return the bold-aware height.
+        actual_h = self._svc._measure_bullet_line(content, text, bullet_indent, bullet_gap, pad)
+        expected_h = max(bold_n, 1) * line_h + 2 * pad
+        self.assertAlmostEqual(actual_h, expected_h, places=1)
+
+    def test_bold_font_is_wider_than_body_font(self):
+        """Sanity check: bold font is wider than body font, proving the bug can trigger."""
+        from PyQt6.QtGui import QFontMetrics
+        fm_body = QFontMetrics(self._svc._font_body)
+        fm_bold = QFontMetrics(self._svc._font_body_bold)
+        # Pick a wide word that appears in typical bold lead-ins.
+        sample = "Rushing"
+        self.assertGreater(
+            fm_bold.horizontalAdvance(sample),
+            fm_body.horizontalAdvance(sample),
+            "Bold font must be wider than body font for the bug to manifest",
+        )
+
+    def test_no_painter_dependency(self):
+        """_measure_bullet_line must not require a live painter (no boundingRect call).
+
+        The old code called painter.boundingRect(plain_text); the fix uses
+        _count_cell_lines which needs no painter. Calling with no painter arg
+        (only 5 positional args after self) must succeed without error.
+        """
+        from PyQt6.QtCore import QRectF
+        content = QRectF(0, 0, 300, 700)
+        text = "**Lead-in.** Some body text here."
+        # Five args (no painter): should run without TypeError after the fix.
+        h = self._svc._measure_bullet_line(content, text, 12.0, 6.0, 2.0)
+        self.assertGreater(h, 0)
+
+
+@requires_qt
+class TestDrawNarrativePaginatedBulletDetection(unittest.TestCase):
+    """Verify that bullet list items render via the bullet path (• glyph, no '- ' prefix)."""
+
+    def _run(self, text: str):
+        from unittest.mock import MagicMock
+        from PyQt6.QtCore import QRectF
+        svc = ChessLogPDFService({})
+        painter = MagicMock()
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 700)
+        # _measure_bullet_line calls painter.boundingRect; return a real QRectF
+        # so .height() yields a float and comparisons succeed.
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        svc._draw_narrative_paginated(painter, writer, content, 0.0, text)
+        return svc, painter
+
+    def test_bullet_glyph_reaches_draw_text(self):
+        # No heading — avoids the real QPainter path through _section_heading.
+        narrative = (
+            "- **Theme one.** Body text here.\n\n"
+            "- **Theme two.** More body text.\n\n"
+            "- **Theme three.** Even more text.\n"
+        )
+        _, painter = self._run(narrative)
+        all_text_args = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        bullet_calls = [t for t in all_text_args if "•" in t]
+        self.assertGreaterEqual(len(bullet_calls), 3, "Expected at least 3 bullet glyphs drawn")
+
+    def test_no_dash_prefix_reaches_draw_text(self):
+        narrative = (
+            "- **Theme one.** Body text here.\n\n"
+            "- **Theme two.** More body text.\n"
+        )
+        _, painter = self._run(narrative)
+        all_text_args = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        dash_prefix_calls = [t for t in all_text_args if t.startswith("- ")]
+        self.assertEqual(dash_prefix_calls, [], "No '- ' prefix should reach drawText")
 
 
 if __name__ == "__main__":

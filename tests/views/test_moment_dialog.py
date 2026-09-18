@@ -155,38 +155,39 @@ class TestCctPreset(unittest.TestCase):
 
 @requires_qt
 class TestThreeByThreePreset(unittest.TestCase):
-    def test_all_three_whys_filled(self):
+    def test_all_four_whys_filled(self):
         dlg = _make("3x3")
-        answers = ["I wanted to attack", "It lost a tempo", "Engine moves centrally"]
+        answers = ["I wanted to attack", "It lost a tempo", "Engine moves centrally", "Check for pins first"]
         for (key, edit), answer in zip(dlg._threexthree_edits, answers):
             edit.setPlainText(answer)
         entries = dlg.get_entries()
-        self.assertEqual(len(entries), 3)
-        self.assertEqual([e["cat"] for e in entries], ["Why1", "Why2", "Why3"])
+        self.assertEqual(len(entries), 4)
+        self.assertEqual([e["cat"] for e in entries], ["Why1", "Why2", "Why3", "Why4"])
         self.assertEqual([e["why"] for e in entries], answers)
         self.assertTrue(all(e["preset"] == "3x3" for e in entries))
 
     def test_partial_whys_skips_empty(self):
         dlg = _make("3x3")
-        # Fill only Why1 and Why3, leave Why2 blank
+        # Fill Why1, Why4; leave Why2, Why3 blank
         dlg._threexthree_edits[0][1].setPlainText("I wanted to attack")
         dlg._threexthree_edits[1][1].setPlainText("")
-        dlg._threexthree_edits[2][1].setPlainText("Better central control")
+        dlg._threexthree_edits[2][1].setPlainText("")
+        dlg._threexthree_edits[3][1].setPlainText("Slow down in sharp positions")
         entries = dlg.get_entries()
         self.assertEqual(len(entries), 2)
         self.assertEqual(entries[0]["cat"], "Why1")
-        self.assertEqual(entries[1]["cat"], "Why3")
+        self.assertEqual(entries[1]["cat"], "Why4")
 
     def test_all_empty_returns_empty_list(self):
         dlg = _make("3x3")
         self.assertEqual(dlg.get_entries(), [])
 
-    def test_ordering_why1_before_why2_before_why3(self):
+    def test_ordering_why1_through_why4(self):
         dlg = _make("3x3")
         for _, edit in dlg._threexthree_edits:
             edit.setPlainText("answer")
         entries = dlg.get_entries()
-        self.assertEqual([e["cat"] for e in entries], ["Why1", "Why2", "Why3"])
+        self.assertEqual([e["cat"] for e in entries], ["Why1", "Why2", "Why3", "Why4"])
 
 
 @requires_qt

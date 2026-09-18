@@ -352,15 +352,16 @@ def _format_glossary(preset_names: Set[str]) -> str:
 
 _3X3_STRUCTURE_BLOCK = (
     "## Why-note structure — 3x3\n\n"
-    "Each 3x3-tagged moment may include answers to up to three questions, always "
+    "Each 3x3-tagged moment may include answers to up to four questions, always "
     "asked in this order, though the player may skip any of them:\n\n"
     "1. Why did I choose that move?\n"
     "2. Why is my move not ideal?\n"
-    "3. Why is the better move better than my chosen move?\n\n"
-    "These are the exact three questions from GM Noel Studer's 3x3 method. Treat a "
-    "missing answer to one of the three as simply unanswered, not as evidence of "
-    "anything. All three always describe the player's own chosen move and their own "
-    "reasoning about it, never the opponent's move."
+    "3. Why is the better move better than my chosen move?\n"
+    "4. What do I do in the future so this doesn't happen again?\n\n"
+    "These are the four questions from GM Noel Studer's 3x3 method. Treat a "
+    "missing answer to any of the four as simply unanswered, not as evidence of "
+    "anything. All four always describe the player's own chosen move and their "
+    "own reasoning about it, never the opponent's move."
 )
 
 

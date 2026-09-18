@@ -172,12 +172,13 @@ class TestThreeXThreeRow(unittest.TestCase):
         row = dlg._row_widgets[0]
         self.assertEqual(len(row._checkboxes), 0)
 
-    def test_3x3_row_text_contains_all_three_sentences(self):
+    def test_3x3_row_text_contains_all_four_sentences(self):
         paths_data = {
             "0": [
                 _make_entry("3x3", "Why1", "I wanted to develop"),
                 _make_entry("3x3", "Why2", "It lost tempo"),
                 _make_entry("3x3", "Why3", "Engine prefers Nf3"),
+                _make_entry("3x3", "Why4", "Slow down next time"),
             ],
         }
         dlg, _ = _make_dialog(paths_data)
@@ -185,9 +186,11 @@ class TestThreeXThreeRow(unittest.TestCase):
         self.assertIn("Why1", row._why_texts)
         self.assertIn("Why2", row._why_texts)
         self.assertIn("Why3", row._why_texts)
+        self.assertIn("Why4", row._why_texts)
         self.assertIn("develop", row._why_texts["Why1"].toPlainText())
         self.assertIn("tempo", row._why_texts["Why2"].toPlainText())
         self.assertIn("Nf3", row._why_texts["Why3"].toPlainText())
+        self.assertIn("Slow down", row._why_texts["Why4"].toPlainText())
 
 
 # ---------------------------------------------------------------------------

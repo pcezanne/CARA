@@ -13,6 +13,7 @@ from app.services.chess_log_stats_service import (
     ChessLogPresetSeries,
     aggregate,
     get_all_players,
+    has_any_moments,
 )
 
 
@@ -487,6 +488,75 @@ class TestGetAllPlayers(unittest.TestCase):
         ]
         names = self._names(games)
         self.assertLess(names.index("Alice"), names.index("Carlos"))
+
+    def test_3x3_only_player_with_two_games_qualifies(self):
+        """A player with 2 games tagged using 3x3 must appear in the dropdown."""
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "I attacked too early")
+        g1 = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                        entries_per_path={"0": [entry]})
+        entry2 = ChessLogStorageService.make_entry("3x3", "Why2", "It lost a tempo")
+        g2 = _make_game(white="Alice", black="Bob", date="2025.02.01",
+                        entries_per_path={"0": [entry2]})
+        names = self._names([g1, g2])
+        self.assertIn("Alice", names)
+
+    def test_mixed_preset_one_each_does_not_qualify(self):
+        """1 CLAMP game + 1 3x3 game = no single preset reaches threshold of 2."""
+        clamp_entry = _clamp_entry("C")
+        threex_entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
+        g1 = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                        entries_per_path={"0": [clamp_entry]})
+        g2 = _make_game(white="Alice", black="Bob", date="2025.02.01",
+                        entries_per_path={"0": [threex_entry]})
+        names = self._names([g1, g2])
+        self.assertNotIn("Alice", names)
+
+    def test_mixed_preset_two_clamp_plus_one_3x3_qualifies(self):
+        """2 CLAMP + 1 3x3 — CLAMP reaches threshold so player qualifies."""
+        clamp_entry = _clamp_entry("C")
+        threex_entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
+        g1 = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                        entries_per_path={"0": [clamp_entry]})
+        g2 = _make_game(white="Alice", black="Bob", date="2025.02.01",
+                        entries_per_path={"0": [clamp_entry]})
+        g3 = _make_game(white="Alice", black="Bob", date="2025.03.01",
+                        entries_per_path={"0": [threex_entry]})
+        names = self._names([g1, g2, g3])
+        self.assertIn("Alice", names)
+
+
+# ---------------------------------------------------------------------------
+# has_any_moments
+# ---------------------------------------------------------------------------
+
+class TestHasAnyMoments(unittest.TestCase):
+
+    def test_returns_true_for_3x3_only_data(self):
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
+        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                          entries_per_path={"0": [entry]})
+        self.assertTrue(has_any_moments([game], player="Alice"))
+
+    def test_returns_true_for_clamp_data(self):
+        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                          entries_per_path={"0": [_clamp_entry("C")]})
+        self.assertTrue(has_any_moments([game], player="Alice"))
+
+    def test_returns_false_for_no_tagged_games(self):
+        game = _make_game(white="Alice", black="Bob", date="2025.01.01")
+        self.assertFalse(has_any_moments([game], player="Alice"))
+
+    def test_returns_false_for_wrong_player(self):
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
+        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                          entries_per_path={"0": [entry]})
+        self.assertFalse(has_any_moments([game], player="Carlos"))
+
+    def test_empty_player_matches_all(self):
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
+        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
+                          entries_per_path={"0": [entry]})
+        self.assertTrue(has_any_moments([game], player=""))
 
 
 # ---------------------------------------------------------------------------

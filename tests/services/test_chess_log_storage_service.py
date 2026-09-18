@@ -186,27 +186,29 @@ class TestClearTags(unittest.TestCase):
 
 
 class TestThreeByThreeRoundTrip(unittest.TestCase):
-    """3x3 moments use cat='Why1'/'Why2'/'Why3'; ordering must be preserved."""
+    """3x3 moments use cat='Why1'/'Why2'/'Why3'/'Why4'; ordering must be preserved."""
 
-    def test_all_three_whys_round_trip_in_order(self):
+    def test_all_four_whys_round_trip_in_order(self):
         game = make_game()
         entries = [
             ChessLogStorageService.make_entry("3x3", "Why1", "I wanted to attack"),
             ChessLogStorageService.make_entry("3x3", "Why2", "It lost a tempo"),
             ChessLogStorageService.make_entry("3x3", "Why3", "Engine moves centrally"),
+            ChessLogStorageService.make_entry("3x3", "Why4", "Slow down in future"),
         ]
         paths_data = {"0": entries}
         loaded = _store_and_reload(game, paths_data)
         self.assertIn("0", loaded)
         loaded_entries = loaded["0"]
-        self.assertEqual(len(loaded_entries), 3)
-        self.assertEqual([e["cat"] for e in loaded_entries], ["Why1", "Why2", "Why3"])
+        self.assertEqual(len(loaded_entries), 4)
+        self.assertEqual([e["cat"] for e in loaded_entries], ["Why1", "Why2", "Why3", "Why4"])
         self.assertEqual(loaded_entries[0]["why"], "I wanted to attack")
         self.assertEqual(loaded_entries[1]["why"], "It lost a tempo")
         self.assertEqual(loaded_entries[2]["why"], "Engine moves centrally")
+        self.assertEqual(loaded_entries[3]["why"], "Slow down in future")
 
     def test_partial_whys_preserve_order(self):
-        """Why1 + Why3 only (Why2 skipped) — order must be Why1 then Why3."""
+        """Why1 + Why3 only (Why2/Why4 skipped) — order must be Why1 then Why3."""
         game = make_game()
         entries = [
             ChessLogStorageService.make_entry("3x3", "Why1", "First answer"),
@@ -216,6 +218,16 @@ class TestThreeByThreeRoundTrip(unittest.TestCase):
         loaded = _store_and_reload(game, paths_data)
         loaded_entries = loaded["0"]
         self.assertEqual([e["cat"] for e in loaded_entries], ["Why1", "Why3"])
+
+    def test_why4_only_round_trips(self):
+        game = make_game()
+        entries = [ChessLogStorageService.make_entry("3x3", "Why4", "Check for pins")]
+        paths_data = {"0": entries}
+        loaded = _store_and_reload(game, paths_data)
+        loaded_entries = loaded["0"]
+        self.assertEqual(len(loaded_entries), 1)
+        self.assertEqual(loaded_entries[0]["cat"], "Why4")
+        self.assertEqual(loaded_entries[0]["why"], "Check for pins")
 
     def test_threexthree_counts_as_one_moment(self):
         game = make_game()

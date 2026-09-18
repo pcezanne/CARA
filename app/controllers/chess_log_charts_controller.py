@@ -28,7 +28,12 @@ from app.services.chess_log_charts_user import (
     normalize_chess_log_charts_settings,
 )
 from app.services.chess_log_narrative_service import generate_narrative
-from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate, get_all_players
+from app.services.chess_log_stats_service import (
+    ChessLogPresetSeries,
+    aggregate,
+    get_all_players,
+    has_any_moments,
+)
 from app.services.user_settings_service import UserSettingsService
 from app.utils.ai_provider_config import resolve_default_provider
 
@@ -128,7 +133,13 @@ class ChessLogAggregationWorker(QThread):
                 series.smoothing_strength = self._smoothing_strength
             self.charts_updated.emit(result)
         else:
-            self.charts_unavailable.emit("no_data")
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            if has_any_moments(self._games, self._player, self._color_filter):
+                self.charts_unavailable.emit("no_chartable_preset")
+            else:
+                self.charts_unavailable.emit("no_data")
 
 
 class ChessLogShallowThread(QThread):

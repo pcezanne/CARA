@@ -53,6 +53,7 @@ class MomentDialog(QDialog):
         ("Why1", "Why did I choose that move?"),
         ("Why2", "Why is my move not ideal?"),
         ("Why3", "Why is the better move better than my chosen move?"),
+        ("Why4", "What do I do in the future so this doesn't happen again?"),
     ]
 
     def __init__(
@@ -147,7 +148,7 @@ class MomentDialog(QDialog):
         self._chip_buttons: List[tuple[str, QPushButton]] = []  # (cat_value, btn)
         self._custom_checkboxes: List[tuple[str, QCheckBox]] = []  # (cat_value, cb) — Custom only
         self._why_edit: Optional[QTextEdit] = None
-        self._threexthree_edits: List[tuple[str, QTextEdit]] = []  # (Why1/2/3, edit)
+        self._threexthree_edits: List[tuple[str, QTextEdit]] = []  # (Why1/2/3/4, edit)
         self._warning_label: Optional[QLabel] = None
 
         if self._active_preset == "CLAMP":

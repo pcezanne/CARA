@@ -889,6 +889,7 @@ class Test3x3StructureBlock(unittest.TestCase):
         self.assertIn("1. Why did I choose that move?", prompt)
         self.assertIn("2. Why is my move not ideal?", prompt)
         self.assertIn("3. Why is the better move better than my chosen move?", prompt)
+        self.assertIn("4. What do I do in the future so this doesn't happen again?", prompt)
 
     def test_3x3_block_questions_in_order(self):
         game = _make_game(entries_per_path={"0": [_threex("Why2", "text")]})
@@ -896,8 +897,10 @@ class Test3x3StructureBlock(unittest.TestCase):
         idx1 = prompt.find("1. Why did I choose that move?")
         idx2 = prompt.find("2. Why is my move not ideal?")
         idx3 = prompt.find("3. Why is the better move better than my chosen move?")
+        idx4 = prompt.find("4. What do I do in the future so this doesn't happen again?")
         self.assertLess(idx1, idx2)
         self.assertLess(idx2, idx3)
+        self.assertLess(idx3, idx4)
 
     def test_3x3_block_studer_attribution_present(self):
         game = _make_game(entries_per_path={"0": [_threex("Why3", "text")]})
@@ -913,6 +916,47 @@ class Test3x3StructureBlock(unittest.TestCase):
         self.assertIn("1. Why did I choose that move?", _3X3_STRUCTURE_BLOCK)
         self.assertIn("2. Why is my move not ideal?", _3X3_STRUCTURE_BLOCK)
         self.assertIn("3. Why is the better move better than my chosen move?", _3X3_STRUCTURE_BLOCK)
+        self.assertIn("4. What do I do in the future so this doesn't happen again?", _3X3_STRUCTURE_BLOCK)
+
+    def test_3x3_block_has_no_source_inconsistency_hedging(self):
+        self.assertNotIn("three questions", _3X3_STRUCTURE_BLOCK)
+
+
+# ---------------------------------------------------------------------------
+# 3x3 end-to-end prompt-building
+# ---------------------------------------------------------------------------
+
+class Test3x3NarrativePromptBuilding(unittest.TestCase):
+
+    def test_3x3_only_game_produces_full_three_section_prompt(self):
+        game = _make_game(entries_per_path={
+            "0": [
+                _threex("Why1", "I saw a discovered attack"),
+                _threex("Why2", "It dropped my rook"),
+                _threex("Why3", "Nf4 covers both squares"),
+                _threex("Why4", "I will slow down and check for pins"),
+            ],
+        })
+        prompt = build_prompt([game])
+        # Structure block present
+        self.assertIn("## Why-note structure — 3x3", prompt)
+        # All four answers flow through _format_why_notes
+        self.assertIn("I saw a discovered attack", prompt)
+        self.assertIn("It dropped my rook", prompt)
+        self.assertIn("Nf4 covers both squares", prompt)
+        self.assertIn("I will slow down and check for pins", prompt)
+        # Three-section narrative instruction present
+        self.assertIn("## Patterns & Recurrent Themes", prompt)
+        self.assertIn("## Tactical Breakdown", prompt)
+        self.assertIn("## Key Takeaways", prompt)
+
+    def test_3x3_game_notes_included_in_prompt(self):
+        game = _make_game(
+            entries_per_path={"0": [_threex("Why1", "I rushed the attack")]},
+            notes="Overall I played too fast in the middlegame.",
+        )
+        prompt = build_prompt([game])
+        self.assertIn("Overall I played too fast in the middlegame.", prompt)
 
 
 # ---------------------------------------------------------------------------

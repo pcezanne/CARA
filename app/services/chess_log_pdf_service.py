@@ -39,6 +39,7 @@ _3X3_PROMPTS: Dict[str, str] = {
     "Why1": "Why did I choose that move?",
     "Why2": "Why is my move not ideal?",
     "Why3": "Why is the better move better than my chosen move?",
+    "Why4": "What do I do in the future so this doesn't happen again?",
 }
 
 
@@ -263,7 +264,7 @@ class ChessLogPDFService(BasePDFReportService):
             why_map = {e.get("cat", ""): e.get("why", "") for e in row.entries}
             full_w = col2_w + gap + col3_w
             body_h = 0.0
-            for key in ("Why1", "Why2", "Why3"):
+            for key in ("Why1", "Why2", "Why3", "Why4"):
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
@@ -340,7 +341,7 @@ class ChessLogPDFService(BasePDFReportService):
             why_map_3x3 = {e.get("cat", ""): e.get("why", "") for e in row.entries}
             full_w = col2_w + gap + col3_w
             body_h = 0.0
-            for key in ("Why1", "Why2", "Why3"):
+            for key in ("Why1", "Why2", "Why3", "Why4"):
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
@@ -418,7 +419,7 @@ class ChessLogPDFService(BasePDFReportService):
         # Body content: 3x3 prompts/answers OR checkboxes + why-text
         if row.preset == "3x3":
             y_col = y_inner
-            for key in ("Why1", "Why2", "Why3"):
+            for key in ("Why1", "Why2", "Why3", "Why4"):
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 painter.setPen(self._muted)

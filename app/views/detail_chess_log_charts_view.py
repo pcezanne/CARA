@@ -409,6 +409,11 @@ class DetailChessLogChartsView(QWidget):
             self._set_placeholder_text("Select a player to view Chess Log data.")
         elif reason == "no_source":
             self._set_placeholder_text("Select a Data Source to view Chess Log data.")
+        elif reason == "no_chartable_preset":
+            self._set_placeholder_text(
+                "No chart data for this selection.\n"
+                "3x3 moments are not shown in charts — use Generate Narrative Summary below."
+            )
         else:
             self._set_placeholder_text(
                 "No Chess Log moments in the selected data.\n"

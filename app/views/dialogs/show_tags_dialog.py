@@ -31,11 +31,12 @@ from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
 
 _PRESET_ORDER = ["CLAMP", "CCT", "3x3", "Custom"]
 
-_3X3_KEYS = ["Why1", "Why2", "Why3"]
+_3X3_KEYS = ["Why1", "Why2", "Why3", "Why4"]
 _3X3_PROMPTS = {
     "Why1": "Why did I choose that move?",
     "Why2": "Why is my move not ideal?",
     "Why3": "Why is the better move better than my chosen move?",
+    "Why4": "What do I do in the future so this doesn't happen again?",
 }
 
 # Scale matching manual analysis default (1.25 × 160 base = 200px board ≈ 204px widget)

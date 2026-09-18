@@ -153,39 +153,98 @@ def aggregate(
 
 
 def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
-    """Return (name, tagged_game_count) for players with >= 2 games where they personally tagged moments.
+    """Return (name, tagged_game_count) for players with >= 2 games sharing the same preset.
 
-    Mirrors Player Stats' filtering/sorting mechanism exactly — threshold >= 2,
-    sort by qualifying-count descending then name ascending — but counts games
-    where the player's OWN COLOR has at least one tagged moment (not merely any
-    game where has_chess_log_tags=True, which would credit both players equally
-    even if only one side's moves were tagged).
+    A player qualifies when any single preset (CLAMP, CCT, 3x3, Custom) has at
+    least 2 games where that player personally tagged moments with that preset.
+    Requiring 2 of the same type prevents a 1-CLAMP + 1-3x3 combination from
+    surfacing a player who has no useful data for any chart or narrative.
 
-    Cost: one ChessLogStorageService.load_tags() call per tagged game. Same
-    per-game cost as aggregate(). Runs in a background worker; acceptable for
-    typical datasets (dozens to low hundreds of tagged games).
+    The count shown in the dropdown is the total across all presets (not the
+    per-preset maximum) so it reflects how many games the player has tagged overall.
+
+    Only games where the player's OWN COLOR has at least one tagged path are
+    credited — this avoids crediting both players equally for a game where only
+    one side tagged moments.
+
+    Cost: one ChessLogStorageService.load_tags() call per tagged game. Runs in
+    a background worker; acceptable for typical datasets.
     """
-    tagged_counts: Dict[str, int] = {}
+    # per_preset_counts[player][preset] = number of games with that preset
+    per_preset_counts: Dict[str, Dict[str, int]] = {}
+    total_counts: Dict[str, int] = {}
+
     for game in games:
         if not getattr(game, "has_chess_log_tags", False):
             continue
         paths_data = ChessLogStorageService.load_tags(game)
         if not paths_data:
             continue
-        # Determine which colors have at least one tagged path in this game.
-        tagged_colors: Set[str] = set()
-        for path_key in paths_data:
+
+        # Determine which (color, preset) pairs appear in this game.
+        color_preset_pairs: Set[Tuple[str, str]] = set()
+        for path_key, entries in paths_data.items():
             color = color_from_path_key(path_key)
-            if color:
-                tagged_colors.add(color)
-        # Credit only the player whose color has tagged moments in this game.
+            if not color:
+                continue
+            for entry in entries:
+                preset = entry.get("preset", "")
+                if preset:
+                    color_preset_pairs.add((color, preset))
+
+        # Credit the player whose color appears, once per (player, preset) per game.
+        seen_player_preset: Set[Tuple[str, str]] = set()
         for name, color in ((game.white, "white"), (game.black, "black")):
-            if name and name.strip() and color in tagged_colors:
-                n = name.strip()
-                tagged_counts[n] = tagged_counts.get(n, 0) + 1
-    qualified = [(name, count) for name, count in tagged_counts.items() if count >= 2]
+            if not (name and name.strip()):
+                continue
+            n = name.strip()
+            for cp_color, preset in color_preset_pairs:
+                if cp_color != color:
+                    continue
+                if (n, preset) not in seen_player_preset:
+                    seen_player_preset.add((n, preset))
+                    per_preset_counts.setdefault(n, {})
+                    per_preset_counts[n][preset] = per_preset_counts[n].get(preset, 0) + 1
+                    total_counts[n] = total_counts.get(n, 0) + 1
+
+    qualified = [
+        (name, total_counts[name])
+        for name, preset_map in per_preset_counts.items()
+        if any(count >= 2 for count in preset_map.values())
+    ]
     qualified.sort(key=lambda x: (-x[1], x[0]))
     return qualified
+
+
+def has_any_moments(
+    games: List[GameData],
+    player: str,
+    color_filter: str = "both",
+) -> bool:
+    """Return True if any game has tagged moments for this player/color, any preset.
+
+    Used by ChessLogAggregationWorker to distinguish 'moments exist but are not
+    chartable (e.g. 3x3 only)' from 'truly no moments for this selection'.
+    """
+    player_cf = (player or "").casefold().strip()
+    for game in games:
+        if not getattr(game, "has_chess_log_tags", False):
+            continue
+        if player_cf:
+            white_cf = (game.white or "").casefold().strip()
+            black_cf = (game.black or "").casefold().strip()
+            is_white = player_cf == white_cf
+            is_black = player_cf == black_cf
+            if not (is_white or is_black):
+                continue
+            if color_filter == "white" and not is_white:
+                continue
+            if color_filter == "black" and not is_black:
+                continue
+        paths_data = ChessLogStorageService.load_tags(game)
+        if paths_data:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------

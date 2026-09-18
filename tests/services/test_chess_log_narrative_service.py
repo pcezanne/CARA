@@ -285,11 +285,11 @@ class TestBuildPromptNoteNormalization(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 class TestSystemPromptInstructions(unittest.TestCase):
-    """Tests that key _system_prompt instructions are present (verbatim phrase checks)."""
+    """Tests that key _SYSTEM_PROMPT instructions are present (verbatim phrase checks)."""
 
-    def _get_system_prompt(self, mode: str = "clamp") -> str:
-        from app.services.chess_log_narrative_service import _system_prompt
-        return _system_prompt(mode)
+    def _get_system_prompt(self) -> str:
+        from app.services.chess_log_narrative_service import _SYSTEM_PROMPT
+        return _SYSTEM_PROMPT
 
     def test_calendar_label_instruction_present(self):
         sp = self._get_system_prompt()
@@ -921,9 +921,9 @@ class Test3x3StructureBlock(unittest.TestCase):
 
 class TestSystemPromptCCTRules(unittest.TestCase):
 
-    def _get_system_prompt(self, mode: str = "clamp") -> str:
-        from app.services.chess_log_narrative_service import _system_prompt
-        return _system_prompt(mode)
+    def _get_system_prompt(self) -> str:
+        from app.services.chess_log_narrative_service import _SYSTEM_PROMPT
+        return _SYSTEM_PROMPT
 
     def test_letter_disambiguation_rule_present(self):
         sp = self._get_system_prompt()
@@ -935,94 +935,15 @@ class TestSystemPromptCCTRules(unittest.TestCase):
         self.assertIn("a tag can describe either side of the board", sp)
         self.assertIn("do not assume a tag always means", sp)
 
-
-# ---------------------------------------------------------------------------
-# _system_prompt — generic mode (A/B test)
-# ---------------------------------------------------------------------------
-
-class TestSystemPromptGenericMode(unittest.TestCase):
-
-    def _sp(self, mode: str) -> str:
-        from app.services.chess_log_narrative_service import _system_prompt
-        return _system_prompt(mode)
-
-    def test_generic_mode_forbids_clamp_letters_in_area_column(self):
-        sp = self._sp("generic")
+    def test_skill_column_forbids_clamp_labels(self):
+        sp = self._get_system_prompt()
         self.assertIn("Do NOT use CLAMP letters", sp)
+        self.assertNotIn("Use the exact CLAMP/CCT/3x3 category or question labels", sp)
 
-    def test_generic_mode_does_not_require_clamp_category_names(self):
-        clamp_sp = self._sp("clamp")
-        generic_sp = self._sp("generic")
-        self.assertIn("Loose Pieces and Squares", clamp_sp)
-        self.assertNotIn("Use the exact CLAMP/CCT/3x3 category or question labels", generic_sp)
-
-    def test_generic_mode_still_requires_pipe_table_format(self):
-        sp = self._sp("generic")
+    def test_skill_column_requires_generic_concept_labels(self):
+        sp = self._get_system_prompt()
         self.assertIn("| Skill | Observed Issue | Strategic Impact |", sp)
-
-    def test_generic_mode_still_has_three_section_headers(self):
-        sp = self._sp("generic")
-        self.assertIn("## Patterns & Recurrent Themes", sp)
-        self.assertIn("## Tactical Breakdown", sp)
-        self.assertIn("## Key Takeaways", sp)
-
-    def test_generic_mode_preserves_citation_rule(self):
-        sp = self._sp("generic")
-        self.assertIn("full move+color pairing", sp)
-        self.assertIn("NotThePainter vs mattsartin", sp)
-
-    def test_generic_mode_preserves_quote_cap(self):
-        sp = self._sp("generic")
-        self.assertIn("1 to 2", sp)
-        self.assertIn("per theme", sp)
-
-    def test_generic_mode_preserves_calendar_label_rule(self):
-        sp = self._sp("generic")
-        self.assertIn("Never use generic placeholder language like 'periods' or 'bins'", sp)
-
-    def test_clamp_and_generic_differ_only_in_tactical_section(self):
-        clamp_sp = self._sp("clamp")
-        generic_sp = self._sp("generic")
-        self.assertNotEqual(clamp_sp, generic_sp)
-        # Both contain the shared rules
-        for phrase in ("## Key Takeaways", "bold sentence-fragment lead-in",
-                       "markdown bullet list", "1 to 2", "per theme"):
-            self.assertIn(phrase, clamp_sp)
-            self.assertIn(phrase, generic_sp)
-
-
-# ---------------------------------------------------------------------------
-# build_prompt — mode parameter
-# ---------------------------------------------------------------------------
-
-class TestBuildPromptModeParameter(unittest.TestCase):
-
-    def _make_game(self) -> object:
-        return _make_game(entries_per_path={"0": [_clamp("C")]})
-
-    def test_build_prompt_defaults_to_clamp(self):
-        game = self._make_game()
-        prompt_default = build_prompt([game])
-        prompt_clamp = build_prompt([game], mode="clamp")
-        self.assertEqual(prompt_default, prompt_clamp)
-
-    def test_build_prompt_generic_differs_from_clamp(self):
-        game = self._make_game()
-        prompt_clamp = build_prompt([game], mode="clamp")
-        prompt_generic = build_prompt([game], mode="generic")
-        self.assertNotEqual(prompt_clamp, prompt_generic)
-
-    def test_build_prompt_generic_has_generic_tactical_instruction(self):
-        game = self._make_game()
-        prompt = build_prompt([game], mode="generic")
-        self.assertIn("do NOT use CLAMP letters", prompt)
-        self.assertIn("King Safety", prompt)
-
-    def test_build_prompt_clamp_has_clamp_tactical_instruction(self):
-        game = self._make_game()
-        prompt = build_prompt([game], mode="clamp")
-        self.assertIn("Loose Pieces and Squares", prompt)
-        self.assertNotIn("Do NOT use CLAMP letters", prompt)
+        self.assertIn("King Safety", sp)
 
 
 # ---------------------------------------------------------------------------
@@ -1031,9 +952,9 @@ class TestBuildPromptModeParameter(unittest.TestCase):
 
 class TestBulletAndLeadInDirectives(unittest.TestCase):
 
-    def _sp(self, mode: str = "clamp") -> str:
-        from app.services.chess_log_narrative_service import _system_prompt
-        return _system_prompt(mode)
+    def _sp(self) -> str:
+        from app.services.chess_log_narrative_service import _SYSTEM_PROMPT
+        return _SYSTEM_PROMPT
 
     def test_patterns_directive_requires_bullet_list(self):
         sp = self._sp()
@@ -1059,11 +980,6 @@ class TestBulletAndLeadInDirectives(unittest.TestCase):
         takeaways_pos = sp.find("Key Takeaways section")
         lead_in_pos = sp.find("bold sentence-fragment lead-in", takeaways_pos)
         self.assertGreater(lead_in_pos, -1, "bold lead-in not found after Key Takeaways directive")
-
-    def test_bullet_directive_applies_in_generic_mode_too(self):
-        sp = self._sp("generic")
-        self.assertIn("markdown bullet list", sp)
-        self.assertIn("bold sentence-fragment lead-in", sp)
 
 
 if __name__ == "__main__":

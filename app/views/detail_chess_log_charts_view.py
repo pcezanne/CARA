@@ -275,15 +275,10 @@ class DetailChessLogChartsView(QWidget):
         layout.addLayout(shallow_row)
 
         btn_row = QHBoxLayout()
-        # TESTING: side-by-side CLAMP vs generic-concept Tactical Breakdown. Remove the losing branch once decided.
-        self._generate_clamp_btn = QPushButton("Generate CLAMP Narrative")
-        self._generate_clamp_btn.clicked.connect(self._on_generate_clamp_clicked)
-        self._generate_clamp_btn.setEnabled(False)
-        btn_row.addWidget(self._generate_clamp_btn)
-        self._generate_generic_btn = QPushButton("Generate Narrative")
-        self._generate_generic_btn.clicked.connect(self._on_generate_generic_clicked)
-        self._generate_generic_btn.setEnabled(False)
-        btn_row.addWidget(self._generate_generic_btn)
+        self._generate_btn = QPushButton("Generate Narrative Summary")
+        self._generate_btn.clicked.connect(self._on_generate_clicked)
+        self._generate_btn.setEnabled(False)
+        btn_row.addWidget(self._generate_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
@@ -291,7 +286,7 @@ class DetailChessLogChartsView(QWidget):
         self._narrative_edit.setReadOnly(True)
         self._narrative_edit.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         self._narrative_edit.setPlaceholderText(
-            "Click 'Generate CLAMP Narrative' or 'Generate Narrative' to get an AI-written reflection on your Chess Log moments."
+            "Click 'Generate Narrative Summary' to get an AI-written reflection on your Chess Log moments."
         )
         self._narrative_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._narrative_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -383,19 +378,11 @@ class DetailChessLogChartsView(QWidget):
         if raw_name:
             self._controller.set_player_selection(raw_name)
 
-    def _dispatch_narrative(self, mode: str) -> None:
-        # TESTING: shared dispatcher for CLAMP vs generic-concept A/B test. Remove with losing branch.
+    def _on_generate_clicked(self) -> None:
         if self._controller:
-            self._generate_clamp_btn.setEnabled(False)
-            self._generate_generic_btn.setEnabled(False)
+            self._generate_btn.setEnabled(False)
             self._narrative_edit.setPlainText("Generating…")
-            self._controller.request_narrative(mode=mode)
-
-    def _on_generate_clamp_clicked(self) -> None:
-        self._dispatch_narrative("clamp")
-
-    def _on_generate_generic_clicked(self) -> None:
-        self._dispatch_narrative("generic")
+            self._controller.request_narrative()
 
     def _on_charts_loading(self) -> None:
         self._clear_charts()
@@ -562,8 +549,7 @@ class DetailChessLogChartsView(QWidget):
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
-        self._generate_clamp_btn.setEnabled(configured)
-        self._generate_generic_btn.setEnabled(configured)
+        self._generate_btn.setEnabled(configured)
         self._show_shallow_btn.setEnabled(configured)
         self._ai_hint.setVisible(not configured)
         self._model_combo.setEnabled(configured)

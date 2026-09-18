@@ -25,24 +25,18 @@ from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
 
-_TACTICAL_BREAKDOWN_INSTRUCTION_CLAMP = (
-    "The Tactical Breakdown section MUST be a markdown pipe table with exactly three "
-    "columns and a header row, in this exact format:\n\n"
-    "| Skill | Observed Issue | Strategic Impact |\n"
-    "| --- | --- | --- |\n"
-    "| ... | ... | ... |\n\n"
-    "One row per CLAMP category (or CCT category / 3x3 Why-question) that the data "
-    "supports. Use the exact CLAMP/CCT/3x3 category or question labels in the Area "
-    "column (for CLAMP: Checks, Loose Pieces and Squares, Alignments, Mobility "
-    "Restrictions, Passed Pawns; for CCT: Checks, Captures, Threats; for 3x3: the "
-    "Why-question labels). This is where CLAMP letter framing, category names, and "
-    "per-category percentages belong — not in Patterns & Recurrent Themes. Do not "
-    "repeat the same content across multiple rows. Do not add extra columns. Do not "
-    "emit any prose outside the table in this section. "
-)
-
-# TESTING: generic-concept variant for A/B comparison. Remove the losing branch once decided.
-_TACTICAL_BREAKDOWN_INSTRUCTION_GENERIC = (
+_SYSTEM_PROMPT = (
+    "You are a chess coach helping a player reflect on their self-annotated game moments. "
+    "Be specific, encouraging, and concrete. Avoid generic advice. "
+    "Write in second person ('you', 'your'). "
+    "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
+    "Write in plain, direct sentences. Never use em-dashes anywhere in your response, for any purpose - including setting off lists of numbers or parenthetical asides. Use commas, periods, or separate sentences instead. Don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
+    "Refer to time periods using their actual calendar labels (e.g. specific months or date ranges) provided in the data. Never use generic placeholder language like 'periods' or 'bins' when a real time label is available. "
+    "Structure your response as three markdown sections, in this exact order, using exactly these headers:\n\n"
+    "## Patterns & Recurrent Themes\n"
+    "## Tactical Breakdown\n"
+    "## Key Takeaways\n\n"
+    "The Patterns & Recurrent Themes section is a markdown bullet list — emit it as 2 to 4 bullet items (one per theme) using `-` as the bullet marker, with a blank line separating each bullet's body from the next bullet. Each bullet must begin with a bold sentence-fragment lead-in that names the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences of body text (e.g. `- **Rushing calculation in sharp positions.** You repeatedly ...`). The lead-in must stand on its own as a scannable summary of the theme. Do NOT nest bullets; do NOT emit sub-bullets. Focus on the underlying behavioral tendencies (rushing calculation, drifting attention in slow positions, missing prophylaxis, etc.), keep the tone player-focused, and do NOT frame around CLAMP letters or percentages — category-level detail belongs in the Tactical Breakdown section that follows. "
     "The Tactical Breakdown section MUST be a markdown pipe table with exactly three "
     "columns and a header row, in this exact format:\n\n"
     "| Skill | Observed Issue | Strategic Impact |\n"
@@ -59,41 +53,13 @@ _TACTICAL_BREAKDOWN_INSTRUCTION_GENERIC = (
     "per-concept percentages and pattern-level observations belong — not in Patterns & "
     "Recurrent Themes. Do not repeat the same content across multiple rows. Do not add "
     "extra columns. Do not emit any prose outside the table in this section. "
+    "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must begin with a bold sentence-fragment lead-in that names the actionable takeaway in 3 to 8 words, followed by a period, then the paragraph body (e.g. `**Slow down in king-attack positions.** When the tagged notes mention...`). Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the earlier sections in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit low-signal rows in the Tactical Breakdown table (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
+    "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
+    "When a preset's category letters are not all distinct (as with CCT, where both Checks and Captures start with C), never use a bare letter as shorthand for either one. Always use the full category name (Checks, Captures, Threats) to keep them unambiguous. This does not apply to CLAMP, where each letter maps to exactly one category and bare-letter shorthand (C, L, A, M, P) remains fine. "
+    "For CCT-tagged moments, a tag can describe either side of the board. A Checks, Captures, or Threats tag may mean the player's own candidate move created that problem, or it may mean the opponent's prior move created it and the player failed to respond to it. Read the why-note itself to tell which; do not assume a tag always means 'the player's move was the problem.' "
+    "When you cite a specific move from a game, always give the full move+color pairing: 'move number. move, White vs Black' (for example, '16. b4, NotThePainter vs mattsartin'). Never abbreviate to just 'vs Black' or 'the b4 move' — the reader needs the move number, the SAN, and the player-color pairing every time. "
+    "Cap verbatim quotes from the player's why-notes at 1 to 2 per theme, per table row, and per Key Takeaway paragraph. Do not sprinkle a quote into every sentence — pick the one or two that best carry the point and let them do the work. "
 )
-
-
-def _system_prompt(mode: str = "clamp") -> str:
-    """Return the system prompt for narrative generation.
-
-    mode="clamp" uses CLAMP/CCT/3x3 vocabulary in the Tactical Breakdown Area column.
-    mode="generic" requires synthesized chess-concept labels instead.
-    # TESTING: two modes for A/B comparison. Remove the losing branch once decided.
-    """
-    tactical = (
-        _TACTICAL_BREAKDOWN_INSTRUCTION_GENERIC
-        if mode == "generic"
-        else _TACTICAL_BREAKDOWN_INSTRUCTION_CLAMP
-    )
-    return (
-        "You are a chess coach helping a player reflect on their self-annotated game moments. "
-        "Be specific, encouraging, and concrete. Avoid generic advice. "
-        "Write in second person ('you', 'your'). "
-        "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
-        "Write in plain, direct sentences. Never use em-dashes anywhere in your response, for any purpose - including setting off lists of numbers or parenthetical asides. Use commas, periods, or separate sentences instead. Don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
-        "Refer to time periods using their actual calendar labels (e.g. specific months or date ranges) provided in the data. Never use generic placeholder language like 'periods' or 'bins' when a real time label is available. "
-        "Structure your response as three markdown sections, in this exact order, using exactly these headers:\n\n"
-        "## Patterns & Recurrent Themes\n"
-        "## Tactical Breakdown\n"
-        "## Key Takeaways\n\n"
-        "The Patterns & Recurrent Themes section is a markdown bullet list — emit it as 2 to 4 bullet items (one per theme) using `-` as the bullet marker, with a blank line separating each bullet's body from the next bullet. Each bullet must begin with a bold sentence-fragment lead-in that names the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences of body text (e.g. `- **Rushing calculation in sharp positions.** You repeatedly ...`). The lead-in must stand on its own as a scannable summary of the theme. Do NOT nest bullets; do NOT emit sub-bullets. Focus on the underlying behavioral tendencies (rushing calculation, drifting attention in slow positions, missing prophylaxis, etc.), keep the tone player-focused, and do NOT frame around CLAMP letters or percentages — category-level detail belongs in the Tactical Breakdown section that follows. "
-        + tactical
-        + "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must begin with a bold sentence-fragment lead-in that names the actionable takeaway in 3 to 8 words, followed by a period, then the paragraph body (e.g. `**Slow down in king-attack positions.** When the tagged notes mention...`). Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the earlier sections in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit low-signal rows in the Tactical Breakdown table (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
-        "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
-        "When a preset's category letters are not all distinct (as with CCT, where both Checks and Captures start with C), never use a bare letter as shorthand for either one. Always use the full category name (Checks, Captures, Threats) to keep them unambiguous. This does not apply to CLAMP, where each letter maps to exactly one category and bare-letter shorthand (C, L, A, M, P) remains fine. "
-        "For CCT-tagged moments, a tag can describe either side of the board. A Checks, Captures, or Threats tag may mean the player's own candidate move created that problem, or it may mean the opponent's prior move created it and the player failed to respond to it. Read the why-note itself to tell which; do not assume a tag always means 'the player's move was the problem.' "
-        "When you cite a specific move from a game, always give the full move+color pairing: 'move number. move, White vs Black' (for example, '16. b4, NotThePainter vs mattsartin'). Never abbreviate to just 'vs Black' or 'the b4 move' — the reader needs the move number, the SAN, and the player-color pairing every time. "
-        "Cap verbatim quotes from the player's why-notes at 1 to 2 per theme, per table row, and per Key Takeaway paragraph. Do not sprinkle a quote into every sentence — pick the one or two that best carry the point and let them do the work. "
-    )
 
 # Registry of per-preset glossary text.
 # Contract: preset name → verbatim glossary text. Only presets with non-empty
@@ -163,17 +129,17 @@ for a conclusion.
 
 """
 
-_NARRATIVE_STEP_TACTICAL_CLAMP = (
-    "2. **Tactical Breakdown** (a markdown pipe table, not prose): exactly the header "
-    "row `| Skill | Observed Issue | Strategic Impact |` followed by an alignment "
-    "separator row `| --- | --- | --- |` and one row per CLAMP category (or CCT "
-    "category / 3x3 Why-question) supported by the data. Category-level detail, "
-    "category names, and per-category percentages belong here. At most 1 to 2 "
-    "verbatim quotes per row. No prose outside the table in this section.\n\n"
-)
-
-# TESTING: generic-concept variant for A/B comparison. Remove the losing branch once decided.
-_NARRATIVE_STEP_TACTICAL_GENERIC = (
+_NARRATIVE_STEP = (
+    "Please write:\n\n"
+    "1. **Patterns & Recurrent Themes** (a bullet list of 2 to 4 bullets, one per "
+    "cross-cutting behavioral theme): emit each theme as a `-` bullet with a blank "
+    "line between bullets. Begin each bullet with a bold sentence-fragment lead-in "
+    "naming the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences "
+    "of body text (e.g. `- **Rushing calculation in sharp positions.** I repeatedly "
+    "...`). Focus on the player-level behavior (how I seem to think, when I rush, "
+    "what I overlook), not on CLAMP letters or category percentages — that granular "
+    "data goes in the Tactical Breakdown table below. Reference at most 1 to 2 "
+    "verbatim quotes from my own why-notes per theme. Do NOT nest bullets.\n\n"
     "2. **Tactical Breakdown** (a markdown pipe table, not prose): exactly the header "
     "row `| Skill | Observed Issue | Strategic Impact |` followed by an alignment "
     "separator row `| --- | --- | --- |` and one row per chess-concept theme supported "
@@ -182,46 +148,19 @@ _NARRATIVE_STEP_TACTICAL_GENERIC = (
     "etc.) — do NOT use CLAMP letters, CLAMP category names, CCT category names, or 3x3 "
     "Why-question labels. At most 1 to 2 verbatim quotes per row. No prose outside the "
     "table in this section.\n\n"
+    "3. **Key Takeaways** (1 to 3 short paragraphs of continuous prose, not a "
+    "numbered or bulleted list): begin each paragraph with a bold sentence-fragment "
+    "lead-in naming the actionable takeaway in 3 to 8 words, followed by a period, "
+    "then the paragraph body (e.g. `**Slow down in king-attack positions.** When "
+    "my tagged notes mention...`). Each paragraph anchored to a specific quote or "
+    "short phrase from my own why-notes or whole-game notes, naming a concrete, "
+    "actionable next step. Do not restate the earlier sections in miniature. At "
+    "most 1 to 2 verbatim quotes per paragraph.\n\n"
+    "Format all three as markdown sections with the exact headers "
+    "`## Patterns & Recurrent Themes`, `## Tactical Breakdown`, and "
+    "`## Key Takeaways`, in that order. When citing a specific move from a game, "
+    "use the full move+color pairing (e.g. `16. b4, NotThePainter vs mattsartin`).\n"
 )
-
-
-def _narrative_step(mode: str = "clamp") -> str:
-    """Return the user-message narrative instruction.
-
-    mode="clamp": Tactical Breakdown rows use CLAMP/CCT/3x3 vocabulary.
-    mode="generic": Tactical Breakdown rows use synthesized chess-concept labels.
-    # TESTING: two modes for A/B comparison. Remove the losing branch once decided.
-    """
-    tactical = (
-        _NARRATIVE_STEP_TACTICAL_GENERIC
-        if mode == "generic"
-        else _NARRATIVE_STEP_TACTICAL_CLAMP
-    )
-    return (
-        "Please write:\n\n"
-        "1. **Patterns & Recurrent Themes** (a bullet list of 2 to 4 bullets, one per "
-        "cross-cutting behavioral theme): emit each theme as a `-` bullet with a blank "
-        "line between bullets. Begin each bullet with a bold sentence-fragment lead-in "
-        "naming the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences "
-        "of body text (e.g. `- **Rushing calculation in sharp positions.** I repeatedly "
-        "...`). Focus on the player-level behavior (how I seem to think, when I rush, "
-        "what I overlook), not on CLAMP letters or category percentages — that granular "
-        "data goes in the Tactical Breakdown table below. Reference at most 1 to 2 "
-        "verbatim quotes from my own why-notes per theme. Do NOT nest bullets.\n\n"
-        + tactical
-        + "3. **Key Takeaways** (1 to 3 short paragraphs of continuous prose, not a "
-        "numbered or bulleted list): begin each paragraph with a bold sentence-fragment "
-        "lead-in naming the actionable takeaway in 3 to 8 words, followed by a period, "
-        "then the paragraph body (e.g. `**Slow down in king-attack positions.** When "
-        "my tagged notes mention...`). Each paragraph anchored to a specific quote or "
-        "short phrase from my own why-notes or whole-game notes, naming a concrete, "
-        "actionable next step. Do not restate the earlier sections in miniature. At "
-        "most 1 to 2 verbatim quotes per paragraph.\n\n"
-        "Format all three as markdown sections with the exact headers "
-        "`## Patterns & Recurrent Themes`, `## Tactical Breakdown`, and "
-        "`## Key Takeaways`, in that order. When citing a specific move from a game, "
-        "use the full move+color pairing (e.g. `16. b4, NotThePainter vs mattsartin`).\n"
-    )
 
 _CLOSING = ""
 
@@ -230,7 +169,6 @@ def build_prompt(
     games: List[GameData],
     player: str = "",
     color_filter: str = "both",
-    mode: str = "clamp",
 ) -> str:
     """Assemble the LLM prompt from the given games.
 
@@ -305,8 +243,7 @@ def build_prompt(
         why_notes_block=why_notes_block,
         game_notes_block=game_notes_block,
     )
-    instruction = _narrative_step(mode)
-    return preamble + instruction
+    return preamble + _NARRATIVE_STEP
 
 
 def generate_narrative(
@@ -320,7 +257,6 @@ def generate_narrative(
     config: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 60,
     token_limit: Optional[int] = None,
-    mode: str = "clamp",
 ) -> Tuple[bool, str, List[str]]:
     """Generate a narrative summary from the given games.
 
@@ -354,7 +290,6 @@ def generate_narrative(
         games,
         player=player,
         color_filter=color_filter,
-        mode=mode,
     )
 
     thinking = (
@@ -370,7 +305,7 @@ def generate_narrative(
         model=model,
         api_key=api_key,
         messages=messages,
-        system_prompt=_system_prompt(mode),
+        system_prompt=_SYSTEM_PROMPT,
         base_url_override=base_url_override,
         token_limit=token_limit,
         timeout_seconds=timeout_seconds,

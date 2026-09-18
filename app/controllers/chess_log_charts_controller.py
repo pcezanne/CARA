@@ -258,7 +258,6 @@ class ChessLogNarrativeThread(QThread):
         config: Optional[Dict[str, Any]],
         timeout_seconds: int = 60,
         token_limit: Optional[int] = None,
-        mode: str = "clamp",
     ) -> None:
         super().__init__()
         self._games = games
@@ -271,7 +270,6 @@ class ChessLogNarrativeThread(QThread):
         self._config = config
         self._timeout_seconds = timeout_seconds
         self._token_limit = token_limit
-        self._mode = mode
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -294,7 +292,6 @@ class ChessLogNarrativeThread(QThread):
             config=self._config,
             timeout_seconds=self._timeout_seconds,
             token_limit=self._token_limit,
-            mode=self._mode,
         )
         with QMutexLocker(self._mutex):
             if self._cancelled:
@@ -576,7 +573,7 @@ class ChessLogChartsController(QObject):
             return
         self._kick_debounce()
 
-    def request_narrative(self, mode: str = "clamp") -> None:
+    def request_narrative(self) -> None:
         """Start the narrative generation worker (idempotent: cancels running thread)."""
         if self._source_selection == 0:
             self.narrative_failed.emit("Please select a Data Source first.")
@@ -606,7 +603,6 @@ class ChessLogChartsController(QObject):
             config=self._config,
             timeout_seconds=self.get_narrative_timeout_seconds(),
             token_limit=self._narrative_token_limit,
-            mode=mode,
         )
         thread.narrative_ready.connect(self.narrative_ready)
         thread.narrative_failed.connect(self.narrative_failed)

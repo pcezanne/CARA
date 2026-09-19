@@ -1136,7 +1136,6 @@
     "overrides": {}
   },
   "chess_log": {
-    "active_preset": "CLAMP",
-    "custom_categories": []
+    "active_preset": "CLAMP"
   }
 }

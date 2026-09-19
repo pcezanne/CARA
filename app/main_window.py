@@ -1533,7 +1533,7 @@ class MainWindow(QMainWindow):
             self._refresh_chess_log_charts_ai_state()
 
     def _show_chess_log_settings(self) -> None:
-        """Show the Chess Log settings dialog (active preset + custom categories)."""
+        """Show the Chess Log settings dialog (active preset selection)."""
         from app.views.dialogs.chess_log_settings_dialog import ChessLogSettingsDialog
         from app.services.user_settings_service import UserSettingsService
 

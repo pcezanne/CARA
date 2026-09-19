@@ -188,7 +188,6 @@ class ShowShallowTagsDialog(QDialog):
 
             multi_game = len(set(id(g) for g in self._row_games)) > 1
             last_game = None
-            custom_cats = self._controller.get_custom_categories()
 
             for i, (path_key, preset, entries) in enumerate(self._rows):
                 game = self._row_games[i]
@@ -205,7 +204,6 @@ class ShowShallowTagsDialog(QDialog):
                     self._config,
                     preset,
                     entries,
-                    custom_cats,
                     move_label,
                     fen or None,
                     played_move,

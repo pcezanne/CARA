@@ -29,7 +29,7 @@ from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_f
 from app.views.style.style_manager import StyleManager
 from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
 
-_PRESET_ORDER = ["CLAMP", "CCT", "3x3", "Custom"]
+_PRESET_ORDER = ["CLAMP", "CCT", "3x3"]
 
 _3X3_KEYS = ["Why1", "Why2", "Why3", "Why4"]
 _3X3_PROMPTS = {
@@ -70,7 +70,6 @@ class _TagRowWidget(QFrame):
         config: Dict[str, Any],
         preset: str,
         entries: List[Dict[str, Any]],
-        custom_categories: List[str],
         move_label: str,
         fen: Optional[str],
         played_move: Optional[chess.Move],
@@ -82,7 +81,6 @@ class _TagRowWidget(QFrame):
         super().__init__(parent)
         self._preset = preset
         self._entries = entries
-        self._custom_categories = custom_categories
         self._config = config
         self._bg_rgb = bg_rgb
         self._text_color = text_color
@@ -233,7 +231,7 @@ class _TagRowWidget(QFrame):
             return list(CLAMP_ORDER)
         if self._preset == "CCT":
             return list(CCT_ORDER)
-        return list(self._custom_categories)
+        return []
 
     def get_current_entries(self) -> List[Dict[str, Any]]:
         """Return the current widget state as a list of entry dicts."""
@@ -447,7 +445,6 @@ class ShowTagsDialog(QDialog):
 
             multi_game = len(self._games) > 1
             last_game = None
-            custom_cats = self._controller.get_custom_categories()
 
             for i, (path_key, preset, entries) in enumerate(self._rows_data):
                 game = self._row_games[i]
@@ -465,7 +462,6 @@ class ShowTagsDialog(QDialog):
                     self.config,
                     preset,
                     entries,
-                    custom_cats,
                     move_label,
                     fen or None,
                     played_move,

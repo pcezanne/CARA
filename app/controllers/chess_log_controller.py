@@ -62,14 +62,8 @@ class ChessLogController:
         """Return the currently active Chess Log preset name (e.g. 'CLAMP')."""
         if self._user_settings_service is None:
             return "CLAMP"
-        return self._user_settings_service.get_chess_log().get("active_preset", "CLAMP")
-
-    def get_custom_categories(self) -> List[str]:
-        """Return the user-defined Custom picklist categories."""
-        if self._user_settings_service is None:
-            return []
-        cats = self._user_settings_service.get_chess_log().get("custom_categories", [])
-        return list(cats) if isinstance(cats, list) else []
+        preset = self._user_settings_service.get_chess_log().get("active_preset", "CLAMP")
+        return preset if preset in {"CLAMP", "CCT", "3x3"} else "CLAMP"
 
     def get_tags_for_current_game(self) -> Dict[str, List[Dict[str, Any]]]:
         """Return in-memory moments for the active game (loading from PGN if needed)."""

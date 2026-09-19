@@ -209,17 +209,14 @@ class TestBuildPromptGlossary(unittest.TestCase):
         self.assertIn("## Glossary — CLAMP", prompt)
         self.assertNotIn("## Glossary — CCT", prompt)
         self.assertNotIn("## Glossary — 3x3", prompt)
-        self.assertNotIn("## Glossary — Custom", prompt)
 
     def test_glossary_registry_extensible(self):
         self.assertIsInstance(_PRESET_GLOSSARIES, dict)
         self.assertIn("CLAMP", _PRESET_GLOSSARIES)
         self.assertTrue(len(_PRESET_GLOSSARIES["CLAMP"]) > 0)
-        # TODO placeholders for future presets must be present so future authors
-        # know exactly where to plug in verbatim text (not invent it)
         self.assertIn("CCT", _PRESET_GLOSSARIES)
         self.assertIn("3x3", _PRESET_GLOSSARIES)
-        self.assertIn("Custom", _PRESET_GLOSSARIES)
+        self.assertNotIn("Custom", _PRESET_GLOSSARIES)
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Dialog for tagging a Chess Log moment (CLAMP, CCT, 3x3, or Custom preset)."""
+"""Dialog for tagging a Chess Log moment (CLAMP, CCT, or 3x3 preset)."""
 
 from __future__ import annotations
 
@@ -25,11 +25,14 @@ from app.views.style import StyleManager
 from app.views.style.line_edit import generate_line_edit_stylesheet
 
 
+_VALID_PRESETS = frozenset({"CLAMP", "CCT", "3x3"})
+
+
 class MomentDialog(QDialog):
-    """Tag a game moment with the active preset (CLAMP, CCT, 3x3, or Custom).
+    """Tag a game moment with the active preset (CLAMP, CCT, or 3x3).
 
     Returns a list of {preset, cat, why} dicts on OK — one entry per selected
-    category (CLAMP/CCT/Custom) or one per Why answer (3x3, skipping blanks).
+    category (CLAMP/CCT) or one per Why answer (3x3, skipping blanks).
     All entries for a single dialog submission belong to one moment in the 3-cap.
     """
 
@@ -60,7 +63,6 @@ class MomentDialog(QDialog):
         self,
         config: Dict[str, Any],
         active_preset: str,
-        custom_categories: List[str],
         move_number: int,
         san: str,
         is_white: bool,
@@ -69,8 +71,7 @@ class MomentDialog(QDialog):
     ) -> None:
         super().__init__(parent)
         self.config = config
-        self._active_preset = active_preset
-        self._custom_categories = list(custom_categories)
+        self._active_preset = active_preset if active_preset in _VALID_PRESETS else "CLAMP"
         self._move_number = move_number
         self._san = san
         self._is_white = is_white
@@ -146,20 +147,15 @@ class MomentDialog(QDialog):
 
         # Per-preset content
         self._chip_buttons: List[tuple[str, QPushButton]] = []  # (cat_value, btn)
-        self._custom_checkboxes: List[tuple[str, QCheckBox]] = []  # (cat_value, cb) — Custom only
         self._why_edit: Optional[QTextEdit] = None
         self._threexthree_edits: List[tuple[str, QTextEdit]] = []  # (Why1/2/3/4, edit)
-        self._warning_label: Optional[QLabel] = None
 
         if self._active_preset == "CLAMP":
             self._build_clamp_content(root)
         elif self._active_preset == "CCT":
             self._build_cct_content(root)
-        elif self._active_preset == "3x3":
-            self._build_threexthree_content(root)
         else:
-            # Custom preset
-            self._build_custom_content(root)
+            self._build_threexthree_content(root)
 
         # Validation hint
         self._hint = QLabel("")
@@ -181,10 +177,6 @@ class MomentDialog(QDialog):
         btn_row.addSpacing(8)
         btn_row.addWidget(self._ok_btn)
         root.addLayout(btn_row)
-
-        # Disable OK for empty Custom picklist
-        if self._active_preset not in ("CLAMP", "CCT", "3x3") and not self._custom_categories:
-            self._ok_btn.setEnabled(False)
 
     def _label(self, text: str, parent_layout: QVBoxLayout) -> QLabel:
         lbl = QLabel(text)
@@ -242,33 +234,6 @@ class MomentDialog(QDialog):
             layout.addWidget(edit)
             self._threexthree_edits.append((key, edit))
 
-    def _build_custom_content(self, layout: QVBoxLayout) -> None:
-        if not self._custom_categories:
-            warn = QLabel(
-                "No custom categories defined yet.\n"
-                "Open Chess Log → Chess Log Settings to add some."
-            )
-            warn.setWordWrap(True)
-            warn.setFont(QFont(self._label_font, self._label_size))
-            warn.setStyleSheet("color: rgb(220, 160, 60);")
-            layout.addWidget(warn)
-            self._warning_label = warn
-            layout.addStretch(1)
-            return
-
-        self._label("Select all that apply (more than one may fit):", layout)
-        label_ss = (
-            f"color: rgb({self._label_color.red()},{self._label_color.green()},"
-            f"{self._label_color.blue()});"
-        )
-        for cat in self._custom_categories:
-            cb = QCheckBox(cat)
-            cb.setFont(QFont(self._label_font, self._label_size))
-            cb.setStyleSheet(label_ss)
-            layout.addWidget(cb)
-            self._custom_checkboxes.append((cat, cb))
-        self._build_why_field(layout)
-
     def _prefill_existing_entries(self) -> None:
         if not self._existing_entries:
             return
@@ -280,13 +245,6 @@ class MomentDialog(QDialog):
                 for key, edit in self._threexthree_edits:
                     if key in why_map:
                         edit.setPlainText(why_map[key])
-            elif self._custom_checkboxes:
-                preset_cats = {e["cat"] for e in preset_entries}
-                for cat, cb in self._custom_checkboxes:
-                    cb.setChecked(cat in preset_cats)
-                first_why = next((e.get("why", "") for e in preset_entries), "")
-                if self._why_edit and first_why:
-                    self._why_edit.setPlainText(first_why)
             else:
                 preset_cats = {e["cat"] for e in preset_entries}
                 for cat, btn in self._chip_buttons:
@@ -390,13 +348,6 @@ class MomentDialog(QDialog):
                     entries.append({"preset": "3x3", "cat": key, "why": answer})
             return entries
 
-        if self._custom_checkboxes:
-            selected = [cat for cat, cb in self._custom_checkboxes if cb.isChecked()]
-            why = self._why_edit.toPlainText().strip() if self._why_edit else ""
-            if not selected:
-                return [{"preset": "Custom", "cat": "", "why": why}] if why else []
-            return [{"preset": "Custom", "cat": cat, "why": why} for cat in selected]
-
         # CLAMP / CCT: chip multi-select + optional why
         selected = [cat for cat, btn in self._chip_buttons if btn.isChecked()]
         why = self._why_edit.toPlainText().strip() if self._why_edit else ""
@@ -421,7 +372,6 @@ class MomentDialog(QDialog):
     def tag_moment(
         config: Dict[str, Any],
         active_preset: str,
-        custom_categories: List[str],
         move_number: int,
         san: str,
         is_white: bool,
@@ -430,7 +380,7 @@ class MomentDialog(QDialog):
     ) -> Optional[List[Dict[str, Any]]]:
         """Show the dialog. Returns a list of entries on OK, None on cancel."""
         dlg = MomentDialog(
-            config, active_preset, custom_categories, move_number, san, is_white,
+            config, active_preset, move_number, san, is_white,
             existing_entries, parent,
         )
         if dlg.exec() != QDialog.DialogCode.Accepted:

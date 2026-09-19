@@ -400,12 +400,6 @@ class ChessLogChartsController(QObject):
             return ChessLogStorageService.load_tags(game)
         return self._chess_log_controller.get_tags_for_game(game)
 
-    def get_custom_categories(self) -> List[str]:
-        """Return Custom preset categories (delegates to ChessLogController)."""
-        if self._chess_log_controller is None:
-            return []
-        return self._chess_log_controller.get_custom_categories()
-
     def set_user_settings(self, user_settings: Dict[str, Any]) -> None:
         """Refresh user settings (e.g. after AI Model Settings dialog closes)."""
         was_configured = resolve_default_provider(self._user_settings) is not None
@@ -758,8 +752,6 @@ class ChessLogChartsController(QObject):
         if games is None:
             games = self._resolve_games()
         self._cancel_agg_worker()
-        custom_cats = self._user_settings.get("chess_log", {}).get("custom_categories", [])
-        preset_orders = {"Custom": list(custom_cats)} if custom_cats else {}
         chart_cfg = chart_cfg_with_chess_log_charts_overrides(
             self._config, self._target_bins, self._binning_mode
         )
@@ -768,7 +760,7 @@ class ChessLogChartsController(QObject):
             player=self._current_player,
             color_filter=self._color_filter,
             chart_cfg=chart_cfg,
-            preset_orders=preset_orders,
+            preset_orders={},
             x_axis_layout=self._x_axis_layout,
             max_gap_segment_days=self._max_gap_segment_days,
             line_style=self._line_style,

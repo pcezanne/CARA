@@ -33,7 +33,7 @@ from app.services.player_stats_service import (
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER, order_categories
 
 # Presets included in the charting pipeline
-CHARTED_PRESETS: frozenset[str] = frozenset({"CLAMP", "CCT", "Custom"})
+CHARTED_PRESETS: frozenset[str] = frozenset({"CLAMP", "CCT"})
 
 # Sentinel for uncategorized moments (cat="" from the zero-category-save feature)
 UNCATEGORIZED: str = ""
@@ -257,9 +257,7 @@ def _bin_preset(
     chart_cfg: Dict[str, Any],
     custom_order: Optional[List[str]] = None,
 ) -> ChessLogPresetSeries:
-    seed_cats: Set[str] = set(CLAMP_ORDER) if preset == "CLAMP" else (
-        set(CCT_ORDER) if preset == "CCT" else set()
-    )
+    seed_cats: Set[str] = set(CLAMP_ORDER) if preset == "CLAMP" else set(CCT_ORDER)
     all_cats: Set[str] = seed_cats | {cat for _, cat in samples}
     categories = order_categories(preset, list(all_cats), custom_order=custom_order)
 

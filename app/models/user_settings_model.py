@@ -481,10 +481,10 @@ class UserSettingsModel(QObject):
         self.set_opening_encyclopedia_dialog(cur)
 
     def get_chess_log(self) -> Dict[str, Any]:
-        """Get Chess Log settings (active_preset, custom_categories)."""
+        """Get Chess Log settings (active_preset)."""
         raw = self._settings.get("chess_log", {})
         if not isinstance(raw, dict):
-            return {"active_preset": "CLAMP", "custom_categories": []}
+            return {"active_preset": "CLAMP"}
         return raw.copy()
 
     def set_chess_log(self, settings: Dict[str, Any]) -> None:

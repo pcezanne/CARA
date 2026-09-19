@@ -1,7 +1,7 @@
 """Canonical category ordering for Chess Log presets.
 
-Provides the authoritative display ordering for CLAMP, CCT, and Custom
-category names so chart legends and tag dialogs stay in sync.
+Provides the authoritative display ordering for CLAMP and CCT category names
+so chart legends and tag dialogs stay in sync.
 """
 
 from __future__ import annotations
@@ -25,17 +25,14 @@ def order_categories(
     - Empty string (uncategorized) is always last.
 
     Args:
-        preset: Preset name ("CLAMP", "CCT", "Custom", or other).
+        preset: Preset name ("CLAMP", "CCT", or other).
         present: Categories actually present in the data.
-        custom_order: Authoritative order for Custom preset; if None,
-            Custom categories are sorted alphabetically among themselves.
+        custom_order: Unused; kept for call-site compatibility.
     """
     if preset == "CLAMP":
         canonical = list(CLAMP_ORDER)
     elif preset == "CCT":
         canonical = list(CCT_ORDER)
-    elif preset == "Custom" and custom_order:
-        canonical = list(custom_order)
     else:
         canonical = []
 

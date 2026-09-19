@@ -60,10 +60,9 @@ def _make_game_data(pgn: str = MAINLINE_PGN, game_number: int = 1):
     return GameData(game_number=game_number, pgn=pgn)
 
 
-def _make_controller(paths_data: dict, custom_categories=None):
+def _make_controller(paths_data: dict):
     ctrl = MagicMock()
     ctrl.get_tags_for_game.return_value = paths_data
-    ctrl.get_custom_categories.return_value = custom_categories or []
     ctrl.game_has_any_tags.return_value = bool(paths_data)
     ctrl.replace_entries_at_path_for_game = MagicMock()
     return ctrl
@@ -74,10 +73,10 @@ def _make_entry(preset, cat, why="", ignore_shallow=False):
     return ChessLogStorageService.make_entry(preset, cat, why, ignore_shallow=ignore_shallow)
 
 
-def _make_dialog(paths_data: dict, custom_categories=None, pgn: str = MAINLINE_PGN):
+def _make_dialog(paths_data: dict, pgn: str = MAINLINE_PGN):
     from app.views.dialogs.show_tags_dialog import ShowTagsDialog
     game_data = _make_game_data(pgn)
-    ctrl = _make_controller(paths_data, custom_categories)
+    ctrl = _make_controller(paths_data)
     return ShowTagsDialog({}, [game_data], ctrl), ctrl
 
 
@@ -88,25 +87,25 @@ def _make_dialog(paths_data: dict, custom_categories=None, pgn: str = MAINLINE_P
 @requires_qt
 class TestRowCount(unittest.TestCase):
     def test_one_row_per_move_preset_pair(self):
-        # Move at path "0" has CLAMP, move at "0.0" has CLAMP, "0.0" also has Custom → 3 rows
+        # Move at path "0" has CLAMP, move at "0.0" has CLAMP+CCT → 3 rows
         paths_data = {
             "0": [_make_entry("CLAMP", "C")],
             "0.0": [
                 _make_entry("CLAMP", "L"),
-                _make_entry("Custom", "Time trouble"),
+                _make_entry("CCT", "Threats"),
             ],
         }
         dlg, _ = _make_dialog(paths_data)
-        # "0" → 1 row (CLAMP); "0.0" → 2 rows (CLAMP + Custom)
+        # "0" → 1 row (CLAMP); "0.0" → 2 rows (CLAMP + CCT)
         self.assertEqual(len(dlg._row_widgets), 3)
 
-    def test_three_clamp_rows_plus_one_custom(self):
+    def test_three_clamp_rows_plus_one_cct(self):
         paths_data = {
             "0": [_make_entry("CLAMP", "C")],
             "0.0": [_make_entry("CLAMP", "L")],
             "0.0.0": [
                 _make_entry("CLAMP", "M"),
-                _make_entry("Custom", "Blunder"),
+                _make_entry("CCT", "Checks"),
             ],
         }
         dlg, _ = _make_dialog(paths_data)
@@ -133,18 +132,17 @@ class TestRowOrdering(unittest.TestCase):
         self.assertEqual(paths, ["0", "0.0", "0.0.0"])
 
     def test_preset_order_within_same_ply(self):
-        # One move ("0") tagged with CLAMP, CCT, Custom
+        # One move ("0") tagged with CLAMP and CCT
         paths_data = {
             "0": [
-                _make_entry("Custom", "Oops"),
                 _make_entry("CCT", "Threats"),
                 _make_entry("CLAMP", "C"),
             ],
         }
         dlg, _ = _make_dialog(paths_data)
         presets = [r[1] for r in dlg._rows_data]
-        # Should be CLAMP first, CCT second, Custom third
-        self.assertEqual(presets, ["CLAMP", "CCT", "Custom"])
+        # Should be CLAMP first, CCT second
+        self.assertEqual(presets, ["CLAMP", "CCT"])
 
 
 # ---------------------------------------------------------------------------
@@ -266,15 +264,15 @@ class TestPersistence(unittest.TestCase):
         self.assertEqual(call_args[0][1], "0.0")
 
     def test_ok_preserves_other_preset_at_same_path(self):
-        """Editing CLAMP row must NOT write to the Custom preset at the same path."""
+        """Editing CLAMP row must NOT write to the CCT preset at the same path."""
         paths_data = {
             "0": [
                 _make_entry("CLAMP", "C", "clamp why"),
-                _make_entry("Custom", "Time trouble", "custom why"),
+                _make_entry("CCT", "Threats", "cct why"),
             ],
         }
-        dlg, ctrl = _make_dialog(paths_data, custom_categories=["Time trouble"])
-        # Edit the CLAMP row (index 0 in rows_data since CLAMP < Custom)
+        dlg, ctrl = _make_dialog(paths_data)
+        # Edit only the CLAMP row
         clamp_row_idx = next(
             i for i, r in enumerate(dlg._rows_data) if r[1] == "CLAMP"
         )
@@ -339,17 +337,6 @@ class TestCheckboxState(unittest.TestCase):
         for cat in ("A", "M", "P"):
             self.assertFalse(row._checkboxes[cat].isChecked())
 
-    def test_custom_categories_render_from_controller(self):
-        paths_data = {
-            "0": [_make_entry("Custom", "Time trouble")],
-        }
-        dlg, ctrl = _make_dialog(paths_data, custom_categories=["Time trouble", "Wrong plan"])
-        row = dlg._row_widgets[0]
-        self.assertIn("Time trouble", row._checkboxes)
-        self.assertIn("Wrong plan", row._checkboxes)
-        self.assertTrue(row._checkboxes["Time trouble"].isChecked())
-        self.assertFalse(row._checkboxes["Wrong plan"].isChecked())
-
 
 # ---------------------------------------------------------------------------
 # Zero-category round-trip (cat="" legitimate saves must not be deleted on OK)
@@ -410,7 +397,6 @@ class TestMultiGameDialog(unittest.TestCase):
 
         ctrl = MagicMock()
         ctrl.get_tags_for_game.side_effect = lambda g: paths1 if g is game1 else paths2
-        ctrl.get_custom_categories.return_value = []
         ctrl.replace_entries_at_path_for_game = MagicMock()
 
         dlg = ShowTagsDialog({}, [game1, game2], ctrl)
@@ -441,7 +427,6 @@ class TestMultiGameDialog(unittest.TestCase):
         game = GameData(game_number=1, pgn=MAINLINE_PGN, white="UniqueNameXYZ", black="Bob")
         ctrl = MagicMock()
         ctrl.get_tags_for_game.return_value = {"0": [_make_entry("CLAMP", "C")]}
-        ctrl.get_custom_categories.return_value = []
         dlg = ShowTagsDialog({}, [game], ctrl)
         # With a single game, no game-header QLabel is added — the move label
         # won't contain the player name
@@ -479,7 +464,6 @@ class TestIgnoreCheckbox(unittest.TestCase):
             config={},
             preset="CLAMP",
             entries=entries,
-            custom_categories=[],
             move_label="1. e4",
             fen=None,
             played_move=None,
@@ -538,7 +522,6 @@ class TestIgnoreShallowPreservation(unittest.TestCase):
             config={},
             preset="CLAMP",
             entries=entries,
-            custom_categories=[],
             move_label="1. e4",
             fen=None,
             played_move=None,

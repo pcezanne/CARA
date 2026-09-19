@@ -69,32 +69,6 @@ class TestCCTOrder(unittest.TestCase):
         self.assertEqual(result[0], "Captures")
 
 
-class TestCustomOrder(unittest.TestCase):
-
-    def test_custom_with_order_respected(self):
-        self.assertEqual(
-            order_categories("Custom", ["Foo", "Bar", "Baz"],
-                             custom_order=["Baz", "Foo", "Bar"]),
-            ["Baz", "Foo", "Bar"],
-        )
-
-    def test_custom_without_order_alphabetical(self):
-        result = order_categories("Custom", ["Zebra", "Alpha", "Mango"])
-        self.assertEqual(result, ["Alpha", "Mango", "Zebra"])
-
-    def test_custom_with_order_unknown_cats_appended(self):
-        result = order_categories("Custom", ["Foo", "Bar", "Extra"],
-                                  custom_order=["Foo", "Bar"])
-        self.assertEqual(result[:2], ["Foo", "Bar"])
-        self.assertIn("Extra", result)
-        self.assertGreater(result.index("Extra"), 1)
-
-    def test_custom_uncategorized_always_last(self):
-        result = order_categories("Custom", ["Foo", "", "Bar"],
-                                  custom_order=["Bar", "Foo"])
-        self.assertEqual(result[-1], "")
-
-
 class TestUnknownPreset(unittest.TestCase):
 
     def test_unknown_preset_alphabetical_named_then_uncategorized(self):

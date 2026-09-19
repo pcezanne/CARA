@@ -41,12 +41,9 @@ def make_game_controller_mock(game_model: MagicMock) -> MagicMock:
     return gc
 
 
-def make_user_settings_mock(active_preset="CLAMP", custom_categories=None) -> MagicMock:
+def make_user_settings_mock(active_preset="CLAMP") -> MagicMock:
     uss = MagicMock()
-    uss.get_chess_log.return_value = {
-        "active_preset": active_preset,
-        "custom_categories": custom_categories or [],
-    }
+    uss.get_chess_log.return_value = {"active_preset": active_preset}
     return uss
 
 
@@ -63,18 +60,9 @@ class TestPresetAccessors(unittest.TestCase):
         ctrl, _ = make_controller(user_settings_service=uss)
         self.assertEqual(ctrl.get_active_preset(), "CCT")
 
-    def test_get_custom_categories_reads_from_user_settings(self):
-        uss = make_user_settings_mock(custom_categories=["Time trouble", "Wrong plan"])
-        ctrl, _ = make_controller(user_settings_service=uss)
-        self.assertEqual(ctrl.get_custom_categories(), ["Time trouble", "Wrong plan"])
-
     def test_get_active_preset_defaults_to_clamp_when_no_service(self):
         ctrl, _ = make_controller(user_settings_service=None)
         self.assertEqual(ctrl.get_active_preset(), "CLAMP")
-
-    def test_get_custom_categories_defaults_to_empty_when_no_service(self):
-        ctrl, _ = make_controller(user_settings_service=None)
-        self.assertEqual(ctrl.get_custom_categories(), [])
 
     def test_get_active_preset_defaults_to_clamp_when_key_missing(self):
         uss = MagicMock()
@@ -82,11 +70,10 @@ class TestPresetAccessors(unittest.TestCase):
         ctrl, _ = make_controller(user_settings_service=uss)
         self.assertEqual(ctrl.get_active_preset(), "CLAMP")
 
-    def test_get_custom_categories_defaults_to_empty_when_key_missing(self):
-        uss = MagicMock()
-        uss.get_chess_log.return_value = {}
+    def test_get_active_preset_coerces_unknown_preset_to_clamp(self):
+        uss = make_user_settings_mock(active_preset="Custom")
         ctrl, _ = make_controller(user_settings_service=uss)
-        self.assertEqual(ctrl.get_custom_categories(), [])
+        self.assertEqual(ctrl.get_active_preset(), "CLAMP")
 
 
 class TestAddMomentBelowCap(unittest.TestCase):
@@ -416,7 +403,7 @@ class TestReplaceEntriesAtPath(unittest.TestCase):
         ctrl._cached_paths_data = {
             "0": [
                 ChessLogStorageService.make_entry("CLAMP", "M"),
-                ChessLogStorageService.make_entry("Custom", "Time trouble"),
+                ChessLogStorageService.make_entry("CCT", "Threats"),
             ]
         }
         ctrl.replace_entries_at_path(
@@ -424,11 +411,11 @@ class TestReplaceEntriesAtPath(unittest.TestCase):
         )
         entries = ctrl._cached_paths_data["0"]
         clamp = [e for e in entries if e["preset"] == "CLAMP"]
-        custom = [e for e in entries if e["preset"] == "Custom"]
+        cct = [e for e in entries if e["preset"] == "CCT"]
         self.assertEqual(len(clamp), 1)
         self.assertEqual(clamp[0]["cat"], "C")
-        self.assertEqual(len(custom), 1)
-        self.assertEqual(custom[0]["cat"], "Time trouble")
+        self.assertEqual(len(cct), 1)
+        self.assertEqual(cct[0]["cat"], "Threats")
 
     def test_new_path_creates_entry(self):
         game = make_game()

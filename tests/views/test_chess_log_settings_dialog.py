@@ -40,18 +40,15 @@ if _QT_OK:
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
 
 
-def _make_uss(active_preset="CLAMP", custom_categories=None) -> MagicMock:
+def _make_uss(active_preset="CLAMP") -> MagicMock:
     uss = MagicMock()
-    uss.get_chess_log.return_value = {
-        "active_preset": active_preset,
-        "custom_categories": list(custom_categories or []),
-    }
+    uss.get_chess_log.return_value = {"active_preset": active_preset}
     return uss
 
 
-def _make_dialog(active_preset="CLAMP", custom_categories=None):
+def _make_dialog(active_preset="CLAMP"):
     from app.views.dialogs.chess_log_settings_dialog import ChessLogSettingsDialog
-    uss = _make_uss(active_preset, custom_categories)
+    uss = _make_uss(active_preset)
     dlg = ChessLogSettingsDialog({}, uss)
     return dlg, uss
 
@@ -61,7 +58,7 @@ class TestPresetPreselect(unittest.TestCase):
     def test_clamp_preselected_by_default(self):
         dlg, _ = _make_dialog("CLAMP")
         self.assertTrue(dlg._radio_buttons["CLAMP"].isChecked())
-        for name in ("CCT", "3x3", "Custom"):
+        for name in ("CCT", "3x3"):
             self.assertFalse(dlg._radio_buttons[name].isChecked())
 
     def test_cct_preselected_when_setting_is_cct(self):
@@ -72,32 +69,22 @@ class TestPresetPreselect(unittest.TestCase):
         dlg, _ = _make_dialog("3x3")
         self.assertTrue(dlg._radio_buttons["3x3"].isChecked())
 
-    def test_custom_preselected(self):
+    def test_unknown_preset_falls_back_to_clamp(self):
         dlg, _ = _make_dialog("Custom")
-        self.assertTrue(dlg._radio_buttons["Custom"].isChecked())
+        self.assertTrue(dlg._radio_buttons["CLAMP"].isChecked())
 
 
 @requires_qt
-class TestCustomSectionVisibility(unittest.TestCase):
-    def test_custom_section_hidden_when_clamp_active(self):
+class TestCustomNotOffered(unittest.TestCase):
+    """Custom must not appear as a preset option anywhere in the dialog."""
+
+    def test_custom_not_in_radio_buttons(self):
         dlg, _ = _make_dialog("CLAMP")
-        self.assertFalse(dlg._custom_section.isVisible())
+        self.assertNotIn("Custom", dlg._radio_buttons)
 
-    def test_custom_section_visible_when_custom_active(self):
-        dlg, _ = _make_dialog("Custom")
-        self.assertTrue(dlg._custom_section.isVisible())
-
-    def test_switching_to_custom_shows_section(self):
-        dlg, _ = _make_dialog("CLAMP")
-        self.assertFalse(dlg._custom_section.isVisible())
-        dlg._radio_buttons["Custom"].setChecked(True)
-        self.assertTrue(dlg._custom_section.isVisible())
-
-    def test_switching_away_from_custom_hides_section(self):
-        dlg, _ = _make_dialog("Custom")
-        self.assertTrue(dlg._custom_section.isVisible())
-        dlg._radio_buttons["CCT"].setChecked(True)
-        self.assertFalse(dlg._custom_section.isVisible())
+    def test_custom_not_in_presets_list(self):
+        from app.views.dialogs.chess_log_settings_dialog import ChessLogSettingsDialog
+        self.assertNotIn("Custom", ChessLogSettingsDialog._PRESETS)
 
 
 @requires_qt
@@ -111,14 +98,11 @@ class TestAcceptPersists(unittest.TestCase):
         self.assertEqual(saved["active_preset"], "CCT")
         uss.save.assert_called_once()
 
-    def test_accept_saves_custom_categories(self):
-        dlg, uss = _make_dialog("Custom", ["Time trouble", "Wrong plan"])
-        # Simulate user keeping the existing categories
-        dlg._radio_buttons["Custom"].setChecked(True)
+    def test_accept_does_not_write_custom_categories(self):
+        dlg, uss = _make_dialog("CLAMP")
         dlg._on_ok()
         saved = uss.update_chess_log_settings.call_args[0][0]
-        self.assertIn("Time trouble", saved["custom_categories"])
-        self.assertIn("Wrong plan", saved["custom_categories"])
+        self.assertNotIn("custom_categories", saved)
 
     def test_cancel_does_not_persist(self):
         dlg, uss = _make_dialog("CLAMP")
@@ -126,44 +110,6 @@ class TestAcceptPersists(unittest.TestCase):
         dlg.reject()
         uss.update_chess_log_settings.assert_not_called()
         uss.save.assert_not_called()
-
-
-@requires_qt
-class TestCategoryManagement(unittest.TestCase):
-    def test_initial_categories_appear_as_rows(self):
-        dlg, _ = _make_dialog("Custom", ["A", "B", "C"])
-        # Three rows should exist
-        self.assertEqual(len(dlg._cat_rows), 3)
-        texts = [edit.text() for edit, _ in dlg._cat_rows]
-        self.assertIn("A", texts)
-        self.assertIn("B", texts)
-        self.assertIn("C", texts)
-
-    def test_add_category_appends_row(self):
-        dlg, _ = _make_dialog("Custom", ["existing"])
-        dlg._on_add_category()
-        self.assertEqual(len(dlg._cat_rows), 2)
-
-    def test_categories_saved_on_ok(self):
-        dlg, uss = _make_dialog("Custom", [])
-        dlg._radio_buttons["Custom"].setChecked(True)
-        dlg._on_add_category()
-        # Set text on the new row
-        dlg._cat_rows[0][0].setText("My category")
-        dlg._on_ok()
-        saved = uss.update_chess_log_settings.call_args[0][0]
-        self.assertIn("My category", saved["custom_categories"])
-
-    def test_blank_categories_excluded_on_save(self):
-        dlg, uss = _make_dialog("Custom", [])
-        dlg._radio_buttons["Custom"].setChecked(True)
-        dlg._on_add_category()
-        dlg._on_add_category()
-        dlg._cat_rows[0][0].setText("Good category")
-        dlg._cat_rows[1][0].setText("")  # blank — should be excluded
-        dlg._on_ok()
-        saved = uss.update_chess_log_settings.call_args[0][0]
-        self.assertEqual(saved["custom_categories"], ["Good category"])
 
 
 @requires_qt
@@ -179,11 +125,11 @@ class TestAttributionLabels(unittest.TestCase):
         self.assertIn("Developed by Dr. Can Kabadayi", self._attribution_texts(dlg))
 
     def test_threexthree_attribution_present(self):
-        dlg, _ = _make_dialog("CLAMP")  # active preset doesn't affect which rows render
+        dlg, _ = _make_dialog("CLAMP")
         self.assertIn("Developed by GM Noel Studer", self._attribution_texts(dlg))
 
-    def test_cct_and_custom_have_no_attribution(self):
-        """Exactly two attribution labels exist — CLAMP and 3x3; none for CCT or Custom."""
+    def test_exactly_two_attributions(self):
+        """Exactly two attribution labels exist — CLAMP and 3x3."""
         dlg, _ = _make_dialog("CLAMP")
         texts = self._attribution_texts(dlg)
         self.assertEqual(len(texts), 2)

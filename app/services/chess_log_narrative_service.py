@@ -101,8 +101,6 @@ _PRESET_GLOSSARIES: Dict[str, str] = {
     # 3x3 uses a structural Why-questions block rather than a letter glossary — see
     # _3X3_STRUCTURE_BLOCK and _format_3x3_structure() below.
     "3x3": "",
-    # TODO: Add Custom glossary text when Paul provides it.
-    "Custom": "",
 }
 
 _USER_PREAMBLE = """\

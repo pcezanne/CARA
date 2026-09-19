@@ -1015,7 +1015,7 @@ class UserSettingsService:
         model.set_ai_summary(current)
 
     def get_chess_log(self) -> Dict[str, Any]:
-        """Return Chess Log settings (active_preset, custom_categories)."""
+        """Return Chess Log settings (active_preset)."""
         return self.get_model().get_chess_log()
 
     def update_chess_log_settings(self, partial: Dict[str, Any]) -> None:

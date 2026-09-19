@@ -54,10 +54,6 @@ def _cct_entry(cat: str, why: str = "") -> dict:
     return ChessLogStorageService.make_entry("CCT", cat, why)
 
 
-def _custom_entry(cat: str, why: str = "") -> dict:
-    return ChessLogStorageService.make_entry("Custom", cat, why)
-
-
 def _threexthree_entry(cat: str, why: str) -> dict:
     return ChessLogStorageService.make_entry("3x3", cat, why)
 
@@ -120,27 +116,21 @@ class TestPresetSeparation(unittest.TestCase):
             entries_per_path={
                 "0": [_clamp_entry("C")],
                 "0.0": [_cct_entry("Checks")],
-                "0.0.0": [_custom_entry("Time trouble")],
             },
         )
 
-    def test_three_presets_produce_three_series(self):
+    def test_two_presets_produce_two_series(self):
         result = aggregate([self._mixed_game()], player="Alice")
         self.assertIn("CLAMP", result)
         self.assertIn("CCT", result)
-        self.assertIn("Custom", result)
-        self.assertEqual(len(result), 3)
+        self.assertEqual(len(result), 2)
 
     def test_presets_not_mixed(self):
         result = aggregate([self._mixed_game()], player="Alice")
-        for preset, series in result.items():
-            for b in series.bins:
-                for cat in b.counts:
-                    self.assertNotIn(cat, {"Checks", "C", "Time trouble"} - {
-                        "Checks" if preset == "CCT" else "",
-                        "C" if preset == "CLAMP" else "",
-                        "Time trouble" if preset == "Custom" else "",
-                    })
+        clamp_cats = set().union(*(b.counts.keys() for b in result["CLAMP"].bins))
+        cct_cats = set().union(*(b.counts.keys() for b in result["CCT"].bins))
+        self.assertNotIn("Checks", clamp_cats)
+        self.assertNotIn("C", cct_cats)
 
     def test_3x3_excluded(self):
         game = _make_game(
@@ -261,22 +251,6 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
         cats = result["CLAMP"].categories
         self.assertEqual(cats, ["C", "L", "A", "M", "P"])
 
-    def test_custom_with_preset_orders_respected(self):
-        game = self._game_with_cats("Custom", ["Zeta", "Alpha", "Mango"], _custom_entry)
-        result = aggregate(
-            [game],
-            player="Alice",
-            preset_orders={"Custom": ["Mango", "Alpha", "Zeta"]},
-        )
-        cats = result["Custom"].categories
-        self.assertEqual(cats, ["Mango", "Alpha", "Zeta"])
-
-    def test_custom_without_preset_orders_alphabetical(self):
-        game = self._game_with_cats("Custom", ["Zeta", "Alpha"], _custom_entry)
-        result = aggregate([game], player="Alice")
-        cats = result["Custom"].categories
-        self.assertEqual(cats, ["Alpha", "Zeta"])
-
     def test_uncategorized_always_last_in_canonical_order(self):
         paths = {
             "0": [_clamp_entry("P")],
@@ -312,16 +286,6 @@ class TestCanonicalCategoryAlwaysPresent(unittest.TestCase):
         game = self._game_with_cats("CCT", ["Threats"], _cct_entry)
         result = aggregate([game], player="Alice")
         self.assertEqual(result["CCT"].categories, ["Checks", "Captures", "Threats"])
-
-    def test_custom_only_present_categories_shown(self):
-        # Custom preset does NOT seed — only categories with data appear.
-        game = self._game_with_cats("Custom", ["Alpha"], _custom_entry)
-        result = aggregate(
-            [game],
-            player="Alice",
-            preset_orders={"Custom": ["Alpha", "Beta", "Gamma"]},
-        )
-        self.assertEqual(result["Custom"].categories, ["Alpha"])
 
     def test_clamp_seeded_cats_have_zero_counts_in_bins(self):
         # Seeded categories absent from data must appear in categories list

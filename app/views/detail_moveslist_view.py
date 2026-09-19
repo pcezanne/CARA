@@ -520,7 +520,6 @@ class DetailMovesListView(QWidget):
                     return
 
         active_preset = self._chess_log_controller.get_active_preset()
-        custom_categories = self._chess_log_controller.get_custom_categories()
         existing_entries = self._chess_log_controller.get_entries_at_active_path()
 
         if not self._chess_log_controller.should_confirm_extra_moment(self):
@@ -528,7 +527,7 @@ class DetailMovesListView(QWidget):
 
         from app.views.dialogs.moment_dialog import MomentDialog
         entries = MomentDialog.tag_moment(
-            self.config, active_preset, custom_categories, move_number, san, is_white,
+            self.config, active_preset, move_number, san, is_white,
             existing_entries, self,
         )
         if not entries:

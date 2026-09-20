@@ -234,7 +234,7 @@ class MomentDialog(QDialog):
             self._label(prompt, layout)
             edit = QTextEdit()
             edit.setAcceptRichText(False)
-            edit.setFixedHeight(68)
+            edit.setMinimumHeight(68)
             edit.setStyleSheet(le_ss)
             layout.addWidget(edit)
             self._threexthree_edits.append((key, edit))
@@ -284,7 +284,7 @@ class MomentDialog(QDialog):
         self._why_edit = QTextEdit()
         self._why_edit.setAcceptRichText(False)
         self._why_edit.setPlaceholderText("Optional — why did this happen?")
-        self._why_edit.setFixedHeight(72)
+        self._why_edit.setMinimumHeight(72)
         self._why_edit.setStyleSheet(self._textedit_stylesheet())
         layout.addWidget(self._why_edit)
 

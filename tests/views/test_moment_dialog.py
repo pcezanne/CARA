@@ -240,5 +240,29 @@ class TestMomentDialogThemeColors(unittest.TestCase):
         self.assertEqual(dlg._muted_rgb, [130, 145, 165])
 
 
+@requires_qt
+class TestOnOkBehavior(unittest.TestCase):
+    """_on_ok validation gating differs by preset."""
+
+    def test_clamp_empty_shows_hint(self):
+        dlg = _make("CLAMP")
+        dlg._on_ok()
+        self.assertIn("category", dlg._hint.text())
+
+    def test_cct_empty_shows_hint(self):
+        dlg = _make("CCT")
+        dlg._on_ok()
+        self.assertIn("category", dlg._hint.text())
+
+    def test_3x3_empty_accepts_silently(self):
+        from PyQt6.QtWidgets import QDialog
+        dlg = _make("3x3")
+        dlg._on_ok()
+        # hint must NOT be shown
+        self.assertFalse(dlg._hint.isVisible())
+        # dialog must have accepted (result = Accepted)
+        self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
+
+
 if __name__ == "__main__":
     unittest.main()

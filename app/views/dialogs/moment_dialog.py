@@ -363,7 +363,7 @@ class MomentDialog(QDialog):
 
     def _on_ok(self) -> None:
         entries = self.get_entries()
-        if not entries:
+        if not entries and self._active_preset != "3x3":
             self._hint.setText("Select a category, or add a note to save uncategorized.")
             self._hint.setVisible(True)
             return

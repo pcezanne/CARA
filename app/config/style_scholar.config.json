@@ -4056,6 +4056,83 @@
           "$ref": "$_COLOR_TAUPE_SAND"
         }
       },
+      "moment": {
+        "width": 420,
+        "button_width": 100,
+        "button_height": 28,
+        "background_color": {
+          "$ref": "$_COLOR_PAPYRUS_PANEL"
+        },
+        "border_color": {
+          "$ref": "$_COLOR_FOREST_OUTLINE"
+        },
+        "text_color": {
+          "$ref": "$_COLOR_COCOA_BROWN"
+        },
+        "hint_color": [
+          180,
+          60,
+          40
+        ],
+        "muted_color": {
+          "$ref": "$_COLOR_DRIFTWOOD"
+        },
+        "separator_color": {
+          "$ref": "$_COLOR_PEACH_OUTLINE"
+        },
+        "label_font_family": {
+          "$ref": "$_FONT_FAMILY_PRIMARY"
+        },
+        "label_font_size": {
+          "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+        },
+        "chip_bg_color": {
+          "$ref": "$_COLOR_TAUPE_SAND"
+        },
+        "chip_selected_color": {
+          "$ref": "$_COLOR_BOURBON_TEAL"
+        },
+        "chip_text_color": {
+          "$ref": "$_COLOR_COCOA_BROWN"
+        },
+        "chip_border_color": {
+          "$ref": "$_COLOR_PEACH_OUTLINE"
+        },
+        "chip_hover_border_color": {
+          "$ref": "$_COLOR_FOREST_FRAME"
+        },
+        "inputs": {
+          "font_family": {
+            "$ref": "$_FONT_FAMILY_MONO"
+          },
+          "font_size": {
+            "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+          },
+          "text_color": {
+            "$ref": "$_COLOR_COCOA_BROWN"
+          },
+          "background_color": {
+            "$ref": "$_COLOR_PAPYRUS_FIELD"
+          },
+          "border_color": {
+            "$ref": "$_COLOR_PEACH_OUTLINE"
+          },
+          "focus_border_color": {
+            "$ref": "$_COLOR_FOCUS_RING_TEAL"
+          }
+        }
+      },
+      "chess_log_settings": {
+        "background_color": {
+          "$ref": "$_COLOR_PAPYRUS_PANEL"
+        },
+        "border_color": {
+          "$ref": "$_COLOR_FOREST_OUTLINE"
+        },
+        "text_color": {
+          "$ref": "$_COLOR_COCOA_BROWN"
+        }
+      },
       "classification_settings": {
         "width": 920,
         "bottom_button_top_padding": 25,

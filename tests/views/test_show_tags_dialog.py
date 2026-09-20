@@ -613,5 +613,43 @@ class TestBestMoveArrow(unittest.TestCase):
         self.assertIsNone(dlg._row_widgets[0]._best_move)
 
 
+@requires_qt
+class TestShowTagsDialogThemeColors(unittest.TestCase):
+    """ShowTagsDialog must route separator and text-editor colors through config."""
+
+    def _make_themed_dialog(self, moment_cfg: dict):
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        config = {"ui": {"dialogs": {"moment": moment_cfg}}}
+        paths_data = {
+            "0": [_make_entry("CLAMP", "C", "first")],
+            "0.0": [_make_entry("CLAMP", "L", "second")],
+        }
+        game_data = _make_game_data(MAINLINE_PGN)
+        ctrl = _make_controller(paths_data)
+        with __import__("unittest.mock", fromlist=["patch"]).patch(
+            "app.views.dialogs.show_tags_dialog.resolve_best_move_for_path",
+            return_value=None,
+        ):
+            dlg = ShowTagsDialog(config, [game_data], ctrl)
+        return dlg
+
+    def test_separator_uses_config_color(self):
+        dlg = self._make_themed_dialog({"separator_color": [10, 20, 30]})
+        sep = dlg._make_separator()
+        self.assertIn("rgb(10,20,30)", sep.styleSheet())
+
+    def test_separator_fallback_dark(self):
+        dlg = self._make_themed_dialog({})
+        sep = dlg._make_separator()
+        self.assertIn("rgb(70,70,75)", sep.styleSheet())
+
+    def test_text_widget_uses_input_bg_from_config(self):
+        from PyQt6.QtWidgets import QPlainTextEdit
+        dlg = self._make_themed_dialog({"inputs": {"background_color": [5, 6, 7], "border_color": [8, 9, 10]}})
+        te = QPlainTextEdit()
+        dlg._row_widgets[0]._style_text_widget(te)
+        self.assertIn("rgb(5,6,7)", te.styleSheet())
+
+
 if __name__ == "__main__":
     unittest.main()

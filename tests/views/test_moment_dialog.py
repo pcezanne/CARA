@@ -205,5 +205,40 @@ class TestCustomNotOffered(unittest.TestCase):
         self.assertIsNone(result)
 
 
+@requires_qt
+class TestMomentDialogThemeColors(unittest.TestCase):
+    """MomentDialog must read colors from config, not use hardcoded literals."""
+
+    def _make_themed(self, extra_config: dict):
+        from app.views.dialogs.moment_dialog import MomentDialog
+        config = {"ui": {"dialogs": {"moment": extra_config}, "styles": {}}}
+        return MomentDialog(config, "CLAMP", 1, "e4", True)
+
+    def test_uses_hint_color_from_config(self):
+        dlg = self._make_themed({"hint_color": [10, 20, 30]})
+        self.assertEqual(dlg._hint_rgb, [10, 20, 30])
+        self.assertIn("rgb(10,20,30)", dlg._hint.styleSheet())
+
+    def test_uses_muted_color_from_config(self):
+        dlg = self._make_themed({"muted_color": [11, 22, 33]})
+        self.assertEqual(dlg._muted_rgb, [11, 22, 33])
+
+    def test_uses_chip_border_from_config(self):
+        dlg = self._make_themed({"chip_border_color": [44, 55, 66]})
+        self.assertEqual(dlg._chip_border_rgb, [44, 55, 66])
+
+    def test_uses_chip_hover_border_from_config(self):
+        dlg = self._make_themed({"chip_hover_border_color": [77, 88, 99]})
+        self.assertEqual(dlg._chip_hover_border_rgb, [77, 88, 99])
+
+    def test_fallback_hint_color_dark(self):
+        dlg = _make()
+        self.assertEqual(dlg._hint_rgb, [220, 80, 80])
+
+    def test_fallback_muted_color_dark(self):
+        dlg = _make()
+        self.assertEqual(dlg._muted_rgb, [130, 145, 165])
+
+
 if __name__ == "__main__":
     unittest.main()

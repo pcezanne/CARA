@@ -111,9 +111,13 @@ class MomentDialog(QDialog):
             self._label_size = 11
 
         self._label_color = QColor(*dc.get("text_color", [200, 200, 200]))
+        self._hint_rgb = dc.get("hint_color", [220, 80, 80])
+        self._muted_rgb = dc.get("muted_color", [130, 145, 165])
         self._chip_bg_rgb = dc.get("chip_bg_color", [55, 55, 62])
         self._chip_sel_rgb = dc.get("chip_selected_color", [0, 100, 180])
         self._chip_text_rgb = dc.get("chip_text_color", [200, 200, 205])
+        self._chip_border_rgb = dc.get("chip_border_color", [75, 75, 82])
+        self._chip_hover_border_rgb = dc.get("chip_hover_border_color", [120, 120, 128])
 
         inputs = dc.get("inputs", {})
         try:
@@ -159,7 +163,8 @@ class MomentDialog(QDialog):
 
         # Validation hint
         self._hint = QLabel("")
-        self._hint.setStyleSheet("color: rgb(220, 80, 80); font-size: 10px;")
+        hr, hg, hb = self._hint_rgb
+        self._hint.setStyleSheet(f"color: rgb({hr},{hg},{hb}); font-size: 10px;")
         self._hint.setVisible(False)
         root.addWidget(self._hint)
 
@@ -265,7 +270,8 @@ class MomentDialog(QDialog):
         lbl = QLabel("Also tagged: " + " · ".join(parts))
         lbl.setWordWrap(True)
         lbl.setFont(QFont(self._label_font, max(8, self._label_size - 1)))
-        lbl.setStyleSheet("color: rgb(130, 145, 165); font-style: italic;")
+        mr, mg, mb = self._muted_rgb
+        lbl.setStyleSheet(f"color: rgb({mr},{mg},{mb}); font-style: italic;")
         layout.insertWidget(layout.count() - 2, lbl)
 
     def _build_why_field(self, layout: QVBoxLayout) -> None:
@@ -323,10 +329,10 @@ class MomentDialog(QDialog):
             chip_ss = (
                 f"QPushButton {{ background-color: rgb({self._chip_bg_rgb[0]},{self._chip_bg_rgb[1]},{self._chip_bg_rgb[2]}); "
                 f"color: rgb({self._chip_text_rgb[0]},{self._chip_text_rgb[1]},{self._chip_text_rgb[2]}); "
-                f"border: 1px solid rgb(75,75,82); border-radius: 4px; font-weight: bold; }}"
+                f"border: 1px solid rgb({self._chip_border_rgb[0]},{self._chip_border_rgb[1]},{self._chip_border_rgb[2]}); border-radius: 4px; font-weight: bold; }}"
                 f"QPushButton:checked {{ background-color: rgb({self._chip_sel_rgb[0]},{self._chip_sel_rgb[1]},{self._chip_sel_rgb[2]}); "
                 f"color: white; border: 1px solid rgb({self._chip_sel_rgb[0]},{self._chip_sel_rgb[1]},{self._chip_sel_rgb[2]}); }}"
-                f"QPushButton:hover {{ border: 1px solid rgb(120,120,128); }}"
+                f"QPushButton:hover {{ border: 1px solid rgb({self._chip_hover_border_rgb[0]},{self._chip_hover_border_rgb[1]},{self._chip_hover_border_rgb[2]}); }}"
             )
             for _, btn in self._chip_buttons:
                 btn.setStyleSheet(chip_ss)

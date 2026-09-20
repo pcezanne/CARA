@@ -223,9 +223,14 @@ class _TagRowWidget(QFrame):
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
         tr, tg, tb = self._text_color
+        dc = self._config.get("ui", {}).get("dialogs", {}).get("moment", {})
+        inp = dc.get("inputs", {})
+        ibg = inp.get("background_color", [30, 30, 35])
+        ibr = inp.get("border_color", [60, 60, 65])
         te.setStyleSheet(
-            f"color: rgb({tr},{tg},{tb}); background-color: rgb(30,30,35);"
-            "border: 1px solid rgb(60,60,65);"
+            f"color: rgb({tr},{tg},{tb}); "
+            f"background-color: rgb({ibg[0]},{ibg[1]},{ibg[2]}); "
+            f"border: 1px solid rgb({ibr[0]},{ibr[1]},{ibr[2]});"
         )
 
     def _categories_for_preset(self) -> List[str]:
@@ -338,6 +343,7 @@ class ShowTagsDialog(QDialog):
         self._bg_rgb = dc.get("background_color", [40, 40, 45])
         self._border_rgb = dc.get("border_color", [60, 60, 65])
         self._text_color_rgb = dc.get("text_color", [200, 200, 200])
+        self._separator_rgb = dc.get("separator_color", [70, 70, 75])
         self._button_width = dc.get("button_width", 100)
         self._button_height = dc.get("button_height", 28)
 
@@ -393,7 +399,8 @@ class ShowTagsDialog(QDialog):
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setFrameShadow(QFrame.Shadow.Plain)
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background-color: rgb(70, 70, 75); border: none;")
+        sr, sg, sb = self._separator_rgb
+        sep.setStyleSheet(f"background-color: rgb({sr},{sg},{sb}); border: none;")
         return sep
 
     def _make_game_header(self, game) -> QLabel:

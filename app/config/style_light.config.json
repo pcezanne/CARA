@@ -4150,6 +4150,85 @@
           227
         ]
       },
+      "moment": {
+        "width": 420,
+        "button_width": 100,
+        "button_height": 28,
+        "background_color": {
+          "$ref": "$_COLOR_BACKGROUND_PRIMARY"
+        },
+        "border_color": {
+          "$ref": "$_COLOR_BUTTON_BORDER"
+        },
+        "text_color": {
+          "$ref": "$_COLOR_TEXT_SECONDARY"
+        },
+        "hint_color": [
+          190,
+          50,
+          50
+        ],
+        "muted_color": {
+          "$ref": "$_COLOR_TEXT_4"
+        },
+        "separator_color": {
+          "$ref": "$_COLOR_SEPERATOR_BACKGROUND"
+        },
+        "label_font_family": {
+          "$ref": "$_FONT_FAMILY_PRIMARY"
+        },
+        "label_font_size": {
+          "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+        },
+        "chip_bg_color": {
+          "$ref": "$_COLOR_BACKGROUND_5"
+        },
+        "chip_selected_color": {
+          "$ref": "$_COLOR_ACCENT_PRIMARY"
+        },
+        "chip_text_color": {
+          "$ref": "$_COLOR_TEXT_SECONDARY"
+        },
+        "chip_border_color": {
+          "$ref": "$_COLOR_BUTTON_BORDER"
+        },
+        "chip_hover_border_color": [
+          100,
+          120,
+          160
+        ],
+        "inputs": {
+          "font_family": {
+            "$ref": "$_FONT_FAMILY_MONO"
+          },
+          "font_size": {
+            "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+          },
+          "text_color": {
+            "$ref": "$_COLOR_TEXT_PRIMARY"
+          },
+          "background_color": {
+            "$ref": "$_COLOR_BACKGROUND_SECONDARY"
+          },
+          "border_color": {
+            "$ref": "$_COLOR_BUTTON_BORDER"
+          },
+          "focus_border_color": {
+            "$ref": "$_COLOR_INPUT_FOCUS_BORDER"
+          }
+        }
+      },
+      "chess_log_settings": {
+        "background_color": {
+          "$ref": "$_COLOR_BACKGROUND_PRIMARY"
+        },
+        "border_color": {
+          "$ref": "$_COLOR_BUTTON_BORDER"
+        },
+        "text_color": {
+          "$ref": "$_COLOR_TEXT_SECONDARY"
+        }
+      },
       "classification_settings": {
         "width": 920,
         "bottom_button_top_padding": 25,

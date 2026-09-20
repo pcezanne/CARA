@@ -81,7 +81,7 @@ class MomentDialog(QDialog):
         self._setup_ui()
         self._prefill_existing_entries()
         self._apply_styling()
-        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_size()
 
         color_str = "White" if is_white else "Black"
@@ -338,7 +338,7 @@ class MomentDialog(QDialog):
                 btn.setStyleSheet(chip_ss)
 
     def _apply_size(self) -> None:
-        self.setFixedWidth(int(self._dialog_width))
+        self.setMinimumWidth(int(self._dialog_width))
 
     # ------------------------------------------------------------------
     # Result

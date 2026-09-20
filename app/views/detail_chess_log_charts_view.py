@@ -279,6 +279,11 @@ class DetailChessLogChartsView(QWidget):
         shallow_row.addStretch()
         layout.addLayout(shallow_row)
 
+        self._shallow_hint = QLabel("")
+        self._shallow_hint.setWordWrap(True)
+        self._shallow_hint.setVisible(False)
+        layout.addWidget(self._shallow_hint)
+
         btn_row = QHBoxLayout()
         self._generate_btn = QPushButton("Generate Narrative Summary")
         self._generate_btn.clicked.connect(self._on_generate_clicked)
@@ -363,6 +368,7 @@ class DetailChessLogChartsView(QWidget):
             QGroupBox::title {{ color: {text_s}; subcontrol-origin: margin; left: 8px; }}
         """)
         self._ai_hint.setStyleSheet(f"color: {hint_s}; border: none;")
+        self._shallow_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._placeholder.setStyleSheet(f"color: {hint_s}; border: none;")
 
     # ------------------------------------------------------------------
@@ -563,9 +569,24 @@ class DetailChessLogChartsView(QWidget):
         configured = bool(self._controller and self._controller.is_ai_configured())
         source_selected = self._source_combo.currentIndex() > 0
         player_selected = self._player_combo.currentIndex() >= 0
+        shallow_enabled = configured and source_selected and player_selected
         self._generate_btn.setEnabled(configured)
-        self._show_shallow_btn.setEnabled(configured and source_selected and player_selected)
+        self._show_shallow_btn.setEnabled(shallow_enabled)
         self._ai_hint.setVisible(not configured)
+        if not configured:
+            self._shallow_hint.setText(
+                "Configure an AI provider in Chess Log → AI Model Settings to enable shallow tag analysis."
+            )
+            self._shallow_hint.setVisible(True)
+        elif not source_selected:
+            self._shallow_hint.setText("Select a Data Source to enable shallow tag analysis.")
+            self._shallow_hint.setVisible(True)
+        elif not player_selected:
+            self._shallow_hint.setText("Select a player to enable shallow tag analysis.")
+            self._shallow_hint.setVisible(True)
+        else:
+            self._shallow_hint.setText("")
+            self._shallow_hint.setVisible(False)
         self._model_combo.setEnabled(configured)
         self._timeout_spin.setEnabled(configured)
         self._tokens_spin.setEnabled(configured)

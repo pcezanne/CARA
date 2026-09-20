@@ -366,6 +366,33 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view._player_combo.setCurrentIndex(0)
         self.assertTrue(view._show_shallow_btn.isEnabled())
 
+    # --- Shallow hint label ---
+
+    def test_shallow_hint_exists(self):
+        view = self._make_view()
+        self.assertTrue(hasattr(view, "_shallow_hint"))
+
+    def test_shallow_hint_text_when_no_ai(self):
+        view = self._make_view(ai=False)
+        self.assertIn("AI provider", view._shallow_hint.text())
+
+    def test_shallow_hint_text_when_ai_but_no_source(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        # source at index 0 ("None")
+        self.assertIn("Data Source", view._shallow_hint.text())
+
+    def test_shallow_hint_text_when_source_but_no_player(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._source_combo.setCurrentIndex(1)
+        self.assertIn("player", view._shallow_hint.text())
+
+    def test_shallow_hint_cleared_when_all_ready(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._source_combo.setCurrentIndex(1)
+        view._player_combo.addItem("Alice (3 tagged)", "Alice")
+        view._player_combo.setCurrentIndex(0)
+        self.assertEqual("", view._shallow_hint.text())
+
     # --- Model combo ---
 
     def test_model_combo_exists(self):

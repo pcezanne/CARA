@@ -33,6 +33,7 @@ class TagRowSnapshot:
     fen: Optional[str]
     played_move: Optional[chess.Move]
     show_ignore: bool
+    best_move: Optional[chess.Move] = field(default=None)
 
 
 _3X3_PROMPTS: Dict[str, str] = {
@@ -409,7 +410,7 @@ class ChessLogPDFService(BasePDFReportService):
         y_inner += header_h + 4.0
 
         # Board miniature
-        board_px = self._render_board(row.fen, row.played_move)
+        board_px = self._render_board(row.fen, row.played_move, row.best_move)
         if board_px and not board_px.isNull():
             target = QRectF(x_inner, y_inner, board_sz, board_sz)
             painter.drawPixmap(
@@ -1006,7 +1007,10 @@ class ChessLogPDFService(BasePDFReportService):
         return y
 
     def _render_board(
-        self, fen: Optional[str], played_move: Optional[chess.Move]
+        self,
+        fen: Optional[str],
+        played_move: Optional[chess.Move],
+        best_move: Optional[chess.Move] = None,
     ) -> Optional[QPixmap]:
         """Rasterize a MiniChessBoardWidget for PDF embedding."""
         try:
@@ -1019,8 +1023,7 @@ class ChessLogPDFService(BasePDFReportService):
                 embedded=True,
                 size_override=size_px,
             )
-            if played_move is not None:
-                widget.set_move(played_move, True)
+            widget.set_played_and_best(played_move, best_move)
             widget_size = widget.size()
             image = QImage(widget_size, QImage.Format.Format_ARGB32_Premultiplied)
             image.fill(Qt.GlobalColor.white)

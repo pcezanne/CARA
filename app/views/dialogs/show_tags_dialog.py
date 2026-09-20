@@ -23,6 +23,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
@@ -76,6 +77,7 @@ class _TagRowWidget(QFrame):
         bg_rgb: List[int],
         text_color: List[int],
         show_ignore_checkbox: bool = False,
+        best_move: Optional[chess.Move] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -94,6 +96,7 @@ class _TagRowWidget(QFrame):
 
         self._fen: Optional[str] = fen
         self._played_move: Optional[chess.Move] = played_move
+        self._best_move: Optional[chess.Move] = best_move
 
         self._checkboxes: Dict[str, QCheckBox] = {}
         self._why_texts: Dict[str, QPlainTextEdit] = {}
@@ -156,8 +159,7 @@ class _TagRowWidget(QFrame):
                     scale_factor=_MINI_BOARD_SCALE,
                     embedded=True,
                 )
-                if played_move is not None:
-                    board_widget.set_move(played_move, True)
+                board_widget.set_played_and_best(played_move, self._best_move)
                 cols.addWidget(board_widget, 0, Qt.AlignmentFlag.AlignTop)
             except Exception:
                 ph = QLabel("Board\nunavailable")
@@ -271,6 +273,7 @@ class _TagRowWidget(QFrame):
             entries=self.get_current_entries(),
             fen=self._fen,
             played_move=self._played_move,
+            best_move=self._best_move,
             show_ignore=self._show_ignore_checkbox,
         )
 
@@ -457,6 +460,7 @@ class ShowTagsDialog(QDialog):
                     self._rows_layout.addWidget(self._make_separator())
 
                 fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
+                best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_is_shallow = any(e.get("is_shallow") for e in entries)
                 row_widget = _TagRowWidget(
                     self.config,
@@ -468,6 +472,7 @@ class ShowTagsDialog(QDialog):
                     self._bg_rgb,
                     self._text_color_rgb,
                     show_ignore_checkbox=row_is_shallow,
+                    best_move=best_move,
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

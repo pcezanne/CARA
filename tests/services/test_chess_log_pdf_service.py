@@ -766,5 +766,72 @@ class TestDrawNarrativePaginatedBulletDetection(unittest.TestCase):
         self.assertEqual(dash_prefix_calls, [], "No '- ' prefix should reach drawText")
 
 
+class TestTagRowSnapshotBestMove(unittest.TestCase):
+    """TagRowSnapshot carries the best_move field."""
+
+    def test_snapshot_default_best_move_none(self):
+        from app.services.chess_log_pdf_service import TagRowSnapshot
+        snap = TagRowSnapshot(
+            move_label="1. e4",
+            preset="CLAMP",
+            entries=[],
+            fen=None,
+            played_move=None,
+            show_ignore=False,
+        )
+        self.assertIsNone(snap.best_move)
+
+    def test_snapshot_stores_best_move(self):
+        import chess
+        from app.services.chess_log_pdf_service import TagRowSnapshot
+        best = chess.Move.from_uci("d2d4")
+        snap = TagRowSnapshot(
+            move_label="1. e4",
+            preset="CLAMP",
+            entries=[],
+            fen=None,
+            played_move=chess.Move.from_uci("e2e4"),
+            show_ignore=False,
+            best_move=best,
+        )
+        self.assertEqual(snap.best_move, best)
+
+
+@requires_qt
+class TestRenderBoardPassesBestMove(unittest.TestCase):
+    """_render_board forwards best_move to set_played_and_best."""
+
+    def test_render_board_calls_set_played_and_best(self):
+        import chess
+        from unittest.mock import patch
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        svc = ChessLogPDFService({})
+        played = chess.Move.from_uci("e2e4")
+        best = chess.Move.from_uci("d2d4")
+        captured_calls = []
+
+        from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget as _Real
+
+        class _SpyWidget(_Real):
+            def set_played_and_best(self, p, b=None):
+                captured_calls.append((p, b))
+                super().set_played_and_best(p, b)
+
+        # _render_board uses a local import from mini_chessboard_widget module
+        with patch(
+            "app.views.widgets.mini_chessboard_widget.MiniChessBoardWidget",
+            new=_SpyWidget,
+        ):
+            svc._render_board(
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                played,
+                best,
+            )
+
+        self.assertEqual(len(captured_calls), 1)
+        self.assertEqual(captured_calls[0], (played, best))
+
+
 if __name__ == "__main__":
     unittest.main()

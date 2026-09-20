@@ -545,5 +545,73 @@ class TestIgnoreShallowPreservation(unittest.TestCase):
         self.assertFalse(any(e.get("ignore_shallow") for e in entries))
 
 
+@requires_qt
+class TestBestMoveArrow(unittest.TestCase):
+    """Tests confirming best_move is resolved and threaded into _TagRowWidget."""
+
+    def _make_row_with_best(self, best_move=None):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        import chess
+        entry = _make_entry("CLAMP", "C", "note")
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=[entry],
+            move_label="1. e4",
+            fen="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+            played_move=chess.Move.from_uci("e2e4"),
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            best_move=best_move,
+        )
+
+    def test_row_widget_stores_best_move_none(self):
+        row = self._make_row_with_best(None)
+        self.assertIsNone(row._best_move)
+
+    def test_row_widget_stores_best_move(self):
+        import chess
+        best = chess.Move.from_uci("d2d4")
+        row = self._make_row_with_best(best)
+        self.assertEqual(row._best_move, best)
+
+    def test_snapshot_carries_best_move(self):
+        import chess
+        best = chess.Move.from_uci("d2d4")
+        row = self._make_row_with_best(best)
+        snap = row.snapshot()
+        self.assertEqual(snap.best_move, best)
+
+    def test_snapshot_best_move_none_when_unset(self):
+        row = self._make_row_with_best(None)
+        snap = row.snapshot()
+        self.assertIsNone(snap.best_move)
+
+    def test_dialog_calls_resolve_best_move(self):
+        """ShowTagsDialog calls resolve_best_move_for_path for each row."""
+        from unittest.mock import patch
+        import chess
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        fake_best = chess.Move.from_uci("d2d4")
+        with patch(
+            "app.views.dialogs.show_tags_dialog.resolve_best_move_for_path",
+            return_value=fake_best,
+        ) as mock_resolve:
+            dlg, _ = _make_dialog(paths_data)
+        self.assertTrue(mock_resolve.called)
+        # The one row widget should carry the resolved best move.
+        self.assertEqual(dlg._row_widgets[0]._best_move, fake_best)
+
+    def test_dialog_passes_none_best_move_when_resolver_returns_none(self):
+        from unittest.mock import patch
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        with patch(
+            "app.views.dialogs.show_tags_dialog.resolve_best_move_for_path",
+            return_value=None,
+        ):
+            dlg, _ = _make_dialog(paths_data)
+        self.assertIsNone(dlg._row_widgets[0]._best_move)
+
+
 if __name__ == "__main__":
     unittest.main()

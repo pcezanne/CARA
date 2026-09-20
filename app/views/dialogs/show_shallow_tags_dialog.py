@@ -28,6 +28,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER
@@ -200,6 +201,7 @@ class ShowShallowTagsDialog(QDialog):
                     rows_layout.addWidget(self._make_separator())
 
                 fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
+                best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_widget = _TagRowWidget(
                     self._config,
                     preset,
@@ -210,6 +212,7 @@ class ShowShallowTagsDialog(QDialog):
                     self._bg_rgb,
                     self._text_color_rgb,
                     show_ignore_checkbox=True,
+                    best_move=best_move,
                 )
                 # Live edit: persist immediately on any change
                 row_widget.edited.connect(

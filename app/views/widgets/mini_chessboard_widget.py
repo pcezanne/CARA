@@ -49,6 +49,9 @@ class MiniChessBoardWidget(QWidget):
         self._is_flipped = is_flipped
         self._move_to_show: Optional[chess.Move] = None
         self._show_arrow = False
+        self._two_arrow_mode: bool = False
+        self._played_move: Optional[chess.Move] = None
+        self._best_move: Optional[chess.Move] = None
         self._scale_factor = scale_factor
         self._embedded = embedded
         self._size_override = size_override
@@ -115,6 +118,12 @@ class MiniChessBoardWidget(QWidget):
         # Get best next move arrow color (same as main board)
         bestnextmove_arrow_config = board_config.get('bestnextmove_arrow', {})
         self.arrow_color = bestnextmove_arrow_config.get('color', [0, 0, 255])
+
+        # Two-arrow mode colors (Chess Log only): played = yellow, best = reddish.
+        playedmove_arrow_config = board_config.get('playedmove_arrow', {})
+        self._played_arrow_color: List[int] = playedmove_arrow_config.get('color', [255, 255, 0])
+        bestalternative_config = board_config.get('bestalternativemove_arrow', {})
+        self._best_arrow_color: List[int] = bestalternative_config.get('color', [200, 0, 100])
         
         # Calculate widget size (board + border)
         widget_size = self.board_size + self.border_size * 2
@@ -287,8 +296,16 @@ class MiniChessBoardWidget(QWidget):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._draw_pieces(painter, board_start_x, board_start_y)
         
-        # Draw arrow if enabled and move is set
-        if self._show_arrow and self._move_to_show is not None:
+        # Draw arrow(s)
+        if self._two_arrow_mode:
+            if self._played_move is not None:
+                self._draw_arrow(painter, self._played_move, self._played_arrow_color, board_start_x, board_start_y)
+            if (
+                self._best_move is not None
+                and self._best_move != self._played_move
+            ):
+                self._draw_arrow(painter, self._best_move, self._best_arrow_color, board_start_x, board_start_y)
+        elif self._show_arrow and self._move_to_show is not None:
             self._draw_arrow(painter, self._move_to_show, self.arrow_color, board_start_x, board_start_y)
     
     def _draw_pieces(self, painter: QPainter, board_start_x: float, board_start_y: float) -> None:
@@ -417,12 +434,28 @@ class MiniChessBoardWidget(QWidget):
     
     def set_move(self, move: Optional[chess.Move], show_arrow: bool) -> None:
         """Set the move to display with an arrow.
-        
+
         Args:
             move: Chess move to show arrow for, or None to hide arrow.
             show_arrow: Whether to show the arrow (if "Show best move arrow" is enabled).
         """
         self._move_to_show = move
         self._show_arrow = show_arrow
+        self.update()
+
+    def set_played_and_best(
+        self,
+        played: Optional[chess.Move],
+        best: Optional[chess.Move] = None,
+    ) -> None:
+        """Chess Log two-arrow mode.
+
+        Played move renders in playedmove_arrow color (yellow by default).
+        Best move renders in bestalternativemove_arrow color (reddish by default).
+        The best arrow is suppressed when best is None or equals played.
+        """
+        self._two_arrow_mode = True
+        self._played_move = played
+        self._best_move = best
         self.update()
 

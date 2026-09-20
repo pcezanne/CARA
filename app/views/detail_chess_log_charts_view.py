@@ -377,6 +377,7 @@ class DetailChessLogChartsView(QWidget):
 
     def _on_player_changed(self, index: int) -> None:
         self._last_shallow_keys = None  # freshness invalidated
+        self._refresh_ai_state()
         if not self._controller or index < 0:
             return
         raw_name = self._player_combo.itemData(index)
@@ -509,6 +510,7 @@ class DetailChessLogChartsView(QWidget):
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)
         self._set_placeholder_text("Select a player to view Chess Log data.")
+        self._refresh_ai_state()
 
     def _set_placeholder_text(self, text: str) -> None:
         self._placeholder.setText(text)
@@ -559,8 +561,10 @@ class DetailChessLogChartsView(QWidget):
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
+        source_selected = self._source_combo.currentIndex() > 0
+        player_selected = self._player_combo.currentIndex() >= 0
         self._generate_btn.setEnabled(configured)
-        self._show_shallow_btn.setEnabled(configured)
+        self._show_shallow_btn.setEnabled(configured and source_selected and player_selected)
         self._ai_hint.setVisible(not configured)
         self._model_combo.setEnabled(configured)
         self._timeout_spin.setEnabled(configured)

@@ -342,8 +342,28 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view = self._make_view(ai=False)
         self.assertFalse(view._show_shallow_btn.isEnabled())
 
-    def test_show_shallow_btn_enabled_when_configured(self):
+    def test_show_shallow_btn_disabled_when_configured_but_no_source_or_player(self):
         view = self._make_view(ai=True, models=["gpt-4o"])
+        # source combo starts at index 0 ("None"), no player selected
+        self.assertFalse(view._show_shallow_btn.isEnabled())
+
+    def test_show_shallow_btn_disabled_when_source_selected_but_no_player(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._source_combo.setCurrentIndex(1)  # "Active Database"
+        self.assertFalse(view._show_shallow_btn.isEnabled())
+
+    def test_show_shallow_btn_disabled_when_player_selected_but_no_source(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._player_combo.addItem("Alice (3 tagged)", "Alice")
+        view._player_combo.setCurrentIndex(0)
+        # source still at index 0 ("None")
+        self.assertFalse(view._show_shallow_btn.isEnabled())
+
+    def test_show_shallow_btn_enabled_when_source_and_player_selected(self):
+        view = self._make_view(ai=True, models=["gpt-4o"])
+        view._source_combo.setCurrentIndex(1)  # "Active Database"
+        view._player_combo.addItem("Alice (3 tagged)", "Alice")
+        view._player_combo.setCurrentIndex(0)
         self.assertTrue(view._show_shallow_btn.isEnabled())
 
     # --- Model combo ---

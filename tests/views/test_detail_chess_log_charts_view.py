@@ -432,5 +432,63 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view._controller.set_narrative_token_limit.assert_called_with(4000)
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewTheme(unittest.TestCase):
+    """Verify that color config flows through to the widget stylesheet and spinner."""
+
+    def _make_config(self, bg, text, input_bg, border, hint, spinner) -> dict:
+        return {
+            "ui": {
+                "panels": {
+                    "detail": {
+                        "chess_log_charts": {
+                            "colors": {
+                                "background": bg,
+                                "text": text,
+                                "input_background": input_bg,
+                                "border": border,
+                                "hint_text": hint,
+                                "spinner_color": spinner,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+    def test_background_color_applied_to_stylesheet(self):
+        cfg = self._make_config(
+            bg=[1, 2, 3], text=[200, 200, 200], input_bg=[50, 50, 50],
+            border=[80, 80, 80], hint=[120, 120, 120], spinner=[100, 100, 100],
+        )
+        view = DetailChessLogChartsView(config=cfg)
+        ss = view.styleSheet()
+        self.assertIn("rgb(1,2,3)", ss)
+
+    def test_hint_text_color_applied_to_stylesheet(self):
+        cfg = self._make_config(
+            bg=[30, 30, 35], text=[200, 200, 200], input_bg=[50, 50, 50],
+            border=[80, 80, 80], hint=[9, 8, 7], spinner=[100, 100, 100],
+        )
+        view = DetailChessLogChartsView(config=cfg)
+        ss = view._ai_hint.styleSheet()
+        self.assertIn("rgb(9,8,7)", ss)
+
+    def test_spinner_color_from_config(self):
+        from PyQt6.QtGui import QColor
+        cfg = self._make_config(
+            bg=[30, 30, 35], text=[200, 200, 200], input_bg=[50, 50, 50],
+            border=[80, 80, 80], hint=[120, 120, 120], spinner=[11, 22, 33],
+        )
+        view = DetailChessLogChartsView(config=cfg)
+        expected = QColor(11, 22, 33)
+        self.assertEqual(view._shallow_spinner._color, expected)
+
+    def test_default_fallback_spinner_color(self):
+        from PyQt6.QtGui import QColor
+        view = DetailChessLogChartsView(config={})
+        self.assertEqual(view._shallow_spinner._color, QColor(180, 180, 200))
+
+
 if __name__ == "__main__":
     unittest.main()

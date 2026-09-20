@@ -266,7 +266,12 @@ class DetailChessLogChartsView(QWidget):
         self._show_shallow_btn.clicked.connect(self._on_show_shallow_clicked)
         self._show_shallow_btn.setEnabled(False)
         shallow_row.addWidget(self._show_shallow_btn)
-        self._shallow_spinner = BusySpinner(color=QColor(180, 180, 200), size=18, line_width=2)
+        _spinner_rgb = (
+            self._config.get("ui", {}).get("panels", {}).get("detail", {})
+            .get("chess_log_charts", {}).get("colors", {})
+            .get("spinner_color", [180, 180, 200])
+        )
+        self._shallow_spinner = BusySpinner(color=QColor(*_spinner_rgb), size=18, line_width=2)
         shallow_row.addWidget(self._shallow_spinner)
         self._shallow_status_label = QLabel("Generating Shallow Tags…")
         self._shallow_status_label.setVisible(False)

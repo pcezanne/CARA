@@ -2004,6 +2004,61 @@
             "content_stretch_factor": 3
           }
         },
+        "chess_log_charts": {
+          "chart": {
+            "background_color": {
+              "$ref": "$_COLOR_BACKGROUND_4"
+            },
+            "grid_color": {
+              "$ref": "$_COLOR_CHART_GRIDLINE"
+            },
+            "axis_color": {
+              "$ref": "$_COLOR_CHART_AXIS"
+            },
+            "text_color": {
+              "$ref": "$_COLOR_TEXT_SECONDARY"
+            },
+            "title_color": {
+              "$ref": "$_COLOR_TEXT_3"
+            }
+          },
+          "colors": {
+            "background": {
+              "$ref": "$_COLOR_BACKGROUND_PRIMARY"
+            },
+            "text": {
+              "$ref": "$_COLOR_TEXT_SECONDARY"
+            },
+            "input_background": {
+              "$ref": "$_COLOR_BACKGROUND_5"
+            },
+            "border": {
+              "$ref": "$_COLOR_BUTTON_BORDER"
+            },
+            "hint_text": {
+              "$ref": "$_COLOR_TEXT_4"
+            },
+            "spinner_color": [
+              70,
+              100,
+              170
+            ]
+          },
+          "category_colors": {
+            "CLAMP": {
+              "C": [200, 80, 60],
+              "L": [180, 140, 0],
+              "A": [0, 120, 200],
+              "M": [0, 160, 90],
+              "P": [140, 80, 180]
+            },
+            "CCT": {
+              "C": [200, 110, 30],
+              "C2": [0, 120, 200],
+              "T": [0, 160, 90]
+            }
+          }
+        },
         "player_stats": {
           "section_visibility_hint": {
             "font_family": {

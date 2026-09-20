@@ -4253,7 +4253,7 @@
         ],
         "inputs": {
           "font_family": {
-            "$ref": "$_FONT_FAMILY_MONO"
+            "$ref": "$_FONT_FAMILY_PRIMARY"
           },
           "font_size": {
             "$ref": "$_FONT_SIZE_BASE_MEDIUM"

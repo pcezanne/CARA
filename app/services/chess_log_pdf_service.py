@@ -20,6 +20,7 @@ from PyQt6.QtGui import (
     QPolygonF,
 )
 
+from app.services.chess_log_narrative_service import sanitize_narrative_markdown
 from app.services.pdf_report_base import BasePDFReportService
 
 
@@ -863,6 +864,7 @@ class ChessLogPDFService(BasePDFReportService):
         literal ``**`` markers never reach drawText) and GFM pipe tables (rendered
         as bordered cells via _draw_pipe_table_paginated).
         """
+        text = sanitize_narrative_markdown(text)
         painter.setFont(self._font_body)
         painter.setPen(self._text)
         fm_body = QFontMetrics(self._font_body)

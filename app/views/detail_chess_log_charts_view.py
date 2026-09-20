@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.controllers.chess_log_charts_controller import ChessLogChartsController
+from app.services.chess_log_narrative_service import sanitize_narrative_markdown
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
 from app.views.style.style_manager import StyleManager
@@ -451,7 +452,7 @@ class DetailChessLogChartsView(QWidget):
 
     def _on_narrative_ready(self, narrative: str, flags: List[str]) -> None:
         self._last_narrative = narrative
-        self._narrative_edit.setMarkdown(narrative)
+        self._narrative_edit.setMarkdown(sanitize_narrative_markdown(narrative))
         if flags:
             self._flagged_label.setText("\n".join(f"• {f}" for f in flags))
             self._flagged_box.setVisible(True)

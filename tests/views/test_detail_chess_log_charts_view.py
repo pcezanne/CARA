@@ -537,5 +537,58 @@ class TestDetailChessLogChartsViewTheme(unittest.TestCase):
         self.assertEqual(view._shallow_spinner._color, QColor(180, 180, 200))
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt platform plugin unavailable")
+class TestNarrativeSanitizationOnScreen(unittest.TestCase):
+    """sanitize_narrative_markdown is applied before setMarkdown so the
+    on-screen QTextEdit receives clean text, not just the PDF path."""
+
+    def _make_view(self) -> "DetailChessLogChartsView":
+        return DetailChessLogChartsView(config={})
+
+    def test_thematic_break_sanitized_before_set_markdown(self):
+        from unittest.mock import patch
+        from app.services.chess_log_narrative_service import sanitize_narrative_markdown
+
+        view = self._make_view()
+        narrative = "## Section\n\n---\n\nSome prose."
+        calls: list[str] = []
+
+        original_set_markdown = view._narrative_edit.setMarkdown
+
+        def _capture(text: str) -> None:
+            calls.append(text)
+            original_set_markdown(text)
+
+        view._narrative_edit.setMarkdown = _capture
+        view._on_narrative_ready(narrative, [])
+
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("---", calls[0].splitlines(), "bare --- should be stripped before setMarkdown")
+
+    def test_empty_cell_row_sanitized_before_set_markdown(self):
+        table = (
+            "| Skill | Observed Issue | Strategic Impact |\n"
+            "| --- | --- | --- |\n"
+            "| Calculation | Missed tactic |  |\n"
+            "| King Safety | Castle delay | King exposed |\n"
+        )
+        narrative = f"## Tactical Breakdown\n\n{table}"
+        view = self._make_view()
+        calls: list[str] = []
+
+        original_set_markdown = view._narrative_edit.setMarkdown
+
+        def _capture(text: str) -> None:
+            calls.append(text)
+            original_set_markdown(text)
+
+        view._narrative_edit.setMarkdown = _capture
+        view._on_narrative_ready(narrative, [])
+
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("Missed tactic", calls[0], "row with empty Strategic Impact should be stripped")
+        self.assertIn("King exposed", calls[0], "fully-populated rows should be preserved")
+
+
 if __name__ == "__main__":
     unittest.main()

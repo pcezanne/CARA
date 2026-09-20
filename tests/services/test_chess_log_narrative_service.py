@@ -15,12 +15,15 @@ from unittest.mock import MagicMock, patch
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.chess_log_narrative_service import (
+    _NARRATIVE_STEP,
     _PRESET_GLOSSARIES,
+    _SYSTEM_PROMPT,
     _bin_month_label,
     _format_trend_counts,
     _3X3_STRUCTURE_BLOCK,
     build_prompt,
     generate_narrative,
+    sanitize_narrative_markdown,
     _parse_response,
 )
 
@@ -1021,6 +1024,96 @@ class TestBulletAndLeadInDirectives(unittest.TestCase):
         takeaways_pos = sp.find("Key Takeaways section")
         lead_in_pos = sp.find("bold sentence-fragment lead-in", takeaways_pos)
         self.assertGreater(lead_in_pos, -1, "bold lead-in not found after Key Takeaways directive")
+
+
+# ---------------------------------------------------------------------------
+# sanitize_narrative_markdown
+# ---------------------------------------------------------------------------
+
+class TestSanitizeNarrativeMarkdown(unittest.TestCase):
+
+    def test_drops_bare_thematic_break_dashes(self):
+        text = "Before.\n\n---\n\nAfter."
+        result = sanitize_narrative_markdown(text)
+        lines = result.split("\n")
+        self.assertNotIn("---", lines)
+        self.assertIn("Before.", result)
+        self.assertIn("After.", result)
+
+    def test_drops_thematic_break_stars(self):
+        text = "A.\n***\nB."
+        result = sanitize_narrative_markdown(text)
+        self.assertNotIn("***", result)
+
+    def test_drops_thematic_break_underscores(self):
+        text = "A.\n___\nB."
+        result = sanitize_narrative_markdown(text)
+        self.assertNotIn("___", result)
+
+    def test_preserves_surrounding_prose(self):
+        text = "Introduction.\n\n---\n\nConclusion."
+        result = sanitize_narrative_markdown(text)
+        self.assertIn("Introduction.", result)
+        self.assertIn("Conclusion.", result)
+
+    def test_preserves_table_separator_row(self):
+        text = (
+            "| Skill | Observed Issue | Strategic Impact |\n"
+            "| --- | --- | --- |\n"
+            "| Calculation | Missed fork | Lost material |\n"
+        )
+        result = sanitize_narrative_markdown(text)
+        self.assertIn("| --- | --- | --- |", result)
+        self.assertIn("Calculation", result)
+
+    def test_drops_body_row_with_empty_strategic_impact(self):
+        text = (
+            "| Skill | Observed Issue | Strategic Impact |\n"
+            "| --- | --- | --- |\n"
+            "| Calculation | Missed fork |  |\n"
+            "| King Safety | Neglected king | Exposure |\n"
+        )
+        result = sanitize_narrative_markdown(text)
+        self.assertNotIn("Missed fork", result)
+        self.assertIn("Neglected king", result)
+        self.assertIn("Exposure", result)
+
+    def test_drops_body_row_with_empty_observed_issue(self):
+        text = (
+            "| Skill | Observed Issue | Strategic Impact |\n"
+            "| --- | --- | --- |\n"
+            "| Pawn Structure |  | Lost structure |\n"
+        )
+        result = sanitize_narrative_markdown(text)
+        self.assertNotIn("Lost structure", result)
+
+    def test_preserves_fully_populated_body_rows(self):
+        text = (
+            "| Skill | Observed Issue | Strategic Impact |\n"
+            "| --- | --- | --- |\n"
+            "| King Safety | Castle delay | King exposed |\n"
+            "| Calculation | Missed tactic | Material lost |\n"
+        )
+        result = sanitize_narrative_markdown(text)
+        self.assertIn("Castle delay", result)
+        self.assertIn("Missed tactic", result)
+
+
+# ---------------------------------------------------------------------------
+# Prompt enforcement clauses
+# ---------------------------------------------------------------------------
+
+class TestPromptEnforcementClauses(unittest.TestCase):
+
+    def test_system_prompt_forbids_empty_strategic_impact(self):
+        self.assertIn("Strategic Impact is empty", _SYSTEM_PROMPT)
+
+    def test_system_prompt_instructs_drop_row_over_blank_cell(self):
+        self.assertIn("drop the row", _SYSTEM_PROMPT)
+
+    def test_narrative_step_reinforces_three_column_rule(self):
+        self.assertIn("Strategic Impact", _NARRATIVE_STEP)
+        self.assertIn("drop the row", _NARRATIVE_STEP)
 
 
 if __name__ == "__main__":

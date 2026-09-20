@@ -833,5 +833,65 @@ class TestRenderBoardPassesBestMove(unittest.TestCase):
         self.assertEqual(captured_calls[0], (played, best))
 
 
+@requires_qt
+class TestNarrativeSanitizationInPDF(unittest.TestCase):
+    """sanitize_narrative_markdown is applied before _draw_narrative_paginated
+    so bare thematic-break lines never reach drawText."""
+
+    def test_thematic_break_line_not_drawn(self):
+        from unittest.mock import MagicMock, patch
+        import tempfile
+        from pathlib import Path
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        svc = ChessLogPDFService({})
+        narrative = "## Patterns & Recurrent Themes\n\n---\n\n## Key Takeaways\n\nSome text."
+
+        drawn_texts: list[str] = []
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+
+        try:
+            # Monkey-patch drawText to capture what would be drawn.
+            original_export = ChessLogPDFService.export_charts_report
+
+            def _patched_export(self_inner, path, chart_widgets, narrative_text, source_label="", player="", shallow_rows=None):
+                # Write a minimal PDF but intercept the painter's drawText calls.
+                from PyQt6.QtGui import QPdfWriter, QPainter, QPageSize
+                from PyQt6.QtCore import QMarginsF, QSizeF
+                writer = QPdfWriter(str(path))
+                writer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+                writer.setPageMargins(QMarginsF(20, 20, 20, 20))
+                painter = QPainter(writer)
+                try:
+                    content = self_inner._content_rect(writer)
+                    y = content.top()
+                    orig_draw = painter.drawText
+
+                    def _capture_draw(*args, **kwargs):
+                        for a in args:
+                            if isinstance(a, str):
+                                drawn_texts.append(a)
+                        return orig_draw(*args, **kwargs)
+
+                    painter.drawText = _capture_draw
+                    self_inner._draw_narrative_paginated(painter, writer, content, y, narrative_text)
+                finally:
+                    painter.end()
+                return True
+
+            ChessLogPDFService.export_charts_report = _patched_export
+            try:
+                svc.export_charts_report(tmp_path, [], narrative, source_label="Test")
+            finally:
+                ChessLogPDFService.export_charts_report = original_export
+
+            dash_only = [t for t in drawn_texts if t.strip() and all(c == "-" for c in t.strip())]
+            self.assertEqual(dash_only, [], f"Bare dash text was drawn: {dash_only}")
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()

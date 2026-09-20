@@ -52,7 +52,13 @@ _SYSTEM_PROMPT = (
     "as grouping hints only and name the underlying chess concept instead. This is where "
     "per-concept percentages and pattern-level observations belong — not in Patterns & "
     "Recurrent Themes. Do not repeat the same content across multiple rows. Do not add "
-    "extra columns. Do not emit any prose outside the table in this section. "
+    "extra columns. Every row MUST populate all three columns with substantive content "
+    "— never emit a row where Strategic Impact is empty, whitespace, a placeholder like "
+    "— or N/A, or a restatement of the Observed Issue. Strategic Impact must name the "
+    "concrete downstream consequence for the game (material loss, king exposure, "
+    "initiative surrendered, tempo wasted, etc.). If you cannot articulate a distinct "
+    "Strategic Impact for a row, drop the row entirely rather than emit a blank cell. "
+    "Do not emit any prose outside the table in this section. "
     "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must begin with a bold sentence-fragment lead-in that names the actionable takeaway in 3 to 8 words, followed by a period, then the paragraph body (e.g. `**Slow down in king-attack positions.** When the tagged notes mention...`). Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the earlier sections in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit low-signal rows in the Tactical Breakdown table (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
     "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
     "When a preset's category letters are not all distinct (as with CCT, where both Checks and Captures start with C), never use a bare letter as shorthand for either one. Always use the full category name (Checks, Captures, Threats) to keep them unambiguous. This does not apply to CLAMP, where each letter maps to exactly one category and bare-letter shorthand (C, L, A, M, P) remains fine. "
@@ -145,7 +151,8 @@ _NARRATIVE_STEP = (
     "Piece Coordination, Pawn Structure, Calculation Depth, Time Management, Move Order, "
     "etc.) — do NOT use CLAMP letters, CLAMP category names, CCT category names, or 3x3 "
     "Why-question labels. At most 1 to 2 verbatim quotes per row. No prose outside the "
-    "table in this section.\n\n"
+    "table in this section. Every row must fill all three columns — if you cannot "
+    "write a substantive Strategic Impact, drop the row rather than leave it blank.\n\n"
     "3. **Key Takeaways** (1 to 3 short paragraphs of continuous prose, not a "
     "numbered or bulleted list): begin each paragraph with a bold sentence-fragment "
     "lead-in naming the actionable takeaway in 3 to 8 words, followed by a period, "
@@ -161,6 +168,51 @@ _NARRATIVE_STEP = (
 )
 
 _CLOSING = ""
+
+
+def sanitize_narrative_markdown(text: str) -> str:
+    """Drop presentational noise from LLM narrative markdown before rendering.
+
+    Two classes of garbage are removed so that both the on-screen QTextEdit
+    (setMarkdown path) and the PDF renderer receive identical clean input:
+
+    1. Bare thematic-break lines (---/***/___ alone on a line): presentational
+       noise that Qt renders as a subtle HR anyway; ## headings already give
+       visual separation so the loss is imperceptible in the PDF.
+    2. Pipe-table rows where any cell is empty after stripping: defense in
+       depth for blank Strategic Impact cells the model occasionally emits
+       despite explicit prompt instructions to the contrary.
+
+    Table separator rows (| --- | --- | --- |) have 2+ pipe-delimited cells
+    and are not matched by the thematic-break rule, so they are preserved.
+    """
+    def _is_separator(line: str) -> bool:
+        stripped = line.strip().strip("|")
+        if not stripped:
+            return False
+        cells = [c.strip() for c in stripped.split("|")]
+        if len(cells) < 2:
+            return False
+        return all(c and all(ch in "-: " for ch in c) for c in cells)
+
+    out = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        # 1. Thematic break: 3+ identical chars from -/*/_, no pipe character.
+        if (
+            len(stripped) >= 3
+            and stripped[0] in "-*_"
+            and all(ch == stripped[0] for ch in stripped)
+            and "|" not in stripped
+        ):
+            continue
+        # 2. Pipe-table row with any empty cell (separators are preserved above).
+        if stripped.startswith("|") and not _is_separator(stripped):
+            cells = [c.strip() for c in stripped.strip("|").split("|")]
+            if any(not c for c in cells):
+                continue
+        out.append(line)
+    return "\n".join(out)
 
 
 def build_prompt(

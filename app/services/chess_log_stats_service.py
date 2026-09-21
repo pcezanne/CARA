@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.chess_log_color_scoping import color_from_path_key
+from app.utils.player_matcher import game_matches_player_color
 from app.services.player_stats_service import (
     _calendar_bin_center_time_pct,
     _game_date_ordinal_for_trends,
@@ -117,17 +118,8 @@ def aggregate(
         if ordinal is None:
             continue
 
-        if player_cf:
-            white_cf = (game.white or "").casefold().strip()
-            black_cf = (game.black or "").casefold().strip()
-            is_white_player = player_cf == white_cf
-            is_black_player = player_cf == black_cf
-            if not (is_white_player or is_black_player):
-                continue
-            if color_filter == "white" and not is_white_player:
-                continue
-            if color_filter == "black" and not is_black_player:
-                continue
+        if not game_matches_player_color(game, player_cf, color_filter):
+            continue
 
         paths_data = ChessLogStorageService.load_tags(game)
         for entries in paths_data.values():
@@ -230,17 +222,8 @@ def has_any_moments(
     for game in games:
         if not getattr(game, "has_chess_log_tags", False):
             continue
-        if player_cf:
-            white_cf = (game.white or "").casefold().strip()
-            black_cf = (game.black or "").casefold().strip()
-            is_white = player_cf == white_cf
-            is_black = player_cf == black_cf
-            if not (is_white or is_black):
-                continue
-            if color_filter == "white" and not is_white:
-                continue
-            if color_filter == "black" and not is_black:
-                continue
+        if not game_matches_player_color(game, player_cf, color_filter):
+            continue
         paths_data = ChessLogStorageService.load_tags(game)
         if paths_data:
             return True

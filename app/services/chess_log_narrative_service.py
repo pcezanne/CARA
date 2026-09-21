@@ -24,6 +24,7 @@ from app.services.ai_service import AIService
 from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
+from app.utils.player_matcher import game_matches_player_color as _game_matches_player_color
 
 _SYSTEM_PROMPT = (
     "You are a chess coach helping a player reflect on their self-annotated game moments. "
@@ -371,24 +372,6 @@ def generate_narrative(
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _game_matches_player_color(
-    game: GameData, player_cf: str, color_filter: str
-) -> bool:
-    if not player_cf:
-        return True
-    white_cf = (game.white or "").casefold().strip()
-    black_cf = (game.black or "").casefold().strip()
-    is_white = player_cf == white_cf
-    is_black = player_cf == black_cf
-    if not (is_white or is_black):
-        return False
-    if color_filter == "white" and not is_white:
-        return False
-    if color_filter == "black" and not is_black:
-        return False
-    return True
-
 
 def _format_glossary(preset_names: Set[str]) -> str:
     """Emit glossary blocks for presets that appear in the data and have a glossary entry."""

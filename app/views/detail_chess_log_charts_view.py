@@ -719,9 +719,9 @@ class DetailChessLogChartsView(QWidget):
         import chess.pgn
         from PyQt6.QtWidgets import QFileDialog
 
+        from app.models.chess_log_snapshot import TagRowSnapshot
         from app.services.chess_log_pdf_service import (
             ChessLogPDFService,
-            TagRowSnapshot,
             default_chess_log_charts_pdf_filename,
         )
         from app.views.dialogs._tag_row_helpers import node_info as _node_info

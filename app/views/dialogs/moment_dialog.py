@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
+from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS_DICT
 from app.views.style import StyleManager
 from app.views.style.line_edit import generate_line_edit_stylesheet
 
@@ -52,12 +53,7 @@ class MomentDialog(QDialog):
     ]
     _CCT_CHIPS: List[tuple[str, str]] = list(zip(CCT_ORDER, _CCT_TOOLTIPS))
 
-    _3X3_PROMPTS: List[tuple[str, str]] = [
-        ("Why1", "Why did I choose that move?"),
-        ("Why2", "Why is my move not ideal?"),
-        ("Why3", "Why is the better move better than my chosen move?"),
-        ("Why4", "What do I do in the future so this doesn't happen again?"),
-    ]
+    _3X3_PROMPTS: List[tuple[str, str]] = list(_3X3_PROMPTS_DICT.items())
 
     def __init__(
         self,

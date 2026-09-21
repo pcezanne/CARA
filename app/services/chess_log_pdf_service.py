@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -20,29 +20,10 @@ from PyQt6.QtGui import (
     QPolygonF,
 )
 
+from app.models.chess_log_snapshot import TagRowSnapshot
 from app.services.chess_log_narrative_service import sanitize_narrative_markdown
 from app.services.pdf_report_base import BasePDFReportService
-
-
-@dataclass
-class TagRowSnapshot:
-    """Immutable snapshot of one _TagRowWidget's current state for PDF export."""
-
-    move_label: str
-    preset: str
-    entries: List[Dict[str, Any]]
-    fen: Optional[str]
-    played_move: Optional[chess.Move]
-    show_ignore: bool
-    best_move: Optional[chess.Move] = field(default=None)
-
-
-_3X3_PROMPTS: Dict[str, str] = {
-    "Why1": "Why did I choose that move?",
-    "Why2": "Why is my move not ideal?",
-    "Why3": "Why is the better move better than my chosen move?",
-    "Why4": "What do I do in the future so this doesn't happen again?",
-}
+from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
 
 
 def default_chess_log_tags_pdf_filename(*, is_shallow_only: bool = False) -> str:

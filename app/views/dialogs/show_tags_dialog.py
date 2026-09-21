@@ -23,8 +23,10 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.models.chess_log_snapshot import TagRowSnapshot
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
+from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
 from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.style.style_manager import StyleManager
@@ -32,13 +34,7 @@ from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
 
 _PRESET_ORDER = ["CLAMP", "CCT", "3x3"]
 
-_3X3_KEYS = ["Why1", "Why2", "Why3", "Why4"]
-_3X3_PROMPTS = {
-    "Why1": "Why did I choose that move?",
-    "Why2": "Why is my move not ideal?",
-    "Why3": "Why is the better move better than my chosen move?",
-    "Why4": "What do I do in the future so this doesn't happen again?",
-}
+_3X3_KEYS = list(_3X3_PROMPTS.keys())
 
 # Scale matching manual analysis default (1.25 × 160 base = 200px board ≈ 204px widget)
 _MINI_BOARD_SCALE = 1.25
@@ -271,7 +267,6 @@ class _TagRowWidget(QFrame):
 
     def snapshot(self):
         """Return current widget state as a TagRowSnapshot for PDF export."""
-        from app.services.chess_log_pdf_service import TagRowSnapshot
         return TagRowSnapshot(
             move_label=self._header_label.text() if self._header_label else "",
             preset=self._preset,

@@ -35,8 +35,8 @@ if _QT_OK:
     from PyQt6.QtWidgets import QApplication, QPushButton
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
 
+    from app.models.chess_log_snapshot import TagRowSnapshot
     from app.views.dialogs.show_tags_dialog import _TagRowWidget, ShowTagsDialog
-    from app.services.chess_log_pdf_service import TagRowSnapshot
 
 MAINLINE_PGN = (
     '[Event "T"][Site "?"][Date "2026.01.01"]'

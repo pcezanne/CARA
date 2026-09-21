@@ -37,11 +37,12 @@ if _QT_AVAILABLE:
 from datetime import date as _date
 
 from app.services.chess_log_stats_service import ChessLogCategoryBin, ChessLogPresetSeries
-from app.views.widgets.chess_log_category_chart_widget import (
-    ChessLogCategoryChartWidget,
-    _calendar_axis_ticks,
-    _effective_calendar_mode,
-    _ordinal_to_chart_x,
+from app.views.widgets.chess_log_category_chart_widget import ChessLogCategoryChartWidget
+from app.views.widgets._chart_layout_helpers import (
+    calendar_axis_ticks,
+    effective_calendar_mode,
+    ordinal_to_chart_x,
+    smooth_polyline_path,
 )
 
 
@@ -90,23 +91,24 @@ def _make_series(
 class TestCalendarAxisHelpers(unittest.TestCase):
     """Module-level helpers ported from Player Stats — pure Python, no Qt."""
 
-    # --- _ordinal_to_chart_x ---
+    # --- ordinal_to_chart_x ---
+    # New shared signature: (o, left, graph_width, omin, omax)
 
     def test_ordinal_to_chart_x_at_min_gives_left(self):
         omin = _date(2026, 1, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
-        self.assertAlmostEqual(_ordinal_to_chart_x(omin, omin, omax, 50.0, 950.0), 50.0)
+        self.assertAlmostEqual(ordinal_to_chart_x(omin, 50.0, 900.0, omin, omax), 50.0)
 
     def test_ordinal_to_chart_x_at_max_gives_right(self):
         omin = _date(2026, 1, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
-        self.assertAlmostEqual(_ordinal_to_chart_x(omax, omin, omax, 50.0, 950.0), 950.0)
+        self.assertAlmostEqual(ordinal_to_chart_x(omax, 50.0, 900.0, omin, omax), 950.0)
 
     def test_ordinal_to_chart_x_midpoint(self):
         omin = _date(2026, 1, 1).toordinal()
         omax = _date(2026, 1, 1).toordinal() + 100
         omid = omin + 50
-        x = _ordinal_to_chart_x(omid, omin, omax, 0.0, 100.0)
+        x = ordinal_to_chart_x(omid, 0.0, 100.0, omin, omax)
         self.assertAlmostEqual(x, 50.0)
 
     def test_ordinal_to_chart_x_same_function_for_tick_and_bin(self):
@@ -114,42 +116,42 @@ class TestCalendarAxisHelpers(unittest.TestCase):
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
         o_march_1 = _date(2026, 3, 1).toordinal()
-        x_tick = _ordinal_to_chart_x(o_march_1, omin, omax, 0.0, 1200.0)
-        x_bin = _ordinal_to_chart_x(o_march_1, omin, omax, 0.0, 1200.0)
+        x_tick = ordinal_to_chart_x(o_march_1, 0.0, 1200.0, omin, omax)
+        x_bin = ordinal_to_chart_x(o_march_1, 0.0, 1200.0, omin, omax)
         self.assertAlmostEqual(x_tick, x_bin)
 
-    # --- _effective_calendar_mode ---
+    # --- effective_calendar_mode ---
 
     def test_mode_day_for_short_span(self):
         omin = _date(2026, 6, 1).toordinal()
         omax = _date(2026, 6, 20).toordinal()  # 19 days
-        self.assertEqual(_effective_calendar_mode(omin, omax), "day")
+        self.assertEqual(effective_calendar_mode(omin, omax), "day")
 
     def test_mode_week_for_medium_span(self):
         omin = _date(2026, 1, 1).toordinal()
         omax = _date(2026, 3, 15).toordinal()  # ~73 days
-        self.assertEqual(_effective_calendar_mode(omin, omax), "week")
+        self.assertEqual(effective_calendar_mode(omin, omax), "week")
 
     def test_mode_month_for_synthetic_file_span(self):
         # Synthetic file: Feb–Dec 2026 ≈ 303 days — within month range (120–960)
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
-        self.assertEqual(_effective_calendar_mode(omin, omax), "month")
+        self.assertEqual(effective_calendar_mode(omin, omax), "month")
 
     def test_mode_year_for_long_span(self):
         omin = _date(2020, 1, 1).toordinal()
         omax = _date(2024, 12, 31).toordinal()  # ~5 years
-        self.assertEqual(_effective_calendar_mode(omin, omax), "year")
+        self.assertEqual(effective_calendar_mode(omin, omax), "year")
 
-    # --- _calendar_axis_ticks month mode ---
+    # --- calendar_axis_ticks month mode ---
 
     def test_month_mode_feb_dec_produces_correct_major_ticks(self):
         # omin=Feb 8: Feb 1 is before omin so no Feb tick; Mar–Dec gives 10 ticks.
         omin = _date(2026, 2, 8).toordinal()   # first game date from synthetic file
         omax = _date(2026, 12, 24).toordinal()  # last game date from synthetic file
-        mode = _effective_calendar_mode(omin, omax)
+        mode = effective_calendar_mode(omin, omax)
         self.assertEqual(mode, "month")
-        ticks = _calendar_axis_ticks(omin, omax, mode)
+        ticks = calendar_axis_ticks(omin, omax, mode)
         majors = [(o, lbl) for o, is_major, lbl in ticks if is_major]
         # Mar 1 through Dec 1 all fall within [omin, omax] → 10 major ticks.
         # Feb 1 < omin so February is skipped (same behaviour as Player Stats).
@@ -159,14 +161,14 @@ class TestCalendarAxisHelpers(unittest.TestCase):
         # omin=Feb 1: Feb 1 == omin → February tick IS included → 11 ticks.
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ticks = calendar_axis_ticks(omin, omax, "month")
         majors = [(o, lbl) for o, is_major, lbl in ticks if is_major]
         self.assertEqual(len(majors), 11, f"Expected 11 major ticks (Feb–Dec), got {len(majors)}: {majors}")
 
     def test_month_mode_major_labels_are_month_year_format(self):
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 4, 30).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ticks = calendar_axis_ticks(omin, omax, "month")
         major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
         self.assertIn("Feb '26", major_labels)
         self.assertIn("Mar '26", major_labels)
@@ -175,7 +177,7 @@ class TestCalendarAxisHelpers(unittest.TestCase):
     def test_month_mode_tick_ordinals_are_first_of_month(self):
         omin = _date(2026, 3, 15).toordinal()
         omax = _date(2026, 6, 20).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ticks = calendar_axis_ticks(omin, omax, "month")
         for o, is_major, _ in ticks:
             if is_major:
                 d = _date.fromordinal(o)
@@ -187,7 +189,7 @@ class TestCalendarAxisHelpers(unittest.TestCase):
         # there must be no January tick.
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 4, 30).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ticks = calendar_axis_ticks(omin, omax, "month")
         major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
         self.assertNotIn("Jan '26", major_labels)
         self.assertNotIn("May '26", major_labels)
@@ -195,14 +197,14 @@ class TestCalendarAxisHelpers(unittest.TestCase):
     def test_ticks_are_sorted_by_ordinal(self):
         omin = _date(2026, 2, 1).toordinal()
         omax = _date(2026, 12, 31).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "month")
+        ticks = calendar_axis_ticks(omin, omax, "month")
         ordinals = [o for o, _, _ in ticks]
         self.assertEqual(ordinals, sorted(ordinals))
 
     def test_year_mode_produces_year_labels(self):
         omin = _date(2021, 6, 1).toordinal()
         omax = _date(2024, 6, 30).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "year")
+        ticks = calendar_axis_ticks(omin, omax, "year")
         major_labels = [lbl for _, is_major, lbl in ticks if is_major and lbl]
         self.assertIn("2022", major_labels)
         self.assertIn("2023", major_labels)
@@ -211,14 +213,14 @@ class TestCalendarAxisHelpers(unittest.TestCase):
     def test_day_mode_produces_labeled_ticks(self):
         omin = _date(2026, 6, 1).toordinal()
         omax = _date(2026, 6, 10).toordinal()
-        ticks = _calendar_axis_ticks(omin, omax, "day")
+        ticks = calendar_axis_ticks(omin, omax, "day")
         self.assertTrue(len(ticks) >= 2)
         # All day-mode ticks are major
         self.assertTrue(all(is_major for _, is_major, _ in ticks))
 
     def test_empty_range_returns_no_ticks(self):
         omin = _date(2026, 6, 1).toordinal()
-        self.assertEqual(_calendar_axis_ticks(omin, omin, "month"), [])
+        self.assertEqual(calendar_axis_ticks(omin, omin, "month"), [])
 
 
 class TestYAxisPercentage(unittest.TestCase):
@@ -283,37 +285,30 @@ class TestSmoothPolylinePath(unittest.TestCase):
         return [QPointF(i * 50.0, float(i % 2) * 30.0) for i in range(n)]
 
     def test_fewer_than_two_points_returns_none(self):
-        from app.views.widgets.chess_log_category_chart_widget import _smooth_polyline_path
-        self.assertIsNone(_smooth_polyline_path([]))
-        self.assertIsNone(_smooth_polyline_path([QPointF(0, 0)]))
+        self.assertIsNone(smooth_polyline_path([]))
+        self.assertIsNone(smooth_polyline_path([QPointF(0, 0)]))
 
     def test_two_points_returns_path(self):
-        from app.views.widgets.chess_log_category_chart_widget import _smooth_polyline_path
         from PyQt6.QtGui import QPainterPath
-        path = _smooth_polyline_path(self._pts(2))
+        path = smooth_polyline_path(self._pts(2))
         self.assertIsInstance(path, QPainterPath)
 
     def test_three_or_more_points_returns_path(self):
-        from app.views.widgets.chess_log_category_chart_widget import _smooth_polyline_path
         from PyQt6.QtGui import QPainterPath
-        path = _smooth_polyline_path(self._pts(5))
+        path = smooth_polyline_path(self._pts(5))
         self.assertIsInstance(path, QPainterPath)
 
     def test_near_zero_strength_produces_straight_segments(self):
-        from app.views.widgets.chess_log_category_chart_widget import _smooth_polyline_path
         pts = [QPointF(0, 0), QPointF(100, 0), QPointF(200, 0)]
-        path = _smooth_polyline_path(pts, strength=0.01)
-        # At near-zero strength, path elements should only be LineTo
-        # QPainterPath.elementCount() and element types can verify this
+        path = smooth_polyline_path(pts, strength=0.01)
         for i in range(path.elementCount()):
             elem = path.elementAt(i)
             self.assertFalse(elem.isCurveTo(), "near-zero strength should produce no cubic curves")
 
     def test_nonzero_strength_produces_cubic_curves(self):
-        from app.views.widgets.chess_log_category_chart_widget import _smooth_polyline_path
         from PyQt6.QtGui import QPainterPath
         pts = [QPointF(0, 0), QPointF(50, 80), QPointF(100, 0), QPointF(150, 80)]
-        path = _smooth_polyline_path(pts, strength=1.0)
+        path = smooth_polyline_path(pts, strength=1.0)
         has_curve = any(path.elementAt(i).isCurveTo() for i in range(path.elementCount()))
         self.assertTrue(has_curve)
 
@@ -346,7 +341,7 @@ class TestBinXLayout(unittest.TestCase):
         o0_center = (o_a + _d(2026, 1, 31).toordinal()) // 2
         t_min = o_a
         t_max = _d(2026, 7, 31).toordinal()
-        expected = _ordinal_to_chart_x(o0_center, t_min, t_max, 0.0, pw)
+        expected = ordinal_to_chart_x(o0_center, 0.0, pw, t_min, t_max)
         actual = w._bin_x(0, 2, 0.0, pw)
         self.assertAlmostEqual(actual, expected, delta=1.0)
 
@@ -370,12 +365,37 @@ class TestBinXLayout(unittest.TestCase):
         for g in gaps:
             self.assertAlmostEqual(g, 100.0)
 
-    def test_gap_compressed_falls_back_to_uniform_bins(self):
+    def test_gap_compressed_produces_nonuniform_spacing(self):
+        """gap_compressed compresses long calendar gaps, producing different x than uniform_bins."""
+        from datetime import date as _d
+        from app.services.chess_log_stats_service import ChessLogCategoryBin as _Bin, ChessLogPresetSeries as _S
+        # 3 bins: Jan 1 (isolated), Jul 1, Jul 8 (clustered 7 days apart).
+        # Jan→Jul gap (~180 days) is compressed to max_gap_segment_days=28.
+        # Weights: segment Jan→Jul = 28, segment Jul1→Jul8 = 7. Total = 35.
+        # Fraction at Jul 1 = 28/35 = 0.8 → x ≈ 800px for pw=1000.
+        # With uniform_bins: Jul 1 bin (i=1 of 3) is at x = 500px.
+        o_jan = _d(2025, 1, 1).toordinal()
+        o_jul1 = _d(2025, 7, 1).toordinal()
+        o_jul8 = _d(2025, 7, 8).toordinal()
+        bins = [
+            _Bin(time_pct=0.0, total=1, lab0="2025-01-01", lab1="2025-01-01", counts={"C": 1}),
+            _Bin(time_pct=50.0, total=1, lab0="2025-07-01", lab1="2025-07-01", counts={"C": 1}),
+            _Bin(time_pct=100.0, total=1, lab0="2025-07-08", lab1="2025-07-08", counts={"C": 1}),
+        ]
+        series_gc = _S(preset="CLAMP", categories=["C"], bins=bins,
+                       x_axis_layout="gap_compressed", t_min=o_jan, t_max=o_jul8,
+                       max_gap_segment_days=28)
+        series_uni = _S(preset="CLAMP", categories=["C"], bins=bins,
+                        x_axis_layout="uniform_bins", t_min=o_jan, t_max=o_jul8)
+        pw = 1000.0
         w = self._widget()
-        w._series = _make_series(x_axis_layout="gap_compressed")
-        # Before full port, gap_compressed behaves like uniform_bins
-        x = w._bin_x(0, 4, 10.0, 300.0)
-        self.assertAlmostEqual(x, 0.0)
+        w.set_series(series_gc)
+        gc_x1 = w._bin_x(1, 3, 50.0, pw)
+        w.set_series(series_uni)
+        uni_x1 = w._bin_x(1, 3, 50.0, pw)
+        # gap_compressed pushes Jul 1 toward the right (large gap compressed)
+        self.assertGreater(gc_x1, uni_x1 + 100,
+            f"gap_compressed ({gc_x1:.1f}px) should be significantly right of uniform ({uni_x1:.1f}px)")
 
     def test_calendar_linear_not_evenly_spaced_for_gappy_data(self):
         """Regression: Calendar Linear must produce a visible gap for April+July data.
@@ -467,7 +487,7 @@ class TestBinXLayout(unittest.TestCase):
 
         # Straddling bin center: (Apr 30 + Jul 1) / 2 ≈ Jun 1 (day ~61)
         o_straddle_center = (_d(2026, 4, 30).toordinal() + _d(2026, 7, 1).toordinal()) // 2
-        expected_straddle_x = _ordinal_to_chart_x(o_straddle_center, o_apr1, o_jul30, 0.0, pw)
+        expected_straddle_x = ordinal_to_chart_x(o_straddle_center, 0.0, pw, o_apr1, o_jul30)
         self.assertAlmostEqual(xs[1], expected_straddle_x, delta=2.0,
             msg="Straddling bin must render at calendar center, not at lab0")
 
@@ -539,7 +559,7 @@ class TestCalendarAxisPainting(unittest.TestCase):
         months_to_check = [5, 7, 9]
         for month in months_to_check:
             o = _d(2026, month, 1).toordinal()
-            expected_x = int(_ordinal_to_chart_x(o, t_min, t_max, plot_x0, plot_x1))
+            expected_x = int(ordinal_to_chart_x(o, plot_x0, plot_x1 - plot_x0, t_min, t_max))
             # Scan a ±3px window in the plot-area height for any non-background pixel
             found = False
             for dx in range(-3, 4):
@@ -582,7 +602,7 @@ class TestCalendarAxisPainting(unittest.TestCase):
         plot_x0 = pad_l
         plot_x1 = width - pad_r - legend_w
         o_mar = _d(2026, 3, 1).toordinal()
-        expected_x = int(_ordinal_to_chart_x(o_mar, t_min, t_max, plot_x0, plot_x1))
+        expected_x = int(ordinal_to_chart_x(o_mar, plot_x0, plot_x1 - plot_x0, t_min, t_max))
 
         bg = QColor(28, 28, 33)
         bg_rgb = (bg.red(), bg.green(), bg.blue())

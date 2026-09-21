@@ -12,7 +12,7 @@ Data entry point: set_series(series, colors)
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QPointF, QRectF, Qt
@@ -21,6 +21,14 @@ from PyQt6.QtWidgets import QSizePolicy, QWidget
 
 from app.services.chess_log_stats_service import ChessLogCategoryBin, ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
+from app.views.widgets._chart_layout_helpers import (
+    GapCompressedTimeLayout,
+    build_gap_compressed_time_layout,
+    calendar_axis_ticks,
+    effective_calendar_mode,
+    ordinal_to_chart_x,
+    smooth_polyline_path,
+)
 
 
 # Built-in rotating palette used when no config color is supplied.
@@ -53,196 +61,6 @@ _DEFAULTS: Dict[str, Any] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Calendar axis helpers — ported verbatim from detail_player_stats_view.py.
-# Player Stats' file is NOT modified; this is Chess Log's own local copy.
-# ---------------------------------------------------------------------------
-
-_AXIS_FALLBACK_DAY_MAX_SPAN_DAYS = 31
-_AXIS_FALLBACK_WEEK_MAX_SPAN_DAYS = 120
-_AXIS_FALLBACK_MONTH_MAX_SPAN_DAYS = 960
-
-# strftime("%b") follows the process locale; keep chart labels English regardless of OS language.
-_EN_MONTH_ABBREV = (
-    "",
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
-    "May",
-    "Jun",
-    "Jul",
-    "Aug",
-    "Sep",
-    "Oct",
-    "Nov",
-    "Dec",
-)
-
-
-def _format_axis_tick_month_year(d: date) -> str:
-    return f"{_EN_MONTH_ABBREV[d.month]} '{d.year % 100:02d}"
-
-
-def _format_axis_tick_day_month(d: date) -> str:
-    return f"{d.day} {_EN_MONTH_ABBREV[d.month]}"
-
-
-def _effective_calendar_mode(ordinal_min: int, ordinal_max: int) -> str:
-    """Pick day/week/month/year tick density based on the ordinal span."""
-    span = max(0, ordinal_max - ordinal_min)
-    if span <= _AXIS_FALLBACK_DAY_MAX_SPAN_DAYS:
-        return "day"
-    if span <= _AXIS_FALLBACK_WEEK_MAX_SPAN_DAYS:
-        return "week"
-    if span <= _AXIS_FALLBACK_MONTH_MAX_SPAN_DAYS:
-        return "month"
-    return "year"
-
-
-def _week_start_monday_ordinal(ord_val: int) -> int:
-    d = date.fromordinal(ord_val)
-    return (d - timedelta(days=d.weekday())).toordinal()
-
-
-def _ordinal_to_chart_x(o: int, omin: int, omax: int, left: float, right: float) -> float:
-    """Convert a day ordinal to a pixel x-coordinate on a linear calendar axis.
-
-    Both calendar gridlines and data bin centers must use this function so they
-    share an identical coordinate system. Ported from Player Stats'
-    _accuracy_over_time_ordinal_to_x; layout=None branch only (no GapCompressed).
-    """
-    span = max(1, omax - omin)
-    return left + (o - omin) / span * (right - left)
-
-
-def _calendar_axis_ticks(
-    ordinal_min: int,
-    ordinal_max: int,
-    mode: str,
-    max_labels: int = 8,
-) -> List[Tuple[int, bool, str]]:
-    """Generate calendar tick positions as (ordinal, is_major, label) tuples.
-
-    Ported verbatim from detail_player_stats_view._calendar_axis_ticks.
-    Week-minor ticks in month mode are disabled (Chess Log has no config knob
-    for the week-minor threshold; month ticks are sufficient for this data).
-    """
-    omin, omax = ordinal_min, ordinal_max
-    if omax <= omin:
-        return []
-    max_l = max(4, max_labels)
-    ticks: List[Tuple[int, bool, str]] = []
-    majors: set = set()
-
-    if mode == "year":
-        y0 = date.fromordinal(omin).year
-        y1 = date.fromordinal(omax).year
-        for y in range(y0, y1 + 1):
-            o = date(y, 1, 1).toordinal()
-            if omin <= o <= omax:
-                ticks.append((o, True, str(y)))
-                majors.add(o)
-        if (y1 - y0) <= 3:
-            cur = date(y0, 1, 1)
-            end_d = date(y1, 12, 1)
-            while cur <= end_d:
-                o = cur.toordinal()
-                if omin <= o <= omax and o not in majors:
-                    ticks.append((o, False, ""))
-                if cur.month == 12:
-                    cur = date(cur.year + 1, 1, 1)
-                else:
-                    cur = date(cur.year, cur.month + 1, 1)
-
-    elif mode == "month":
-        d0 = date.fromordinal(omin)
-        d1 = date.fromordinal(omax)
-        cur = date(d0.year, d0.month, 1)
-        end_m = date(d1.year, d1.month, 1)
-        while cur <= end_m:
-            o = cur.toordinal()
-            if omin <= o <= omax:
-                ticks.append((o, True, _format_axis_tick_month_year(cur)))
-                majors.add(o)
-            if cur.month == 12:
-                cur = date(cur.year + 1, 1, 1)
-            else:
-                cur = date(cur.year, cur.month + 1, 1)
-        # Week minors disabled for Chess Log (no config knob; month density is adequate).
-
-    elif mode == "week":
-        w = _week_start_monday_ordinal(omin)
-        while w < omin:
-            w += 7
-        idx = 0
-        label_every = max(1, int(max(1, (omax - omin) // 7) // max_l) + 1)
-        while w <= omax:
-            lbl = _format_axis_tick_day_month(date.fromordinal(w)) if idx % label_every == 0 else ""
-            ticks.append((w, True, lbl))
-            idx += 1
-            w += 7
-
-    else:  # day
-        span_days = omax - omin
-        step = max(1, (span_days + max_l - 1) // max_l)
-        o = omin
-        while o <= omax:
-            ticks.append((o, True, _format_axis_tick_day_month(date.fromordinal(o))))
-            o += step
-        if ticks and ticks[-1][0] < omax:
-            ticks.append((omax, True, _format_axis_tick_day_month(date.fromordinal(omax))))
-
-    ticks.sort(key=lambda t: t[0])
-    return ticks
-
-
-def _smooth_polyline_path(run: List[QPointF], *, strength: float = 1.0) -> Optional[QPainterPath]:
-    """Cubic Bézier chain (Catmull–Rom style) through ``run`` for a flowing line.
-
-    Vertices are preserved as segment endpoints; the curve may bulge slightly past
-    straight chords at sharp turns. ``strength`` scales handle tension:
-    0 ≈ straight segments, ~1 default, >1 more wavy.
-
-    Ported from detail_player_stats_view._smooth_polyline_path.
-    """
-    n = len(run)
-    if n < 2:
-        return None
-    path = QPainterPath(run[0])
-    if n == 2:
-        path.lineTo(run[1])
-        return path
-    if strength < 0.05:
-        for k in range(n - 1):
-            path.lineTo(run[k + 1])
-        return path
-    k = strength / 6.0
-
-    def _pt(i: int) -> QPointF:
-        return run[max(0, min(n - 1, i))]
-
-    for i in range(n - 1):
-        p_im1 = _pt(i - 1) if i > 0 else QPointF(2 * run[0].x() - run[1].x(), 2 * run[0].y() - run[1].y())
-        p_i = run[i]
-        p_ip1 = run[i + 1]
-        p_ip2 = (
-            run[i + 2]
-            if i + 2 < n
-            else QPointF(2 * run[n - 1].x() - run[n - 2].x(), 2 * run[n - 1].y() - run[n - 2].y())
-        )
-        c1 = QPointF(
-            p_i.x() + (p_ip1.x() - p_im1.x()) * k,
-            p_i.y() + (p_ip1.y() - p_im1.y()) * k,
-        )
-        c2 = QPointF(
-            p_ip1.x() - (p_ip2.x() - p_i.x()) * k,
-            p_ip1.y() - (p_ip2.y() - p_i.y()) * k,
-        )
-        path.cubicTo(c1, c2, p_ip1)
-    return path
-
-
 class ChessLogCategoryChartWidget(QWidget):
     """Line chart: one line per Chess Log category within a single preset."""
 
@@ -269,6 +87,7 @@ class ChessLogCategoryChartWidget(QWidget):
 
         self._series: Optional[ChessLogPresetSeries] = None
         self._colors: Dict[str, QColor] = {}
+        self._gap_layout: Optional[GapCompressedTimeLayout] = None
 
         self.setFixedHeight(self._height)
         self.setMinimumWidth(200)
@@ -293,12 +112,33 @@ class ChessLogCategoryChartWidget(QWidget):
         """Load a new preset series and repaint."""
         self._series = series
         self._colors = colors or {}
+        self._gap_layout = self._build_gap_layout(series)
         self.update()
 
     def clear(self) -> None:
         self._series = None
         self._colors = {}
+        self._gap_layout = None
         self.update()
+
+    def _build_gap_layout(self, series: ChessLogPresetSeries) -> Optional[GapCompressedTimeLayout]:
+        t_min = series.t_min
+        t_max = series.t_max
+        if t_min is None or t_max is None or not series.bins:
+            return None
+        centers = []
+        for b in series.bins:
+            try:
+                o0 = date.fromisoformat(b.lab0).toordinal()
+                o1 = date.fromisoformat(b.lab1).toordinal()
+                centers.append((o0 + o1) // 2)
+            except (ValueError, TypeError):
+                pass
+        if not centers:
+            return None
+        return build_gap_compressed_time_layout(
+            t_min, t_max, centers, series.max_gap_segment_days
+        )
 
     # ------------------------------------------------------------------
     # Paint
@@ -383,14 +223,14 @@ class ChessLogCategoryChartWidget(QWidget):
         if t_max <= t_min:
             return
 
-        mode = _effective_calendar_mode(t_min, t_max)
-        ticks = _calendar_axis_ticks(t_min, t_max, mode)
+        mode = effective_calendar_mode(t_min, t_max)
+        ticks = calendar_axis_ticks(t_min, t_max, mode)
 
         major_pen = QPen(self._axis_color, 1)
         minor_pen = QPen(self._grid_color, 1)
 
         for o, is_major, _lbl in ticks:
-            x = _ordinal_to_chart_x(o, t_min, t_max, x0, x1)
+            x = ordinal_to_chart_x(o, x0, x1 - x0, t_min, t_max)
             p.setPen(major_pen if is_major else minor_pen)
             p.drawLine(int(x), int(y0), int(x), int(y1))
 
@@ -402,7 +242,7 @@ class ChessLogCategoryChartWidget(QWidget):
         for o, is_major, lbl in ticks:
             if not lbl or not is_major:
                 continue
-            x = _ordinal_to_chart_x(o, t_min, t_max, x0, x1)
+            x = ordinal_to_chart_x(o, x0, x1 - x0, t_min, t_max)
             if x - last_label_x < min_spacing:
                 continue
             tw = fm.horizontalAdvance(lbl)
@@ -435,13 +275,9 @@ class ChessLogCategoryChartWidget(QWidget):
 
         Layout modes (from series.x_axis_layout):
           - "uniform_bins":    evenly spaced by bin index, ignoring calendar gaps.
-          - "calendar_linear": each bin positioned at its calendar center
-                               (midpoint of lab0–lab1 ordinals) via _ordinal_to_chart_x.
-                               Uses series.t_min/t_max for the full date range so the
-                               axis spans the actual data extent. Matches Player Stats'
-                               behavior: ticks and data both use _ordinal_to_chart_x.
-          - "gap_compressed":  full GapCompressedTimeLayout port is a TODO; falls back
-                               to uniform_bins until that rendering code is wired.
+          - "calendar_linear": each bin at its calendar center via ordinal_to_chart_x.
+          - "gap_compressed":  calendar position via GapCompressedTimeLayout built in
+                               set_series; long game-free spans compressed.
         """
         if not self._series:
             return (time_pct / 100.0) * pw
@@ -460,11 +296,24 @@ class ChessLogCategoryChartWidget(QWidget):
                         t_min = date.fromisoformat(bins[0].lab0).toordinal()
                     if t_max is None:
                         t_max = date.fromisoformat(bins[-1].lab1).toordinal()
-                    return _ordinal_to_chart_x(center, t_min, t_max, 0.0, pw)
+                    return ordinal_to_chart_x(center, 0.0, pw, t_min, t_max)
                 except (ValueError, TypeError):
                     pass
             return (time_pct / 100.0) * pw
-        # uniform_bins and gap_compressed (pending full port): equal spacing
+        if layout == "gap_compressed" and self._gap_layout is not None:
+            bins = self._series.bins
+            t_min = self._series.t_min
+            t_max = self._series.t_max
+            if t_min is not None and t_max is not None and bin_index < len(bins):
+                b = bins[bin_index]
+                try:
+                    o0 = date.fromisoformat(b.lab0).toordinal()
+                    o1 = date.fromisoformat(b.lab1).toordinal()
+                    center = (o0 + o1) // 2
+                    return ordinal_to_chart_x(center, 0.0, pw, t_min, t_max, self._gap_layout)
+                except (ValueError, TypeError):
+                    pass
+        # uniform_bins (or gap_compressed fallback when layout unavailable): equal spacing
         if n_bins <= 1:
             return pw / 2
         return (bin_index / (n_bins - 1)) * pw
@@ -515,7 +364,7 @@ class ChessLogCategoryChartWidget(QWidget):
                 pts.append(QPointF(x, y))
 
             if use_smooth and len(pts) >= 2:
-                path = _smooth_polyline_path(pts, strength=strength)
+                path = smooth_polyline_path(pts, strength=strength)
                 if path:
                     p.drawPath(path)
             else:

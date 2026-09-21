@@ -33,80 +33,158 @@ class TestNormalizeChessLogChartsSettings(unittest.TestCase):
         result = normalize_chess_log_charts_settings({"bogus_key": 99})
         self.assertNotIn("bogus_key", result)
 
-    # --- target_bins ---
+    # --- target_progression_bins ---
 
     def test_all_valid_target_bins_accepted(self):
         for n in CHOICES_TARGET_BINS:
-            result = normalize_chess_log_charts_settings({"target_bins": n})
-            self.assertEqual(result["target_bins"], n)
+            result = normalize_chess_log_charts_settings({"target_progression_bins": n})
+            self.assertEqual(result["target_progression_bins"], n)
 
     def test_invalid_target_bins_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"target_bins": 13})
-        self.assertEqual(result["target_bins"], DEFAULT_CHESS_LOG_CHARTS["target_bins"])
+        result = normalize_chess_log_charts_settings({"target_progression_bins": 13})
+        self.assertEqual(result["target_progression_bins"], DEFAULT_CHESS_LOG_CHARTS["target_progression_bins"])
 
     def test_float_target_bins_invalid(self):
-        result = normalize_chess_log_charts_settings({"target_bins": 16.0})
-        self.assertEqual(result["target_bins"], DEFAULT_CHESS_LOG_CHARTS["target_bins"])
+        result = normalize_chess_log_charts_settings({"target_progression_bins": 16.0})
+        self.assertEqual(result["target_progression_bins"], DEFAULT_CHESS_LOG_CHARTS["target_progression_bins"])
 
-    # --- binning_mode ---
+    # --- ordinal_fallback_mode ---
 
     def test_all_valid_binning_modes_accepted(self):
         for mode in CHOICES_BINNING_MODE:
-            result = normalize_chess_log_charts_settings({"binning_mode": mode})
-            self.assertEqual(result["binning_mode"], mode)
+            result = normalize_chess_log_charts_settings({"ordinal_fallback_mode": mode})
+            self.assertEqual(result["ordinal_fallback_mode"], mode)
 
     def test_invalid_binning_mode_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"binning_mode": "median"})
-        self.assertEqual(result["binning_mode"], DEFAULT_CHESS_LOG_CHARTS["binning_mode"])
+        result = normalize_chess_log_charts_settings({"ordinal_fallback_mode": "median"})
+        self.assertEqual(result["ordinal_fallback_mode"], DEFAULT_CHESS_LOG_CHARTS["ordinal_fallback_mode"])
 
-    # --- x_axis_layout ---
+    # --- progression_x_axis_mode ---
 
     def test_all_valid_x_axis_layouts_accepted(self):
         for layout in CHOICES_X_AXIS_LAYOUT:
-            result = normalize_chess_log_charts_settings({"x_axis_layout": layout})
-            self.assertEqual(result["x_axis_layout"], layout)
+            result = normalize_chess_log_charts_settings({"progression_x_axis_mode": layout})
+            self.assertEqual(result["progression_x_axis_mode"], layout)
 
     def test_invalid_x_axis_layout_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"x_axis_layout": "diagonal"})
-        self.assertEqual(result["x_axis_layout"], DEFAULT_CHESS_LOG_CHARTS["x_axis_layout"])
+        result = normalize_chess_log_charts_settings({"progression_x_axis_mode": "diagonal"})
+        self.assertEqual(result["progression_x_axis_mode"], DEFAULT_CHESS_LOG_CHARTS["progression_x_axis_mode"])
 
-    # --- max_gap_segment_days ---
+    # --- compress_gap_max_segment_days ---
 
     def test_all_valid_max_gap_days_accepted(self):
         for d in CHOICES_MAX_GAP_SEGMENT_DAYS:
-            result = normalize_chess_log_charts_settings({"max_gap_segment_days": d})
-            self.assertEqual(result["max_gap_segment_days"], d)
+            result = normalize_chess_log_charts_settings({"compress_gap_max_segment_days": d})
+            self.assertEqual(result["compress_gap_max_segment_days"], d)
 
     def test_invalid_max_gap_days_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"max_gap_segment_days": 30})
-        self.assertEqual(result["max_gap_segment_days"], DEFAULT_CHESS_LOG_CHARTS["max_gap_segment_days"])
+        result = normalize_chess_log_charts_settings({"compress_gap_max_segment_days": 30})
+        self.assertEqual(result["compress_gap_max_segment_days"], DEFAULT_CHESS_LOG_CHARTS["compress_gap_max_segment_days"])
 
-    # --- line_style ---
+    # --- progression_line_style ---
 
     def test_all_valid_line_styles_accepted(self):
         for style in CHOICES_LINE_STYLE:
-            result = normalize_chess_log_charts_settings({"line_style": style})
-            self.assertEqual(result["line_style"], style)
+            result = normalize_chess_log_charts_settings({"progression_line_style": style})
+            self.assertEqual(result["progression_line_style"], style)
 
     def test_invalid_line_style_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"line_style": "dotted"})
-        self.assertEqual(result["line_style"], DEFAULT_CHESS_LOG_CHARTS["line_style"])
+        result = normalize_chess_log_charts_settings({"progression_line_style": "dotted"})
+        self.assertEqual(result["progression_line_style"], DEFAULT_CHESS_LOG_CHARTS["progression_line_style"])
 
-    # --- smoothing_strength ---
+    # --- progression_line_smooth_strength ---
 
     def test_all_valid_smoothing_strengths_accepted(self):
         for s in CHOICES_SMOOTHING_STRENGTH:
-            result = normalize_chess_log_charts_settings({"smoothing_strength": s})
-            self.assertAlmostEqual(result["smoothing_strength"], s)
+            result = normalize_chess_log_charts_settings({"progression_line_smooth_strength": s})
+            self.assertAlmostEqual(result["progression_line_smooth_strength"], s)
 
     def test_invalid_smoothing_strength_falls_back_to_default(self):
-        result = normalize_chess_log_charts_settings({"smoothing_strength": 3.0})
-        self.assertAlmostEqual(result["smoothing_strength"], DEFAULT_CHESS_LOG_CHARTS["smoothing_strength"])
+        result = normalize_chess_log_charts_settings({"progression_line_smooth_strength": 3.0})
+        self.assertAlmostEqual(result["progression_line_smooth_strength"], DEFAULT_CHESS_LOG_CHARTS["progression_line_smooth_strength"])
 
     # --- full valid dict ---
 
     def test_full_valid_settings_preserved(self):
         raw = {
+            "target_progression_bins": 24,
+            "ordinal_fallback_mode": "equal_width",
+            "progression_x_axis_mode": "gap_compressed",
+            "compress_gap_max_segment_days": 50,
+            "progression_line_style": "straight",
+            "progression_line_smooth_strength": 1.5,
+        }
+        result = normalize_chess_log_charts_settings(raw)
+        self.assertEqual(result["target_progression_bins"], 24)
+        self.assertEqual(result["ordinal_fallback_mode"], "equal_width")
+        self.assertEqual(result["progression_x_axis_mode"], "gap_compressed")
+        self.assertEqual(result["compress_gap_max_segment_days"], 50)
+        self.assertEqual(result["progression_line_style"], "straight")
+        self.assertAlmostEqual(result["progression_line_smooth_strength"], 1.5)
+
+    # --- migration from old x_axis_mode ---
+
+    def test_migration_game_count_becomes_uniform_bins(self):
+        result = normalize_chess_log_charts_settings({"x_axis_mode": "game_count"})
+        self.assertEqual(result["progression_x_axis_mode"], "uniform_bins")
+        self.assertNotIn("x_axis_mode", result)
+
+    def test_migration_time_becomes_calendar_linear(self):
+        result = normalize_chess_log_charts_settings({"x_axis_mode": "time"})
+        self.assertEqual(result["progression_x_axis_mode"], "calendar_linear")
+        self.assertNotIn("x_axis_mode", result)
+
+    def test_migration_explicit_x_axis_layout_wins_over_x_axis_mode(self):
+        result = normalize_chess_log_charts_settings(
+            {"x_axis_mode": "game_count", "progression_x_axis_mode": "gap_compressed"}
+        )
+        self.assertEqual(result["progression_x_axis_mode"], "gap_compressed")
+
+    def test_old_x_axis_mode_key_absent_from_output(self):
+        result = normalize_chess_log_charts_settings({"x_axis_mode": "time"})
+        self.assertNotIn("x_axis_mode", result)
+
+    # --- migration from old short key names (Phase 4b) ---
+
+    def test_migration_old_target_bins_to_target_progression_bins(self):
+        result = normalize_chess_log_charts_settings({"target_bins": 24})
+        self.assertEqual(result["target_progression_bins"], 24)
+        self.assertNotIn("target_bins", result)
+
+    def test_migration_old_binning_mode_to_ordinal_fallback_mode(self):
+        result = normalize_chess_log_charts_settings({"binning_mode": "equal_width"})
+        self.assertEqual(result["ordinal_fallback_mode"], "equal_width")
+        self.assertNotIn("binning_mode", result)
+
+    def test_migration_old_x_axis_layout_to_progression_x_axis_mode(self):
+        result = normalize_chess_log_charts_settings({"x_axis_layout": "gap_compressed"})
+        self.assertEqual(result["progression_x_axis_mode"], "gap_compressed")
+        self.assertNotIn("x_axis_layout", result)
+
+    def test_migration_old_max_gap_segment_days_to_compress_gap(self):
+        result = normalize_chess_log_charts_settings({"max_gap_segment_days": 50})
+        self.assertEqual(result["compress_gap_max_segment_days"], 50)
+        self.assertNotIn("max_gap_segment_days", result)
+
+    def test_migration_old_line_style_to_progression_line_style(self):
+        result = normalize_chess_log_charts_settings({"line_style": "straight"})
+        self.assertEqual(result["progression_line_style"], "straight")
+        self.assertNotIn("line_style", result)
+
+    def test_migration_old_smoothing_strength_to_progression_line_smooth_strength(self):
+        result = normalize_chess_log_charts_settings({"smoothing_strength": 0.5})
+        self.assertAlmostEqual(result["progression_line_smooth_strength"], 0.5)
+        self.assertNotIn("smoothing_strength", result)
+
+    def test_migration_new_key_wins_over_old_key(self):
+        # If both old and new key present, new key takes precedence.
+        result = normalize_chess_log_charts_settings(
+            {"target_bins": 8, "target_progression_bins": 24}
+        )
+        self.assertEqual(result["target_progression_bins"], 24)
+
+    def test_migration_full_old_schema_round_trips(self):
+        old = {
             "target_bins": 24,
             "binning_mode": "equal_width",
             "x_axis_layout": "gap_compressed",
@@ -114,36 +192,13 @@ class TestNormalizeChessLogChartsSettings(unittest.TestCase):
             "line_style": "straight",
             "smoothing_strength": 1.5,
         }
-        result = normalize_chess_log_charts_settings(raw)
-        self.assertEqual(result["target_bins"], 24)
-        self.assertEqual(result["binning_mode"], "equal_width")
-        self.assertEqual(result["x_axis_layout"], "gap_compressed")
-        self.assertEqual(result["max_gap_segment_days"], 50)
-        self.assertEqual(result["line_style"], "straight")
-        self.assertAlmostEqual(result["smoothing_strength"], 1.5)
-
-    # --- migration from old x_axis_mode ---
-
-    def test_migration_game_count_becomes_uniform_bins(self):
-        result = normalize_chess_log_charts_settings({"x_axis_mode": "game_count"})
-        self.assertEqual(result["x_axis_layout"], "uniform_bins")
-        self.assertNotIn("x_axis_mode", result)
-
-    def test_migration_time_becomes_calendar_linear(self):
-        result = normalize_chess_log_charts_settings({"x_axis_mode": "time"})
-        self.assertEqual(result["x_axis_layout"], "calendar_linear")
-        self.assertNotIn("x_axis_mode", result)
-
-    def test_migration_explicit_x_axis_layout_wins_over_x_axis_mode(self):
-        # If both keys present, x_axis_layout takes precedence (migration is skipped).
-        result = normalize_chess_log_charts_settings(
-            {"x_axis_mode": "game_count", "x_axis_layout": "gap_compressed"}
-        )
-        self.assertEqual(result["x_axis_layout"], "gap_compressed")
-
-    def test_old_x_axis_mode_key_absent_from_output(self):
-        result = normalize_chess_log_charts_settings({"x_axis_mode": "time"})
-        self.assertNotIn("x_axis_mode", result)
+        result = normalize_chess_log_charts_settings(old)
+        self.assertEqual(result["target_progression_bins"], 24)
+        self.assertEqual(result["ordinal_fallback_mode"], "equal_width")
+        self.assertEqual(result["progression_x_axis_mode"], "gap_compressed")
+        self.assertEqual(result["compress_gap_max_segment_days"], 50)
+        self.assertEqual(result["progression_line_style"], "straight")
+        self.assertAlmostEqual(result["progression_line_smooth_strength"], 1.5)
 
 
 class TestChartCfgWithChessLogChartsOverrides(unittest.TestCase):

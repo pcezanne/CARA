@@ -5,12 +5,12 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 DEFAULT_CHESS_LOG_CHARTS: Dict[str, Any] = {
-    "target_bins": 16,
-    "binning_mode": "quantile",
-    "x_axis_layout": "uniform_bins",
-    "max_gap_segment_days": 28,
-    "line_style": "smooth",
-    "smoothing_strength": 1.0,
+    "target_progression_bins": 16,
+    "ordinal_fallback_mode": "quantile",
+    "progression_x_axis_mode": "uniform_bins",
+    "compress_gap_max_segment_days": 28,
+    "progression_line_style": "smooth",
+    "progression_line_smooth_strength": 1.0,
 }
 
 CHOICES_TARGET_BINS: tuple = (8, 12, 16, 24, 32)
@@ -24,42 +24,56 @@ CHOICES_SMOOTHING_STRENGTH: tuple = (0.5, 1.0, 1.5, 2.0)
 def normalize_chess_log_charts_settings(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Return a full Chess Log Charts settings dict with invalid values dropped and defaults filled.
 
-    Migration: if the old ``x_axis_mode`` key is present it is converted to the nearest
-    ``x_axis_layout`` equivalent ("game_count" → "uniform_bins", "time" → "calendar_linear")
-    and then discarded so subsequent saves use the new schema.
+    Migrations (applied on first load, in order):
+    - Old ``x_axis_mode`` key → ``progression_x_axis_mode`` ("game_count" → "uniform_bins", "time" → "calendar_linear").
+    - Old short key names (pre-alignment) → new Player-Stats-aligned leaf names.
     """
     out = dict(DEFAULT_CHESS_LOG_CHARTS)
     if not raw or not isinstance(raw, dict):
         return out
 
-    # --- migration from the old two-value x_axis_mode ---
-    if "x_axis_mode" in raw and "x_axis_layout" not in raw:
+    # --- migration: old x_axis_mode (phase 0 legacy) ---
+    if "x_axis_mode" in raw and "progression_x_axis_mode" not in raw and "x_axis_layout" not in raw:
         legacy = str(raw.get("x_axis_mode", "")).strip().lower()
         if legacy == "game_count":
-            out["x_axis_layout"] = "uniform_bins"
+            out["progression_x_axis_mode"] = "uniform_bins"
         else:
-            out["x_axis_layout"] = "calendar_linear"
+            out["progression_x_axis_mode"] = "calendar_linear"
 
-    if raw.get("target_bins") in CHOICES_TARGET_BINS:
-        out["target_bins"] = int(raw["target_bins"])
+    # --- migration: old short key names → new aligned names (6 keys) ---
+    _migrate_single = [
+        ("target_bins", "target_progression_bins", CHOICES_TARGET_BINS),
+        ("binning_mode", "ordinal_fallback_mode", CHOICES_BINNING_MODE),
+        ("x_axis_layout", "progression_x_axis_mode", CHOICES_X_AXIS_LAYOUT),
+        ("max_gap_segment_days", "compress_gap_max_segment_days", CHOICES_MAX_GAP_SEGMENT_DAYS),
+        ("line_style", "progression_line_style", CHOICES_LINE_STYLE),
+        ("smoothing_strength", "progression_line_smooth_strength", CHOICES_SMOOTHING_STRENGTH),
+    ]
+    for old_key, new_key, choices in _migrate_single:
+        if old_key in raw and new_key not in raw:
+            raw = dict(raw)
+            raw[new_key] = raw[old_key]
 
-    bm = str(raw.get("binning_mode", "")).strip().lower()
+    if raw.get("target_progression_bins") in CHOICES_TARGET_BINS:
+        out["target_progression_bins"] = int(raw["target_progression_bins"])
+
+    bm = str(raw.get("ordinal_fallback_mode", "")).strip().lower()
     if bm in CHOICES_BINNING_MODE:
-        out["binning_mode"] = bm
+        out["ordinal_fallback_mode"] = bm
 
-    xl = str(raw.get("x_axis_layout", "")).strip().lower()
+    xl = str(raw.get("progression_x_axis_mode", "")).strip().lower()
     if xl in CHOICES_X_AXIS_LAYOUT:
-        out["x_axis_layout"] = xl
+        out["progression_x_axis_mode"] = xl
 
-    if raw.get("max_gap_segment_days") in CHOICES_MAX_GAP_SEGMENT_DAYS:
-        out["max_gap_segment_days"] = int(raw["max_gap_segment_days"])
+    if raw.get("compress_gap_max_segment_days") in CHOICES_MAX_GAP_SEGMENT_DAYS:
+        out["compress_gap_max_segment_days"] = int(raw["compress_gap_max_segment_days"])
 
-    ls = str(raw.get("line_style", "")).strip().lower()
+    ls = str(raw.get("progression_line_style", "")).strip().lower()
     if ls in CHOICES_LINE_STYLE:
-        out["line_style"] = ls
+        out["progression_line_style"] = ls
 
-    if raw.get("smoothing_strength") in CHOICES_SMOOTHING_STRENGTH:
-        out["smoothing_strength"] = float(raw["smoothing_strength"])
+    if raw.get("progression_line_smooth_strength") in CHOICES_SMOOTHING_STRENGTH:
+        out["progression_line_smooth_strength"] = float(raw["progression_line_smooth_strength"])
 
     return out
 

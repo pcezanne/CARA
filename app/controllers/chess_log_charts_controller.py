@@ -344,12 +344,12 @@ class ChessLogChartsController(QObject):
         self._get_selected_games_callback: Optional[Callable[[bool], List[GameData]]] = None
 
         _charts_defaults = normalize_chess_log_charts_settings({})
-        self._target_bins: int = _charts_defaults["target_bins"]
-        self._binning_mode: str = _charts_defaults["binning_mode"]
-        self._x_axis_layout: str = _charts_defaults["x_axis_layout"]
-        self._max_gap_segment_days: int = _charts_defaults["max_gap_segment_days"]
-        self._line_style: str = _charts_defaults["line_style"]
-        self._smoothing_strength: float = _charts_defaults["smoothing_strength"]
+        self._target_bins: int = _charts_defaults["target_progression_bins"]
+        self._binning_mode: str = _charts_defaults["ordinal_fallback_mode"]
+        self._x_axis_layout: str = _charts_defaults["progression_x_axis_mode"]
+        self._max_gap_segment_days: int = _charts_defaults["compress_gap_max_segment_days"]
+        self._line_style: str = _charts_defaults["progression_line_style"]
+        self._smoothing_strength: float = _charts_defaults["progression_line_smooth_strength"]
 
         self._dropdown_worker: Optional[ChessLogPlayerDropdownWorker] = None
         self._agg_worker: Optional[ChessLogAggregationWorker] = None
@@ -415,12 +415,12 @@ class ChessLogChartsController(QObject):
         charts = normalize_chess_log_charts_settings(
             user_settings.get("chess_log", {}).get("charts", {})
         )
-        self._target_bins = charts["target_bins"]
-        self._binning_mode = charts["binning_mode"]
-        self._x_axis_layout = charts["x_axis_layout"]
-        self._max_gap_segment_days = charts["max_gap_segment_days"]
-        self._line_style = charts["line_style"]
-        self._smoothing_strength = charts["smoothing_strength"]
+        self._target_bins = charts["target_progression_bins"]
+        self._binning_mode = charts["ordinal_fallback_mode"]
+        self._x_axis_layout = charts["progression_x_axis_mode"]
+        self._max_gap_segment_days = charts["compress_gap_max_segment_days"]
+        self._line_style = charts["progression_line_style"]
+        self._smoothing_strength = charts["progression_line_smooth_strength"]
 
         new = (
             self._target_bins, self._binning_mode, self._x_axis_layout,
@@ -832,12 +832,12 @@ class ChessLogChartsController(QObject):
         try:
             UserSettingsService.get_instance().update_chess_log_settings({
                 "charts": {
-                    "target_bins": self._target_bins,
-                    "binning_mode": self._binning_mode,
-                    "x_axis_layout": self._x_axis_layout,
-                    "max_gap_segment_days": self._max_gap_segment_days,
-                    "line_style": self._line_style,
-                    "smoothing_strength": self._smoothing_strength,
+                    "target_progression_bins": self._target_bins,
+                    "ordinal_fallback_mode": self._binning_mode,
+                    "progression_x_axis_mode": self._x_axis_layout,
+                    "compress_gap_max_segment_days": self._max_gap_segment_days,
+                    "progression_line_style": self._line_style,
+                    "progression_line_smooth_strength": self._smoothing_strength,
                 }
             })
         except Exception:

@@ -493,6 +493,16 @@ class UserSettingsModel(QObject):
         self.settings_changed.emit()
         self.chess_log_charts_changed.emit()
 
+    def update_chess_log_charts_settings(self, partial: Dict[str, Any]) -> None:
+        """Merge keys into Chess Log charts settings (shallow merge into chess_log.charts)."""
+        cur = self.get_chess_log()
+        charts = cur.get("charts", {})
+        if not isinstance(charts, dict):
+            charts = {}
+        charts.update(partial)
+        cur["charts"] = charts
+        self.set_chess_log(cur)
+
     def get_recent_pgn_databases(self) -> list:
         """Get recent PGN database file paths (most recent first)."""
         raw = self._settings.get("recent_pgn_databases", [])

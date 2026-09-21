@@ -1,7 +1,8 @@
-"""Tests for ChessLogChartsMenuController (6-item, 3-group rebuild).
+"""Characterization tests for PlayerStatsTimeSeriesMenuController (6-item, 3-group menu).
 
 Requires a working Qt platform (CI: QT_QPA_PLATFORM=offscreen).
 Uses UserSettingsService directly — same as the production code path.
+Mirrors the structure of test_chess_log_charts_menu.py.
 """
 
 from __future__ import annotations
@@ -38,12 +39,12 @@ if _QT_AVAILABLE:
 
     _app = QApplication.instance() or QApplication(sys.argv)
 
-    from app.views.menus.chess_log_charts_menu import ChessLogChartsMenuController
-    from app.services.chess_log_charts_user import (
-        CHOICES_TARGET_BINS,
-        CHOICES_MAX_GAP_SEGMENT_DAYS,
-        CHOICES_SMOOTHING_STRENGTH,
-        normalize_chess_log_charts_settings,
+    from app.views.menus.player_stats_time_series_menu import PlayerStatsTimeSeriesMenuController
+    from app.services.player_stats_time_series_user import (
+        CHOICES_TARGET_PROGRESSION_BINS,
+        CHOICES_COMPRESS_GAP_MAX_SEGMENT_DAYS,
+        CHOICES_PROGRESSION_LINE_SMOOTH_STRENGTH,
+        normalize_player_stats_time_series_settings,
     )
     from app.services.user_settings_service import UserSettingsService
 
@@ -52,41 +53,37 @@ if _QT_AVAILABLE:
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_ctrl() -> "ChessLogChartsMenuController":
-    return ChessLogChartsMenuController(
+def _make_ctrl() -> "PlayerStatsTimeSeriesMenuController":
+    return PlayerStatsTimeSeriesMenuController(
         action_parent=_app,
         style_submenu=lambda _m: None,
     )
 
 
-def _reset_chess_log_settings() -> None:
-    UserSettingsService.get_instance().update_chess_log_settings(
-        {
-            "charts": {
-                "target_progression_bins": 16,
-                "ordinal_fallback_mode": "quantile",
-                "progression_x_axis_mode": "uniform_bins",
-                "compress_gap_max_segment_days": 28,
-                "progression_line_style": "smooth",
-                "progression_line_smooth_strength": 1.0,
-            }
-        }
-    )
+def _reset_ps_settings() -> None:
+    UserSettingsService.get_instance().update_player_stats_time_series({
+        "target_progression_bins": 16,
+        "ordinal_fallback_mode": "quantile",
+        "progression_x_axis_mode": "uniform_bins",
+        "compress_gap_max_segment_days": 28,
+        "progression_line_style": "smooth",
+        "progression_line_smooth_strength": 1.0,
+    })
 
 
-def _charts() -> dict:
-    return normalize_chess_log_charts_settings(
-        UserSettingsService.get_instance().get_chess_log().get("charts", {})
+def _ts() -> dict:
+    return normalize_player_stats_time_series_settings(
+        UserSettingsService.get_instance().get_model().get_player_stats_time_series()
     )
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
-class TestChessLogChartsMenuStructure(unittest.TestCase):
+class TestPlayerStatsTimeSeriesMenuStructure(unittest.TestCase):
 
     def setUp(self):
-        _reset_chess_log_settings()
+        _reset_ps_settings()
 
-    def _attached_ctrl(self) -> "ChessLogChartsMenuController":
+    def _attached_ctrl(self) -> "PlayerStatsTimeSeriesMenuController":
         ctrl = _make_ctrl()
         ctrl.attach_to_parent_menu(QMenu())
         return ctrl
@@ -98,15 +95,15 @@ class TestChessLogChartsMenuStructure(unittest.TestCase):
 
     def test_bins_actions_count_matches_choices(self):
         ctrl = self._attached_ctrl()
-        self.assertEqual(len(ctrl._bins_actions), len(CHOICES_TARGET_BINS))
+        self.assertEqual(len(ctrl._bins_actions), len(CHOICES_TARGET_PROGRESSION_BINS))
 
     def test_gap_seg_actions_count_matches_choices(self):
         ctrl = self._attached_ctrl()
-        self.assertEqual(len(ctrl._gap_seg_actions), len(CHOICES_MAX_GAP_SEGMENT_DAYS))
+        self.assertEqual(len(ctrl._gap_seg_actions), len(CHOICES_COMPRESS_GAP_MAX_SEGMENT_DAYS))
 
     def test_strength_actions_count_matches_choices(self):
         ctrl = self._attached_ctrl()
-        self.assertEqual(len(ctrl._strength_actions), len(CHOICES_SMOOTHING_STRENGTH))
+        self.assertEqual(len(ctrl._strength_actions), len(CHOICES_PROGRESSION_LINE_SMOOTH_STRENGTH))
 
     def test_all_x_axis_actions_exist(self):
         ctrl = self._attached_ctrl()
@@ -148,13 +145,13 @@ class TestChessLogChartsMenuStructure(unittest.TestCase):
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
-class TestChessLogChartsMenuCheckedStateOnBuild(unittest.TestCase):
-    """Exactly one item per group should be checked after attach_to_parent_menu."""
+class TestPlayerStatsTimeSeriesMenuCheckedStateOnBuild(unittest.TestCase):
+    """Exactly one item per group checked after attach_to_parent_menu."""
 
     def setUp(self):
-        _reset_chess_log_settings()
+        _reset_ps_settings()
 
-    def _attached_ctrl(self) -> "ChessLogChartsMenuController":
+    def _attached_ctrl(self) -> "PlayerStatsTimeSeriesMenuController":
         ctrl = _make_ctrl()
         ctrl.attach_to_parent_menu(QMenu())
         return ctrl
@@ -202,24 +199,24 @@ class TestChessLogChartsMenuCheckedStateOnBuild(unittest.TestCase):
                 self.assertFalse(a.isChecked())
 
     def test_persisted_24_bins_reflected_on_build(self):
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "target_progression_bins": 24}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"target_progression_bins": 24}
         )
         ctrl = self._attached_ctrl()
         self.assertTrue(ctrl._bins_actions[24].isChecked())
         self.assertFalse(ctrl._bins_actions[16].isChecked())
 
     def test_persisted_equal_width_mode_reflected_on_build(self):
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "ordinal_fallback_mode": "equal_width"}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"ordinal_fallback_mode": "equal_width"}
         )
         ctrl = self._attached_ctrl()
         self.assertFalse(ctrl._mode_quantile.isChecked())
         self.assertTrue(ctrl._mode_equal.isChecked())
 
     def test_persisted_calendar_linear_reflected_on_build(self):
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "progression_x_axis_mode": "calendar_linear"}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"progression_x_axis_mode": "calendar_linear"}
         )
         ctrl = self._attached_ctrl()
         self.assertTrue(ctrl._x_cal.isChecked())
@@ -227,16 +224,16 @@ class TestChessLogChartsMenuCheckedStateOnBuild(unittest.TestCase):
         self.assertFalse(ctrl._x_gap.isChecked())
 
     def test_persisted_straight_line_style_reflected_on_build(self):
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "progression_line_style": "straight"}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"progression_line_style": "straight"}
         )
         ctrl = self._attached_ctrl()
         self.assertTrue(ctrl._line_straight.isChecked())
         self.assertFalse(ctrl._line_smooth.isChecked())
 
     def test_persisted_0_5_strength_reflected_on_build(self):
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "progression_line_smooth_strength": 0.5}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"progression_line_smooth_strength": 0.5}
         )
         ctrl = self._attached_ctrl()
         self.assertTrue(ctrl._strength_actions[0.5].isChecked())
@@ -244,13 +241,13 @@ class TestChessLogChartsMenuCheckedStateOnBuild(unittest.TestCase):
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
-class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
+class TestPlayerStatsTimeSeriesMenuActionTriggers(unittest.TestCase):
     """Selecting a value persists to settings and updates the checked state."""
 
     def setUp(self):
-        _reset_chess_log_settings()
+        _reset_ps_settings()
 
-    def _attached_ctrl(self) -> "ChessLogChartsMenuController":
+    def _attached_ctrl(self) -> "PlayerStatsTimeSeriesMenuController":
         ctrl = _make_ctrl()
         ctrl.attach_to_parent_menu(QMenu())
         return ctrl
@@ -260,7 +257,7 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_target_bins_selected_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_target_bins_selected(8)
-        self.assertEqual(_charts()["target_progression_bins"], 8)
+        self.assertEqual(_ts()["target_progression_bins"], 8)
 
     def test_on_target_bins_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -270,20 +267,20 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
             if n != 32:
                 self.assertFalse(a.isChecked())
 
-    def test_on_target_bins_selected_preserves_other_keys(self):
+    def test_on_target_bins_writes_single_key(self):
         ctrl = self._attached_ctrl()
         ctrl._on_target_bins_selected(24)
-        c = _charts()
-        self.assertEqual(c["ordinal_fallback_mode"], "quantile")
-        self.assertEqual(c["progression_x_axis_mode"], "uniform_bins")
-        self.assertEqual(c["compress_gap_max_segment_days"], 28)
-        self.assertEqual(c["progression_line_style"], "smooth")
-        self.assertAlmostEqual(c["progression_line_smooth_strength"], 1.0)
+        ts = _ts()
+        self.assertEqual(ts["ordinal_fallback_mode"], "quantile")
+        self.assertEqual(ts["progression_x_axis_mode"], "uniform_bins")
+        self.assertEqual(ts["compress_gap_max_segment_days"], 28)
+        self.assertEqual(ts["progression_line_style"], "smooth")
+        self.assertAlmostEqual(ts["progression_line_smooth_strength"], 1.0)
 
     def test_on_ordinal_mode_selected_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_ordinal_mode_selected("equal_width")
-        self.assertEqual(_charts()["ordinal_fallback_mode"], "equal_width")
+        self.assertEqual(_ts()["ordinal_fallback_mode"], "equal_width")
 
     def test_on_ordinal_mode_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -294,21 +291,21 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_ordinal_mode_selected_preserves_other_keys(self):
         ctrl = self._attached_ctrl()
         ctrl._on_ordinal_mode_selected("equal_width")
-        c = _charts()
-        self.assertEqual(c["target_progression_bins"], 16)
-        self.assertEqual(c["progression_x_axis_mode"], "uniform_bins")
+        ts = _ts()
+        self.assertEqual(ts["target_progression_bins"], 16)
+        self.assertEqual(ts["progression_x_axis_mode"], "uniform_bins")
 
     # --- Group B: X axis ---
 
     def test_on_x_axis_mode_selected_gap_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_x_axis_mode_selected("gap_compressed")
-        self.assertEqual(_charts()["progression_x_axis_mode"], "gap_compressed")
+        self.assertEqual(_ts()["progression_x_axis_mode"], "gap_compressed")
 
     def test_on_x_axis_mode_selected_calendar_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_x_axis_mode_selected("calendar_linear")
-        self.assertEqual(_charts()["progression_x_axis_mode"], "calendar_linear")
+        self.assertEqual(_ts()["progression_x_axis_mode"], "calendar_linear")
 
     def test_on_x_axis_mode_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -320,15 +317,15 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_x_axis_mode_selected_preserves_other_keys(self):
         ctrl = self._attached_ctrl()
         ctrl._on_x_axis_mode_selected("calendar_linear")
-        c = _charts()
-        self.assertEqual(c["target_progression_bins"], 16)
-        self.assertEqual(c["ordinal_fallback_mode"], "quantile")
-        self.assertEqual(c["compress_gap_max_segment_days"], 28)
+        ts = _ts()
+        self.assertEqual(ts["target_progression_bins"], 16)
+        self.assertEqual(ts["ordinal_fallback_mode"], "quantile")
+        self.assertEqual(ts["compress_gap_max_segment_days"], 28)
 
     def test_on_gap_segment_days_selected_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_gap_segment_days_selected(14)
-        self.assertEqual(_charts()["compress_gap_max_segment_days"], 14)
+        self.assertEqual(_ts()["compress_gap_max_segment_days"], 14)
 
     def test_on_gap_segment_days_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -341,17 +338,17 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_gap_segment_days_selected_preserves_other_keys(self):
         ctrl = self._attached_ctrl()
         ctrl._on_gap_segment_days_selected(50)
-        c = _charts()
-        self.assertEqual(c["target_progression_bins"], 16)
-        self.assertEqual(c["progression_x_axis_mode"], "uniform_bins")
-        self.assertEqual(c["progression_line_style"], "smooth")
+        ts = _ts()
+        self.assertEqual(ts["target_progression_bins"], 16)
+        self.assertEqual(ts["progression_x_axis_mode"], "uniform_bins")
+        self.assertEqual(ts["progression_line_style"], "smooth")
 
     # --- Group C: Line style ---
 
     def test_on_line_style_selected_straight_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_line_style_selected("straight")
-        self.assertEqual(_charts()["progression_line_style"], "straight")
+        self.assertEqual(_ts()["progression_line_style"], "straight")
 
     def test_on_line_style_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -362,14 +359,14 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_line_style_selected_preserves_other_keys(self):
         ctrl = self._attached_ctrl()
         ctrl._on_line_style_selected("straight")
-        c = _charts()
-        self.assertEqual(c["target_progression_bins"], 16)
-        self.assertEqual(c["progression_x_axis_mode"], "uniform_bins")
+        ts = _ts()
+        self.assertEqual(ts["target_progression_bins"], 16)
+        self.assertEqual(ts["progression_x_axis_mode"], "uniform_bins")
 
     def test_on_smooth_strength_selected_persists(self):
         ctrl = self._attached_ctrl()
         ctrl._on_smooth_strength_selected(2.0)
-        self.assertAlmostEqual(_charts()["progression_line_smooth_strength"], 2.0)
+        self.assertAlmostEqual(_ts()["progression_line_smooth_strength"], 2.0)
 
     def test_on_smooth_strength_selected_updates_checked_state(self):
         ctrl = self._attached_ctrl()
@@ -382,18 +379,18 @@ class TestChessLogChartsMenuActionTriggers(unittest.TestCase):
     def test_on_smooth_strength_selected_preserves_other_keys(self):
         ctrl = self._attached_ctrl()
         ctrl._on_smooth_strength_selected(1.5)
-        c = _charts()
-        self.assertEqual(c["progression_line_style"], "smooth")
-        self.assertEqual(c["target_progression_bins"], 16)
+        ts = _ts()
+        self.assertEqual(ts["progression_line_style"], "smooth")
+        self.assertEqual(ts["target_progression_bins"], 16)
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
-class TestChessLogChartsMenuSyncFromSettings(unittest.TestCase):
+class TestPlayerStatsTimeSeriesMenuSyncFromSettings(unittest.TestCase):
 
     def setUp(self):
-        _reset_chess_log_settings()
+        _reset_ps_settings()
 
-    def _attached_ctrl(self) -> "ChessLogChartsMenuController":
+    def _attached_ctrl(self) -> "PlayerStatsTimeSeriesMenuController":
         ctrl = _make_ctrl()
         ctrl.attach_to_parent_menu(QMenu())
         return ctrl
@@ -404,18 +401,14 @@ class TestChessLogChartsMenuSyncFromSettings(unittest.TestCase):
 
     def test_sync_updates_all_groups_after_external_change(self):
         ctrl = self._attached_ctrl()
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {
-                "charts": {
-                    "target_progression_bins": 8,
-                    "ordinal_fallback_mode": "equal_width",
-                    "progression_x_axis_mode": "calendar_linear",
-                    "compress_gap_max_segment_days": 14,
-                    "progression_line_style": "straight",
-                    "progression_line_smooth_strength": 2.0,
-                }
-            }
-        )
+        UserSettingsService.get_instance().update_player_stats_time_series({
+            "target_progression_bins": 8,
+            "ordinal_fallback_mode": "equal_width",
+            "progression_x_axis_mode": "calendar_linear",
+            "compress_gap_max_segment_days": 14,
+            "progression_line_style": "straight",
+            "progression_line_smooth_strength": 2.0,
+        })
         ctrl.sync_from_settings()
         self.assertTrue(ctrl._bins_actions[8].isChecked())
         self.assertTrue(ctrl._mode_equal.isChecked())
@@ -430,41 +423,41 @@ class TestChessLogChartsMenuSyncFromSettings(unittest.TestCase):
 
     def test_sync_updates_bins_after_external_change(self):
         ctrl = self._attached_ctrl()
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "target_progression_bins": 32}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"target_progression_bins": 32}
         )
         ctrl.sync_from_settings()
         self.assertTrue(ctrl._bins_actions[32].isChecked())
         self.assertFalse(ctrl._bins_actions[16].isChecked())
 
-    def test_chess_log_charts_changed_signal_drives_sync(self):
-        """chess_log_charts_changed emitted by set_chess_log() must drive sync."""
+    def test_player_stats_time_series_changed_signal_drives_sync(self):
+        """player_stats_time_series_changed emitted by update must drive sync."""
         ctrl = self._attached_ctrl()
         self.assertTrue(ctrl._x_uniform.isChecked())
 
         model = UserSettingsService.get_instance().get_model()
-        model.chess_log_charts_changed.connect(ctrl.sync_from_settings)
+        model.player_stats_time_series_changed.connect(ctrl.sync_from_settings)
 
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "progression_x_axis_mode": "gap_compressed"}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"progression_x_axis_mode": "gap_compressed"}
         )
         self.assertTrue(ctrl._x_gap.isChecked())
         self.assertFalse(ctrl._x_uniform.isChecked())
 
-        model.chess_log_charts_changed.disconnect(ctrl.sync_from_settings)
+        model.player_stats_time_series_changed.disconnect(ctrl.sync_from_settings)
 
-    def test_chess_log_charts_changed_signal_drives_sync_line_style(self):
+    def test_player_stats_time_series_changed_signal_drives_sync_line_style(self):
         ctrl = self._attached_ctrl()
         model = UserSettingsService.get_instance().get_model()
-        model.chess_log_charts_changed.connect(ctrl.sync_from_settings)
+        model.player_stats_time_series_changed.connect(ctrl.sync_from_settings)
 
-        UserSettingsService.get_instance().update_chess_log_settings(
-            {"charts": {**_charts(), "progression_line_style": "straight"}}
+        UserSettingsService.get_instance().update_player_stats_time_series(
+            {"progression_line_style": "straight"}
         )
         self.assertTrue(ctrl._line_straight.isChecked())
         self.assertFalse(ctrl._line_smooth.isChecked())
 
-        model.chess_log_charts_changed.disconnect(ctrl.sync_from_settings)
+        model.player_stats_time_series_changed.disconnect(ctrl.sync_from_settings)
 
 
 if __name__ == "__main__":

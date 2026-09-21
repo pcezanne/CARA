@@ -1024,6 +1024,10 @@ class UserSettingsService:
         current = model.get_chess_log()
         current.update(partial)
         model.set_chess_log(current)
+
+    def update_chess_log_charts_settings(self, partial: Dict[str, Any]) -> None:
+        """Merge keys into Chess Log charts settings (shallow merge into chess_log.charts)."""
+        self.get_model().update_chess_log_charts_settings(partial)
     
     def update_moves_list_profiles(self, profiles: Dict[str, Any]) -> None:
         """Persist the full moves list profile map (replaces the stored dict).

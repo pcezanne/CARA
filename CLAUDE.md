@@ -247,7 +247,7 @@ Reporting and visualization layer for Chess Log — the detail tab (index 9, F10
 
 **Tech debt** (`widget.grab()` chart quality): `ChessLogPDFService.export_charts_report` embeds charts as screen-resolution pixmaps from `widget.grab()`. Player Stats re-renders charts natively via QPainter from series data. If PDF chart quality is inadequate, the upgrade path is a native-QPainter pipeline in `ChessLogPDFService` — flagged as tech debt; the existing path is upgradeable without API changes.
 
-**Tech debt note**: `BusySpinner` (`app/views/widgets/busy_spinner.py`) and the private `_BusySpinner` inside `app/views/dialogs/bulk_operations_dialog.py` are independent copies of the same widget. The `bulk_operations_dialog.py` copy should be replaced with `BusySpinner` in a future PR coordinated with Philipp.
+**BusySpinner**: `app/views/widgets/busy_spinner.py` is the single canonical spinner widget used throughout Chess Log (Charts tab, dialogs) and by `BulkOperationsDialog`. The formerly private `_BusySpinner` copy in `bulk_operations_dialog.py` was removed and replaced with `BusySpinner` (Phase 1, 2026-09-21).
 
 **AI provider config**: `app/utils/ai_provider_config.py` — shared `is_ai_configured` / `resolve_default_provider` helpers extracted from the inline logic in `AIChatController.get_default_model`. Used by both Chess Log Charts and AI Summary.
 

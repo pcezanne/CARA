@@ -2027,6 +2027,11 @@
             "hint_text": {
               "$ref": "$_COLOR_TEXT_4"
             },
+            "link": [
+              100,
+              150,
+              255
+            ],
             "spinner_color": [
               180,
               180,

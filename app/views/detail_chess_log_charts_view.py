@@ -220,11 +220,12 @@ class DetailChessLogChartsView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(6)
 
-        self._ai_hint = QLabel(
-            "Configure an AI provider in Chess Log → AI Model Settings to enable narrative summaries."
-        )
+        self._ai_hint = QLabel()
         self._ai_hint.setWordWrap(True)
         self._ai_hint.setVisible(True)
+        self._ai_hint.setTextFormat(Qt.TextFormat.RichText)
+        self._ai_hint.setOpenExternalLinks(False)
+        self._ai_hint.linkActivated.connect(self._on_ai_hint_link_clicked)
         layout.addWidget(self._ai_hint)
 
         # Model / timeout / tokens row (mirrors AI Summary's input row, no reactive layout).
@@ -336,12 +337,14 @@ class DetailChessLogChartsView(QWidget):
         input_bg = colors.get("input_background", [38, 38, 44])
         border = colors.get("border", [60, 60, 68])
         hint_text = colors.get("hint_text", [150, 150, 160])
+        link = colors.get("link", [100, 150, 255])
 
         bg_s = f"rgb({bg[0]},{bg[1]},{bg[2]})"
         text_s = f"rgb({text[0]},{text[1]},{text[2]})"
         input_s = f"rgb({input_bg[0]},{input_bg[1]},{input_bg[2]})"
         border_s = f"rgb({border[0]},{border[1]},{border[2]})"
         hint_s = f"rgb({hint_text[0]},{hint_text[1]},{hint_text[2]})"
+        link_s = f"rgb({link[0]},{link[1]},{link[2]})"
 
         self.setStyleSheet(f"""
             QWidget {{ background-color: {bg_s}; color: {text_s}; }}
@@ -369,8 +372,18 @@ class DetailChessLogChartsView(QWidget):
             QGroupBox::title {{ color: {text_s}; subcontrol-origin: margin; left: 8px; }}
         """)
         self._ai_hint.setStyleSheet(f"color: {hint_s}; border: none;")
+        self._ai_hint.setText(
+            f'Configure an AI provider in Chess Log → '
+            f'<a href="ai-model-settings" style="color: {link_s}; text-decoration: underline;">'
+            f'AI Model Settings</a> to enable narrative summaries.'
+        )
         self._shallow_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._placeholder.setStyleSheet(f"color: {hint_s}; border: none;")
+
+    def _on_ai_hint_link_clicked(self, url: str) -> None:
+        w = self.window()
+        if hasattr(w, "_show_ai_model_settings"):
+            w._show_ai_model_settings()
 
     # ------------------------------------------------------------------
     # Signal handlers

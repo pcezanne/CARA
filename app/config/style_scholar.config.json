@@ -2048,6 +2048,9 @@
             "hint_text": {
               "$ref": "$_COLOR_DRIFTWOOD"
             },
+            "link": {
+              "$ref": "$_COLOR_BOURBON_TEAL"
+            },
             "spinner_color": {
               "$ref": "$_COLOR_BOURBON_TEAL"
             }

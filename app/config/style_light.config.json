@@ -2038,6 +2038,11 @@
             "hint_text": {
               "$ref": "$_COLOR_TEXT_4"
             },
+            "link": [
+              50,
+              110,
+              200
+            ],
             "spinner_color": [
               70,
               100,

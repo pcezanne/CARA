@@ -143,6 +143,25 @@ class TestDetailChessLogChartsViewNarrativePanel(unittest.TestCase):
         view.set_controller(_make_stub_controller(ai_configured=True))
         self.assertFalse(view._ai_hint.isVisible())
 
+    def test_ai_hint_is_rich_text(self):
+        from PyQt6.QtCore import Qt
+        view = DetailChessLogChartsView(config={})
+        self.assertEqual(view._ai_hint.textFormat(), Qt.TextFormat.RichText)
+
+    def test_ai_hint_contains_anchor_when_unconfigured(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller(ai_configured=False))
+        self.assertIn('<a href=', view._ai_hint.text())
+        self.assertIn('ai-model-settings', view._ai_hint.text())
+
+    def test_ai_hint_link_click_reaches_main_window(self):
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller(ai_configured=False))
+        fake_window = MagicMock()
+        with patch.object(view, "window", return_value=fake_window):
+            view._on_ai_hint_link_clicked("ai-model-settings")
+        fake_window._show_ai_model_settings.assert_called_once()
+
     def test_narrative_ready_sets_text(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))

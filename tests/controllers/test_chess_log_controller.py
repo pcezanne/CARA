@@ -268,6 +268,31 @@ class TestSaveAndClear(unittest.TestCase):
         ctrl.clear_tags_for_current_game()
         gm.metadata_updated.emit.assert_called_once()
 
+    def test_clear_removes_game_from_dirty_games(self):
+        """clear_tags_for_current_game must pop the game from _dirty_games so
+        save_all_dirty_games doesn't re-save it with empty data."""
+        game = make_game()
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+        # Simulate the game having been made dirty via ShowTagsDialog.
+        ctrl._dirty_games[game.game_number] = game
+        ctrl.clear_tags_for_current_game()
+        self.assertNotIn(game.game_number, ctrl._dirty_games)
+
+    def test_clear_does_not_appear_in_subsequent_save_all_count(self):
+        """After clearing, save_all_dirty_games must not count the cleared game."""
+        game = make_game()
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+        # Make dirty, then clear.
+        ctrl._dirty_games[game.game_number] = game
+        ctrl.clear_tags_for_current_game()
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 0)
+        self.assertEqual(failed, 0)
+
 
 class TestGetEntriesAtActivePath(unittest.TestCase):
     def test_returns_empty_for_untagged_path(self):

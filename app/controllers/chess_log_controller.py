@@ -138,6 +138,10 @@ class ChessLogController:
         self._cached_paths_data = {}
         ok = ChessLogStorageService.clear_tags(game)
         if ok:
+            # clear_tags writes the final state immediately, so nothing is left to
+            # save for this game — remove it from _dirty_games to prevent
+            # save_all_dirty_games from saving it again with empty data.
+            self._dirty_games.pop(game.game_number, None)
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok

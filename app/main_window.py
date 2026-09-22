@@ -1510,6 +1510,7 @@ class MainWindow(QMainWindow):
             chess_log_controller.clear_tags_for_current_game()
             self.controller.set_status("Chess Log cleared for current game")
             self._notify_moveslist_chess_log_changed()
+            self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
     def _on_highlight_chess_log_moves_toggled(self, checked: bool) -> None:
         """Handle 'Highlight tagged moves in moves list' toggle."""

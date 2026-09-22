@@ -955,6 +955,27 @@ class TestPDFPrintTheme(unittest.TestCase):
         svc = ChessLogPDFService({})
         self.assertEqual(svc._warn_outline, QColor(30, 30, 30))
 
+    def test_table_col_widths_pct_from_config(self):
+        """table_col_widths_pct in pdf_report overrides the 20/40/40 default."""
+        cfg: dict = {
+            "ui": {
+                "panels": {
+                    "detail": {
+                        "chess_log_charts": {
+                            "pdf_report": {
+                                "table_col_widths_pct": [25, 50, 25],
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        svc = ChessLogPDFService(cfg)
+        widths = svc._table_col_widths(3, 100.0)
+        self.assertAlmostEqual(widths[0], 25.0, places=1)
+        self.assertAlmostEqual(widths[1], 50.0, places=1)
+        self.assertAlmostEqual(widths[2], 25.0, places=1)
+
     def test_does_not_mutate_input_config(self):
         import copy
         cfg = self._make_config(ui_pdf_text=[30, 30, 35], report_text=[30, 30, 35])

@@ -331,5 +331,22 @@ class TestNagShown(unittest.TestCase):
         self.assertFalse(ChessLogStorageService.load_nag_shown(game))
 
 
+class TestRemoveChessLogTagsLogsOnFailure(unittest.TestCase):
+    """Phase 7: _remove_chess_log_tags logs a warning on failure instead of silently swallowing."""
+
+    def test_warning_logged_on_cleanup_failure(self):
+        from unittest.mock import patch, MagicMock
+        import chess.pgn as _pgn_mod
+        game = make_game()
+        mock_svc = MagicMock()
+        with patch(
+            "app.services.chess_log_storage_service.LoggingService.get_instance",
+            return_value=mock_svc,
+        ), patch.object(_pgn_mod, "read_game", side_effect=IOError("disk error")):
+            ChessLogStorageService._remove_chess_log_tags(game)
+        mock_svc.warning.assert_called_once()
+        self.assertIn("Chess Log tag cleanup failed", mock_svc.warning.call_args.args[0])
+
+
 if __name__ == "__main__":
     unittest.main()

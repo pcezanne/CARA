@@ -252,5 +252,5 @@ class ChessLogStorageService:
             new_raw = chess_game.headers.get("CARAGameTags", "")
             game.game_tags_raw = new_raw
             game.game_tags = tags_display_text(parse_game_tags(new_raw))
-        except Exception:
-            pass
+        except Exception as e:
+            LoggingService.get_instance().warning(f"Chess Log tag cleanup failed: {e}")

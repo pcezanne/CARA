@@ -2042,7 +2042,8 @@
             "colors": {
               "warning_fill": [241, 196, 15],
               "warning_outline": [30, 30, 30]
-            }
+            },
+            "table_col_widths_pct": [20, 40, 40]
           },
           "category_colors": {
             "CLAMP": {

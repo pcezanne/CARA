@@ -60,6 +60,11 @@ class ChessLogPDFService(BasePDFReportService):
         _warn_colors = (self._cfg.get("colors") or {})
         self._warn_fill = self._rgb(_warn_colors.get("warning_fill"), (241, 196, 15))
         self._warn_outline = self._rgb(_warn_colors.get("warning_outline"), (30, 30, 30))
+        raw_pct = self._cfg.get("table_col_widths_pct")
+        if isinstance(raw_pct, (list, tuple)) and len(raw_pct) == 3:
+            self._table_col_pct = [float(v) / 100.0 for v in raw_pct]
+        else:
+            self._table_col_pct = [0.20, 0.40, 0.40]
 
     # ------------------------------------------------------------------
     # Public API
@@ -711,11 +716,7 @@ class ChessLogPDFService(BasePDFReportService):
     def _table_col_widths(self, n_cols: int, content_width: float) -> List[float]:
         """Return column widths for a pipe table given column count and available width."""
         if n_cols == 3:
-            return [
-                content_width * 0.20,
-                content_width * 0.40,
-                content_width * 0.40,
-            ]
+            return [content_width * p for p in self._table_col_pct]
         return [content_width / max(1, n_cols)] * n_cols
 
     def _measure_table_start_height(
@@ -1025,5 +1026,10 @@ class ChessLogPDFService(BasePDFReportService):
             image.fill(Qt.GlobalColor.white)
             widget.render(image)
             return QPixmap.fromImage(image)
-        except Exception:
+        except Exception as e:
+            try:
+                from app.services.logging_service import LoggingService
+                LoggingService.get_instance().warning(f"Chess Log board render failed: {e}")
+            except Exception:
+                pass
             return None

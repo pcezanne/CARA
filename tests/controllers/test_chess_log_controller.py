@@ -661,5 +661,65 @@ class TestIgnoreShallowPreservation(unittest.TestCase):
         self.assertTrue(result[0].get("ignore_shallow"))
 
 
+class TestSaveAllIncludesCurrentGame(unittest.TestCase):
+    """Regression: save_all_dirty_games must also save the active game's
+    single-game cache even when it wasn't added to _dirty_games
+    (add_moment_at_active_path does not add it there)."""
+
+    def _make_ctrl_with_tagged_active_game(self):
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+        # Simulate a moment tagged via add_moment_at_active_path (writes to
+        # _cached_paths_data but does NOT add to _dirty_games).
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("3x3", "Why1", "test answer")]
+        }
+        return ctrl, gm, game
+
+    def test_save_all_saves_active_game_not_in_dirty_games(self):
+        ctrl, gm, game = self._make_ctrl_with_tagged_active_game()
+        self.assertNotIn(game.game_number, ctrl._dirty_games)
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+        # Tags must now be persisted in the game's PGN.
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["cat"], "Why1")
+
+    def test_save_all_active_game_already_in_dirty_not_double_saved(self):
+        """If the active game is already in _dirty_games, it must be saved exactly once."""
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+        ctrl._cached_paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "C")]
+        }
+        ctrl._dirty_games[game.game_number] = game
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+
+    def test_save_all_skips_active_game_when_no_unsaved_changes(self):
+        """Active game with no unsaved changes must NOT be saved (would write empty)."""
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+        # Empty cache == no unsaved changes relative to an untagged game.
+        ctrl._cached_paths_data = {}
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 0)
+        self.assertEqual(failed, 0)
+
+    def test_save_all_emits_metadata_updated_for_active_game(self):
+        ctrl, gm, game = self._make_ctrl_with_tagged_active_game()
+        ctrl.save_all_dirty_games()
+        gm.metadata_updated.emit.assert_called()
+
+
 if __name__ == "__main__":
     unittest.main()

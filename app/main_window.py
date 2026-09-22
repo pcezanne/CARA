@@ -1471,6 +1471,7 @@ class MainWindow(QMainWindow):
                 f"{failed} failed"
             )
         if saved > 0:
+            self._notify_moveslist_chess_log_changed()
             self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
     def _show_chess_logs_for_all_games(self) -> None:

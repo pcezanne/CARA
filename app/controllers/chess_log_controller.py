@@ -240,11 +240,30 @@ class ChessLogController:
         Returns:
             (n_saved, n_failed)
 
-        Only dirty games are written; clean games are untouched.  On success the
-        game is removed from _dirty_games; on failure it stays dirty so the user
-        can retry.
+        In addition to games tracked in _dirty_games (which covers edits made via
+        ShowTagsDialog / ShowShallowTagsDialog), this also saves the active game's
+        single-game cache when it has unsaved changes.  add_moment_at_active_path
+        writes only to _cached_paths_data without touching _dirty_games, so without
+        this check a Ctrl+Alt+Shift+L after tagging would silently skip the current game.
         """
         saved = failed = 0
+
+        # Save the active game's single-game cache if it has unsaved changes and is
+        # not already captured in _dirty_games (the loop below handles that case).
+        current_game = self._game_controller.get_game_model().active_game
+        if current_game is not None and current_game.game_number not in self._dirty_games:
+            if self.has_unsaved_changes():
+                ok = ChessLogStorageService.store_tags(
+                    current_game, self._cached_paths_data, self.config,
+                    nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
+                )
+                if ok:
+                    saved += 1
+                    self._mark_database_unsaved(current_game)
+                    self._game_controller.get_game_model().metadata_updated.emit()
+                else:
+                    failed += 1
+
         for gid, game in list(self._dirty_games.items()):
             data = (
                 self._cached_paths_data

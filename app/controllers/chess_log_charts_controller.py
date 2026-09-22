@@ -389,6 +389,17 @@ class ChessLogChartsController(QObject):
         """Public wrapper around _resolve_games()."""
         return self._resolve_games()
 
+    def notify_chess_log_saved(self) -> None:
+        """Re-run the player dropdown worker after Chess Log tags have been saved.
+
+        Must be called after any successful Chess Log save so that the tagged-game
+        counts in the player combo stay current.  Only refreshes the dropdown;
+        does not re-run chart aggregation (the chart data is still valid).
+        """
+        if self._source_selection == 0:
+            return
+        self._start_dropdown_worker(self._resolve_games())
+
     def has_player_selected(self) -> bool:
         """True iff the user has explicitly picked a player in the Player dropdown."""
         return self._player_explicit_selected

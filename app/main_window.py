@@ -1449,6 +1449,7 @@ class MainWindow(QMainWindow):
         if chess_log_controller and chess_log_controller.save_tags_for_current_game():
             self.controller.set_status("Chess Log saved to current game")
             self._notify_moveslist_chess_log_changed()
+            self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
     def _save_chess_logs_for_all_games(self) -> None:
         """Persist dirty Chess Log edits for all games in the multi-game cache."""
@@ -1469,6 +1470,8 @@ class MainWindow(QMainWindow):
                 f"Chess Log saved for {saved} game{'s' if saved != 1 else ''}; "
                 f"{failed} failed"
             )
+        if saved > 0:
+            self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
     def _show_chess_logs_for_all_games(self) -> None:
         """Open Show Chess Logs dialog scoped to tagged games in the active database."""

@@ -637,5 +637,53 @@ class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
         ctrl._cancel_agg_worker()
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestNotifyChessLogSaved(unittest.TestCase):
+    """notify_chess_log_saved() must restart the dropdown worker so tagged-game
+    counts stay current after a Chess Log save."""
+
+    def _make_controller(self, games=None) -> "ChessLogChartsController":
+        games = games or []
+        db_ctrl = _make_db_controller(games)
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        # Avoid real QThread starts: stub out the worker starter so tests are fast
+        # and don't leave dangling threads that crash teardown.
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        return ctrl
+
+    def test_notify_with_no_source_is_noop(self):
+        ctrl = self._make_controller()
+        ctrl._source_selection = 0
+        ctrl.notify_chess_log_saved()
+        ctrl._start_dropdown_worker.assert_not_called()
+
+    def test_notify_with_source_starts_dropdown_worker(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = 1
+        ctrl.notify_chess_log_saved()
+        ctrl._start_dropdown_worker.assert_called_once()
+
+    def test_notify_does_not_restart_agg_worker(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = 1
+        ctrl.notify_chess_log_saved()
+        self.assertIsNone(ctrl._agg_worker)
+
+    def test_notify_passes_games_from_resolve_to_worker(self):
+        """Games passed to the dropdown worker must come from _resolve_games."""
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        ctrl = self._make_controller(games=[game])
+        ctrl._source_selection = 1
+        # Patch _resolve_games so we control what it returns.
+        sentinel = [game]
+        ctrl._resolve_games = lambda: sentinel
+        ctrl.notify_chess_log_saved()
+        args, _ = ctrl._start_dropdown_worker.call_args
+        self.assertIs(args[0], sentinel)
+
+
 if __name__ == "__main__":
     unittest.main()

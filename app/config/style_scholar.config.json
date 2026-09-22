@@ -2055,6 +2055,12 @@
               "$ref": "$_COLOR_BOURBON_TEAL"
             }
           },
+          "pdf_report": {
+            "colors": {
+              "warning_fill": [241, 196, 15],
+              "warning_outline": [30, 30, 30]
+            }
+          },
           "category_colors": {
             "CLAMP": {
               "C": [184, 80, 50],

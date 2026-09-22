@@ -46,6 +46,21 @@ class ChessLogPDFService(BasePDFReportService):
     _ROW_PAD = 8.0
     _ROW_GAP = 6.0
 
+    def __init__(self, config: Dict[str, Any]) -> None:
+        report_cfg = (
+            config.get("ui", {})
+            .get("panels", {})
+            .get("detail", {})
+            .get("chess_log_charts", {})
+            .get("pdf_report", {})
+        )
+        if not isinstance(report_cfg, dict):
+            report_cfg = {}
+        super().__init__(config, report_cfg)
+        _warn_colors = (self._cfg.get("colors") or {})
+        self._warn_fill = self._rgb(_warn_colors.get("warning_fill"), (241, 196, 15))
+        self._warn_outline = self._rgb(_warn_colors.get("warning_outline"), (30, 30, 30))
+
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
@@ -448,25 +463,23 @@ class ChessLogPDFService(BasePDFReportService):
     ) -> None:
         """Draw a filled yellow warning triangle with a black exclamation mark."""
         painter.save()
-        yellow = QColor(241, 196, 15)
-        outline = QColor(30, 30, 30)
         poly = QPolygonF([
             QPointF(x + size / 2, y),
             QPointF(x, y + size),
             QPointF(x + size, y + size),
         ])
-        painter.setBrush(yellow)
-        painter.setPen(QPen(outline, 1.0))
+        painter.setBrush(self._warn_fill)
+        painter.setPen(QPen(self._warn_outline, 1.0))
         painter.drawPolygon(poly)
         # Exclamation mark: vertical bar + dot
-        painter.setPen(QPen(outline, 1.5))
+        painter.setPen(QPen(self._warn_outline, 1.5))
         cx = x + size / 2
         painter.drawLine(
             QPointF(cx, y + size * 0.30),
             QPointF(cx, y + size * 0.62),
         )
-        painter.setBrush(outline)
-        painter.setPen(QPen(outline, 0.5))
+        painter.setBrush(self._warn_outline)
+        painter.setPen(QPen(self._warn_outline, 0.5))
         painter.drawEllipse(QPointF(cx, y + size * 0.78), size * 0.055, size * 0.055)
         painter.restore()
 

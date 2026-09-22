@@ -893,5 +893,75 @@ class TestNarrativeSanitizationInPDF(unittest.TestCase):
             tmp_path.unlink(missing_ok=True)
 
 
+@requires_qt
+class TestPDFPrintTheme(unittest.TestCase):
+    """Phase 6: ChessLogPDFService merges chess_log_charts.pdf_report over ui.pdf."""
+
+    def _make_config(self, ui_pdf_text, report_text, warn_fill=None, warn_outline=None) -> dict:
+        cfg: dict = {
+            "ui": {
+                "pdf": {"colors": {"text": ui_pdf_text}},
+                "panels": {
+                    "detail": {
+                        "chess_log_charts": {
+                            "pdf_report": {
+                                "colors": {
+                                    "text": report_text,
+                                }
+                            }
+                        }
+                    }
+                },
+            }
+        }
+        if warn_fill is not None:
+            cfg["ui"]["panels"]["detail"]["chess_log_charts"]["pdf_report"]["colors"]["warning_fill"] = warn_fill
+        if warn_outline is not None:
+            cfg["ui"]["panels"]["detail"]["chess_log_charts"]["pdf_report"]["colors"]["warning_outline"] = warn_outline
+        return cfg
+
+    def test_report_specific_text_color_overrides_ui_pdf(self):
+        """chess_log_charts.pdf_report.colors.text must win over ui.pdf.colors.text."""
+        cfg = self._make_config(ui_pdf_text=[255, 255, 255], report_text=[30, 30, 35])
+        svc = ChessLogPDFService(cfg)
+        from PyQt6.QtGui import QColor
+        self.assertEqual(svc._text, QColor(30, 30, 35))
+
+    def test_warning_fill_from_config(self):
+        cfg = self._make_config(
+            ui_pdf_text=[30, 30, 35], report_text=[30, 30, 35],
+            warn_fill=[200, 150, 0],
+        )
+        svc = ChessLogPDFService(cfg)
+        from PyQt6.QtGui import QColor
+        self.assertEqual(svc._warn_fill, QColor(200, 150, 0))
+
+    def test_warning_outline_from_config(self):
+        cfg = self._make_config(
+            ui_pdf_text=[30, 30, 35], report_text=[30, 30, 35],
+            warn_outline=[50, 50, 60],
+        )
+        svc = ChessLogPDFService(cfg)
+        from PyQt6.QtGui import QColor
+        self.assertEqual(svc._warn_outline, QColor(50, 50, 60))
+
+    def test_warning_fill_default_when_no_config(self):
+        from PyQt6.QtGui import QColor
+        svc = ChessLogPDFService({})
+        self.assertEqual(svc._warn_fill, QColor(241, 196, 15))
+
+    def test_warning_outline_default_when_no_config(self):
+        from PyQt6.QtGui import QColor
+        svc = ChessLogPDFService({})
+        self.assertEqual(svc._warn_outline, QColor(30, 30, 30))
+
+    def test_does_not_mutate_input_config(self):
+        import copy
+        cfg = self._make_config(ui_pdf_text=[30, 30, 35], report_text=[30, 30, 35])
+        original = copy.deepcopy(cfg)
+        ChessLogPDFService(cfg)
+        self.assertEqual(cfg, original)
+
+
 if __name__ == "__main__":
     unittest.main()

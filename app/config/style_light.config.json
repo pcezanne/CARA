@@ -2049,6 +2049,12 @@
               170
             ]
           },
+          "pdf_report": {
+            "colors": {
+              "warning_fill": [241, 196, 15],
+              "warning_outline": [30, 30, 30]
+            }
+          },
           "category_colors": {
             "CLAMP": {
               "C": [200, 80, 60],

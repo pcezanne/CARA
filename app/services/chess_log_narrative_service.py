@@ -24,6 +24,7 @@ from app.services.ai_service import AIService
 from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
+from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
 from app.utils.player_matcher import game_matches_player_color as _game_matches_player_color
 
 _SYSTEM_PROMPT = (
@@ -387,10 +388,11 @@ _3X3_STRUCTURE_BLOCK = (
     "## Why-note structure — 3x3\n\n"
     "Each 3x3-tagged moment may include answers to up to four questions, always "
     "asked in this order, though the player may skip any of them:\n\n"
-    "1. Why did I choose that move?\n"
-    "2. Why is my move not ideal?\n"
-    "3. Why is the better move better than my chosen move?\n"
-    "4. What do I do in the future so this doesn't happen again?\n\n"
+    + "\n".join(
+        f"{i + 1}. {q}"
+        for i, q in enumerate(THREE_BY_THREE_PROMPTS.values())
+    )
+    + "\n\n"
     "These are the four questions from GM Noel Studer's 3x3 method. Treat a "
     "missing answer to any of the four as simply unanswered, not as evidence of "
     "anything. All four always describe the player's own chosen move and their "

@@ -4,9 +4,9 @@ Walks CARAChessLog payloads across a list of GameData objects, filters by
 player and color, and produces per-preset binned time series ready for
 ChessLogCategoryChartWidget.
 
-Presets CLAMP, CCT, and Custom share the same {category + optional why}
-entry shape, so one generic pipeline covers all three.  3x3 is excluded:
-its Why1/2/3 entries aren't a comparable category axis.
+Presets CLAMP and CCT share the same {category + optional why} entry shape,
+so one generic pipeline covers both.  3x3 is excluded: its Why1/2/3/4 entries
+aren't a comparable category axis.
 
 Reuses from player_stats_service:
 - _game_date_ordinal_for_trends   (date → ordinal with partial-date fallbacks)
@@ -80,23 +80,19 @@ def aggregate(
     player: str,
     color_filter: str = "both",       # "white", "black", or "both"
     chart_cfg: Optional[Dict[str, Any]] = None,
-    preset_orders: Optional[Dict[str, List[str]]] = None,
 ) -> Dict[str, ChessLogPresetSeries]:
     """Aggregate Chess Log moments into per-preset time series.
 
     Args:
-        games:         Games to scan (from Data Source selection).
-        player:        Player name to scope to (case-insensitive). Empty string
-                       skips player filtering — all moments in all games.
-        color_filter:  "white" / "black" / "both" — further scope to games where
-                       the player had that color.
-        chart_cfg:     Optional config dict with ``target_progression_bins`` and
-                       ``ordinal_fallback_mode`` (same keys as Player Stats).
-                       Build via ``chart_cfg_with_chess_log_charts_overrides`` so
-                       the user's ``target_bins`` and ``binning_mode`` are applied.
-        preset_orders: Optional mapping of preset name → authoritative category
-                       ordering. Used for the Custom preset (insertion order from
-                       user settings); CLAMP/CCT use built-in canonical order.
+        games:        Games to scan (from Data Source selection).
+        player:       Player name to scope to (case-insensitive). Empty string
+                      skips player filtering — all moments in all games.
+        color_filter: "white" / "black" / "both" — further scope to games where
+                      the player had that color.
+        chart_cfg:    Optional config dict with ``target_progression_bins`` and
+                      ``ordinal_fallback_mode`` (same keys as Player Stats).
+                      Build via ``chart_cfg_with_chess_log_charts_overrides`` so
+                      the user's ``target_bins`` and ``binning_mode`` are applied.
 
     Returns:
         Dict mapping preset name → ChessLogPresetSeries, one entry per preset
@@ -106,7 +102,6 @@ def aggregate(
         emitting.
     """
     chart_cfg = chart_cfg or {}
-    preset_orders = preset_orders or {}
     player_cf = (player or "").casefold().strip()
 
     raw: List[Tuple[int, str, str]] = []  # (ordinal, preset, cat)
@@ -139,8 +134,7 @@ def aggregate(
 
     for preset in sorted(presets_in_data):
         samples = [(o, c) for o, p, c in raw if p == preset]
-        custom_order = preset_orders.get(preset)
-        result[preset] = _bin_preset(preset, samples, chart_cfg, custom_order)
+        result[preset] = _bin_preset(preset, samples, chart_cfg)
 
     return result
 
@@ -148,7 +142,7 @@ def aggregate(
 def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
     """Return (name, tagged_game_count) for players with >= 2 games sharing the same preset.
 
-    A player qualifies when any single preset (CLAMP, CCT, 3x3, Custom) has at
+    A player qualifies when any single preset (CLAMP, CCT, 3x3) has at
     least 2 games where that player personally tagged moments with that preset.
     Requiring 2 of the same type prevents a 1-CLAMP + 1-3x3 combination from
     surfacing a player who has no useful data for any chart or narrative.
@@ -239,11 +233,10 @@ def _bin_preset(
     preset: str,
     samples: List[Tuple[int, str]],  # (ordinal, cat)
     chart_cfg: Dict[str, Any],
-    custom_order: Optional[List[str]] = None,
 ) -> ChessLogPresetSeries:
     seed_cats: Set[str] = set(CLAMP_ORDER) if preset == "CLAMP" else set(CCT_ORDER)
     all_cats: Set[str] = seed_cats | {cat for _, cat in samples}
-    categories = order_categories(preset, list(all_cats), custom_order=custom_order)
+    categories = order_categories(preset, list(all_cats))
 
     ordinals = [o for o, _ in samples]
     t_min, t_max = min(ordinals), max(ordinals)

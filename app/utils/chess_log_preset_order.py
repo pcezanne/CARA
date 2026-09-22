@@ -6,7 +6,7 @@ so chart legends and tag dialogs stay in sync.
 
 from __future__ import annotations
 
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 CLAMP_ORDER: Tuple[str, ...] = ("C", "L", "A", "M", "P")
 CCT_ORDER: Tuple[str, ...] = ("Checks", "Captures", "Threats")
@@ -15,7 +15,6 @@ CCT_ORDER: Tuple[str, ...] = ("Checks", "Captures", "Threats")
 def order_categories(
     preset: str,
     present: List[str],
-    custom_order: Optional[List[str]] = None,
 ) -> List[str]:
     """Return `present` reordered per canonical preset order.
 
@@ -27,7 +26,6 @@ def order_categories(
     Args:
         preset: Preset name ("CLAMP", "CCT", or other).
         present: Categories actually present in the data.
-        custom_order: Unused; kept for call-site compatibility.
     """
     if preset == "CLAMP":
         canonical = list(CLAMP_ORDER)

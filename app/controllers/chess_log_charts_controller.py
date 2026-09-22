@@ -81,7 +81,6 @@ class ChessLogAggregationWorker(QThread):
         player: str,
         color_filter: str,
         chart_cfg: Dict[str, Any],
-        preset_orders: Optional[Dict[str, List[str]]] = None,
         progression_x_axis_mode: str = "uniform_bins",
         compress_gap_max_segment_days: int = 28,
         progression_line_style: str = "smooth",
@@ -92,7 +91,6 @@ class ChessLogAggregationWorker(QThread):
         self._player = player
         self._color_filter = color_filter
         self._chart_cfg = chart_cfg
-        self._preset_orders = preset_orders or {}
         self._progression_x_axis_mode = progression_x_axis_mode
         self._compress_gap_max_segment_days = compress_gap_max_segment_days
         self._progression_line_style = progression_line_style
@@ -114,7 +112,6 @@ class ChessLogAggregationWorker(QThread):
                 player=self._player,
                 color_filter=self._color_filter,
                 chart_cfg=self._chart_cfg,
-                preset_orders=self._preset_orders,
             )
         except Exception as exc:
             with QMutexLocker(self._mutex):
@@ -771,7 +768,6 @@ class ChessLogChartsController(QObject):
             player=self._current_player,
             color_filter=self._color_filter,
             chart_cfg=chart_cfg,
-            preset_orders={},
             progression_x_axis_mode=self._progression_x_axis_mode,
             compress_gap_max_segment_days=self._compress_gap_max_segment_days,
             progression_line_style=self._progression_line_style,

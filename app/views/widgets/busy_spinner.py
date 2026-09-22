@@ -11,8 +11,8 @@ class BusySpinner(QWidget):
     """Animated circular spinner.
 
     Call ``start()`` to begin animating and show the widget.
-    Call ``stop()`` to freeze the spinner (widget remains visible).
-    Hide it with ``setVisible(False)`` when the operation completes.
+    Call ``stop()`` to freeze the animation and hide the widget.
+    The widget starts hidden; ``start()`` makes it visible.
     """
 
     def __init__(

@@ -71,6 +71,10 @@ class RadioMenuController:
         """Refresh all checked states from persisted user settings."""
         if not self._bins_actions:
             return
+        if not (self._mode_quantile and self._mode_equal and
+                self._x_uniform and self._x_gap and self._x_cal and
+                self._line_smooth and self._line_straight):
+            raise RuntimeError("call _ensure_actions() first")
         settings = self._read_settings()
 
         nb = int(settings["target_progression_bins"])
@@ -80,7 +84,6 @@ class RadioMenuController:
             a.blockSignals(False)
 
         om = str(settings["ordinal_fallback_mode"])
-        assert self._mode_quantile and self._mode_equal
         self._mode_quantile.blockSignals(True)
         self._mode_equal.blockSignals(True)
         self._mode_quantile.setChecked(om == "quantile")
@@ -89,7 +92,6 @@ class RadioMenuController:
         self._mode_equal.blockSignals(False)
 
         xm = str(settings["progression_x_axis_mode"])
-        assert self._x_uniform and self._x_gap and self._x_cal
         self._x_uniform.blockSignals(True)
         self._x_gap.blockSignals(True)
         self._x_cal.blockSignals(True)
@@ -107,7 +109,6 @@ class RadioMenuController:
             a.blockSignals(False)
 
         st = str(settings["progression_line_style"])
-        assert self._line_smooth and self._line_straight
         self._line_smooth.blockSignals(True)
         self._line_straight.blockSignals(True)
         self._line_smooth.setChecked(st == "smooth")
@@ -133,7 +134,8 @@ class RadioMenuController:
         self._apply("target_progression_bins", value)
 
     def _on_ordinal_mode_selected(self, mode: str) -> None:
-        assert self._mode_quantile and self._mode_equal
+        if not (self._mode_quantile and self._mode_equal):
+            raise RuntimeError("call _ensure_actions() first")
         self._mode_quantile.blockSignals(True)
         self._mode_equal.blockSignals(True)
         self._mode_quantile.setChecked(mode == "quantile")
@@ -143,7 +145,8 @@ class RadioMenuController:
         self._apply("ordinal_fallback_mode", mode)
 
     def _on_x_axis_mode_selected(self, mode: str) -> None:
-        assert self._x_uniform and self._x_gap and self._x_cal
+        if not (self._x_uniform and self._x_gap and self._x_cal):
+            raise RuntimeError("call _ensure_actions() first")
         self._x_uniform.blockSignals(True)
         self._x_gap.blockSignals(True)
         self._x_cal.blockSignals(True)
@@ -163,7 +166,8 @@ class RadioMenuController:
         self._apply("compress_gap_max_segment_days", value)
 
     def _on_line_style_selected(self, style: str) -> None:
-        assert self._line_smooth and self._line_straight
+        if not (self._line_smooth and self._line_straight):
+            raise RuntimeError("call _ensure_actions() first")
         self._line_smooth.blockSignals(True)
         self._line_straight.blockSignals(True)
         self._line_smooth.setChecked(style == "smooth")
@@ -245,6 +249,10 @@ class RadioMenuController:
             self._strength_actions[float(x)] = act
 
     def _populate_tree(self, ts_menu: QMenu) -> None:
+        if not (self._mode_quantile and self._mode_equal and
+                self._x_uniform and self._x_gap and self._x_cal and
+                self._line_smooth and self._line_straight):
+            raise RuntimeError("call _ensure_actions() first")
         m_bins = ts_menu.addMenu("Progression bins")
         self._style(m_bins)
         for n in _BINS_CHOICES:
@@ -252,7 +260,6 @@ class RadioMenuController:
 
         m_mode = ts_menu.addMenu("Binning mode")
         self._style(m_mode)
-        assert self._mode_quantile and self._mode_equal
         m_mode.addAction(self._mode_quantile)
         m_mode.addAction(self._mode_equal)
 
@@ -260,7 +267,6 @@ class RadioMenuController:
 
         m_x = ts_menu.addMenu("X axis layout")
         self._style(m_x)
-        assert self._x_uniform and self._x_gap and self._x_cal
         m_x.addAction(self._x_uniform)
         m_x.addAction(self._x_gap)
         m_x.addAction(self._x_cal)
@@ -274,7 +280,6 @@ class RadioMenuController:
 
         m_line = ts_menu.addMenu("Progression line style")
         self._style(m_line)
-        assert self._line_smooth and self._line_straight
         m_line.addAction(self._line_smooth)
         m_line.addAction(self._line_straight)
 

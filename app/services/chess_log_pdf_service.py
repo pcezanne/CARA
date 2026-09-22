@@ -752,8 +752,9 @@ class ChessLogPDFService(BasePDFReportService):
     ) -> float:
         """Draw a bordered pipe table and return the y after the last row.
 
-        Column widths: fixed 20/40/40 split for the canonical 3-column schema
-        (Area, Observed Issue, Strategic Impact). Falls back to equal split for
+        Column widths: driven by ``chess_log_charts.pdf_report.table_col_widths_pct``
+        in config (default [20, 40, 40] for the canonical 3-column schema:
+        Skill, Observed Issue, Strategic Impact). Falls back to equal split for
         other column counts.
 
         TODO: measure max cell width per column and derive proportional widths.

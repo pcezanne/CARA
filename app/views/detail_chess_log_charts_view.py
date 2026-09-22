@@ -381,6 +381,8 @@ class DetailChessLogChartsView(QWidget):
         self._placeholder.setStyleSheet(f"color: {hint_s}; border: none;")
 
     def _on_ai_hint_link_clicked(self, url: str) -> None:
+        if url != "ai-model-settings":
+            return
         w = self.window()
         if hasattr(w, "_show_ai_model_settings"):
             w._show_ai_model_settings()

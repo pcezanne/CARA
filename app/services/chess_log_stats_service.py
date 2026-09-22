@@ -60,16 +60,17 @@ class ChessLogPresetSeries:
 
     Rendering fields (set by ChessLogAggregationWorker after aggregate,
     threaded from controller's live instance fields):
-        x_axis_layout, max_gap_segment_days, line_style, smoothing_strength
+        progression_x_axis_mode, compress_gap_max_segment_days,
+        progression_line_style, progression_line_smooth_strength
     """
 
     preset: str
     categories: List[str]             # canonical order per preset, then "" last
     bins: List[ChessLogCategoryBin]
-    x_axis_layout: str = "uniform_bins"    # "uniform_bins" / "gap_compressed" / "calendar_linear"
-    max_gap_segment_days: int = 28
-    line_style: str = "smooth"             # "smooth" or "straight"
-    smoothing_strength: float = 1.0
+    progression_x_axis_mode: str = "uniform_bins"    # "uniform_bins" / "gap_compressed" / "calendar_linear"
+    compress_gap_max_segment_days: int = 28
+    progression_line_style: str = "smooth"             # "smooth" or "straight"
+    progression_line_smooth_strength: float = 1.0
     t_min: Optional[int] = None           # day ordinal of the earliest game; None on legacy call sites
     t_max: Optional[int] = None           # day ordinal of the latest game
 
@@ -100,7 +101,7 @@ def aggregate(
     Returns:
         Dict mapping preset name → ChessLogPresetSeries, one entry per preset
         that has at least one moment in the filtered games. Empty if no data.
-        Rendering fields (x_axis_layout, etc.) are at their defaults; the caller
+        Rendering fields (progression_x_axis_mode, etc.) are at their defaults; the caller
         (ChessLogAggregationWorker) sets them from live controller fields before
         emitting.
     """

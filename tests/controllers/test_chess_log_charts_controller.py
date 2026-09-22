@@ -378,117 +378,117 @@ class TestChessLogChartsControllerChartSettings(unittest.TestCase):
     # --- defaults ---
 
     def test_default_target_bins_is_16(self):
-        self.assertEqual(self._ctrl().get_target_bins(), 16)
+        self.assertEqual(self._ctrl().get_target_progression_bins(), 16)
 
     def test_default_binning_mode_is_quantile(self):
-        self.assertEqual(self._ctrl().get_binning_mode(), "quantile")
+        self.assertEqual(self._ctrl().get_ordinal_fallback_mode(), "quantile")
 
     def test_default_x_axis_layout_is_uniform_bins(self):
-        self.assertEqual(self._ctrl().get_x_axis_layout(), "uniform_bins")
+        self.assertEqual(self._ctrl().get_progression_x_axis_mode(), "uniform_bins")
 
     def test_default_max_gap_segment_days_is_28(self):
-        self.assertEqual(self._ctrl().get_max_gap_segment_days(), 28)
+        self.assertEqual(self._ctrl().get_compress_gap_max_segment_days(), 28)
 
     def test_default_line_style_is_smooth(self):
-        self.assertEqual(self._ctrl().get_line_style(), "smooth")
+        self.assertEqual(self._ctrl().get_progression_line_style(), "smooth")
 
     def test_default_smoothing_strength_is_1(self):
-        self.assertAlmostEqual(self._ctrl().get_smoothing_strength(), 1.0)
+        self.assertAlmostEqual(self._ctrl().get_progression_line_smooth_strength(), 1.0)
 
     # --- setters accept valid values ---
 
     def test_set_target_bins_valid(self):
         ctrl = self._ctrl()
-        ctrl.set_target_bins(24)
-        self.assertEqual(ctrl.get_target_bins(), 24)
+        ctrl.set_target_progression_bins(24)
+        self.assertEqual(ctrl.get_target_progression_bins(), 24)
 
     def test_set_binning_mode_equal_width(self):
         ctrl = self._ctrl()
-        ctrl.set_binning_mode("equal_width")
-        self.assertEqual(ctrl.get_binning_mode(), "equal_width")
+        ctrl.set_ordinal_fallback_mode("equal_width")
+        self.assertEqual(ctrl.get_ordinal_fallback_mode(), "equal_width")
 
     def test_set_x_axis_layout_gap_compressed(self):
         ctrl = self._ctrl()
-        ctrl.set_x_axis_layout("gap_compressed")
-        self.assertEqual(ctrl.get_x_axis_layout(), "gap_compressed")
+        ctrl.set_progression_x_axis_mode("gap_compressed")
+        self.assertEqual(ctrl.get_progression_x_axis_mode(), "gap_compressed")
 
     def test_set_max_gap_segment_days_14(self):
         ctrl = self._ctrl()
-        ctrl.set_max_gap_segment_days(14)
-        self.assertEqual(ctrl.get_max_gap_segment_days(), 14)
+        ctrl.set_compress_gap_max_segment_days(14)
+        self.assertEqual(ctrl.get_compress_gap_max_segment_days(), 14)
 
     def test_set_line_style_straight(self):
         ctrl = self._ctrl()
-        ctrl.set_line_style("straight")
-        self.assertEqual(ctrl.get_line_style(), "straight")
+        ctrl.set_progression_line_style("straight")
+        self.assertEqual(ctrl.get_progression_line_style(), "straight")
 
     def test_set_smoothing_strength_2(self):
         ctrl = self._ctrl()
-        ctrl.set_smoothing_strength(2.0)
-        self.assertAlmostEqual(ctrl.get_smoothing_strength(), 2.0)
+        ctrl.set_progression_line_smooth_strength(2.0)
+        self.assertAlmostEqual(ctrl.get_progression_line_smooth_strength(), 2.0)
 
     # --- setters reject invalid values ---
 
     def test_set_target_bins_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_target_bins(13)
-        self.assertEqual(ctrl.get_target_bins(), 16)
+        ctrl.set_target_progression_bins(13)
+        self.assertEqual(ctrl.get_target_progression_bins(), 16)
 
     def test_set_binning_mode_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_binning_mode("median")
-        self.assertEqual(ctrl.get_binning_mode(), "quantile")
+        ctrl.set_ordinal_fallback_mode("median")
+        self.assertEqual(ctrl.get_ordinal_fallback_mode(), "quantile")
 
     def test_set_x_axis_layout_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_x_axis_layout("diagonal")
-        self.assertEqual(ctrl.get_x_axis_layout(), "uniform_bins")
+        ctrl.set_progression_x_axis_mode("diagonal")
+        self.assertEqual(ctrl.get_progression_x_axis_mode(), "uniform_bins")
 
     def test_set_max_gap_segment_days_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_max_gap_segment_days(30)
-        self.assertEqual(ctrl.get_max_gap_segment_days(), 28)
+        ctrl.set_compress_gap_max_segment_days(30)
+        self.assertEqual(ctrl.get_compress_gap_max_segment_days(), 28)
 
     def test_set_line_style_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_line_style("dotted")
-        self.assertEqual(ctrl.get_line_style(), "smooth")
+        ctrl.set_progression_line_style("dotted")
+        self.assertEqual(ctrl.get_progression_line_style(), "smooth")
 
     def test_set_smoothing_strength_invalid_ignored(self):
         ctrl = self._ctrl()
-        ctrl.set_smoothing_strength(3.0)
-        self.assertAlmostEqual(ctrl.get_smoothing_strength(), 1.0)
+        ctrl.set_progression_line_smooth_strength(3.0)
+        self.assertAlmostEqual(ctrl.get_progression_line_smooth_strength(), 1.0)
 
     # --- setters kick debounce ---
 
     def test_set_target_bins_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_target_bins(8)
+        ctrl.set_target_progression_bins(8)
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     def test_set_binning_mode_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_binning_mode("equal_width")
+        ctrl.set_ordinal_fallback_mode("equal_width")
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     def test_set_x_axis_layout_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_x_axis_layout("gap_compressed")
+        ctrl.set_progression_x_axis_mode("gap_compressed")
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     def test_set_max_gap_segment_days_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_max_gap_segment_days(14)
+        ctrl.set_compress_gap_max_segment_days(14)
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     def test_set_line_style_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_line_style("straight")
+        ctrl.set_progression_line_style("straight")
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     def test_set_smoothing_strength_kicks_debounce(self):
         ctrl = self._ctrl()
-        ctrl.set_smoothing_strength(2.0)
+        ctrl.set_progression_line_smooth_strength(2.0)
         self.assertTrue(ctrl._selection_debounce.isActive())
 
     # --- set_user_settings syncs live fields ---
@@ -496,27 +496,27 @@ class TestChessLogChartsControllerChartSettings(unittest.TestCase):
     def test_set_user_settings_syncs_target_bins(self):
         ctrl = self._ctrl()
         ctrl.set_user_settings({"chess_log": {"charts": {"target_bins": 8}}})
-        self.assertEqual(ctrl.get_target_bins(), 8)
+        self.assertEqual(ctrl.get_target_progression_bins(), 8)
 
     def test_set_user_settings_syncs_binning_mode(self):
         ctrl = self._ctrl()
         ctrl.set_user_settings({"chess_log": {"charts": {"binning_mode": "equal_width"}}})
-        self.assertEqual(ctrl.get_binning_mode(), "equal_width")
+        self.assertEqual(ctrl.get_ordinal_fallback_mode(), "equal_width")
 
     def test_set_user_settings_syncs_x_axis_layout(self):
         ctrl = self._ctrl()
         ctrl.set_user_settings({"chess_log": {"charts": {"x_axis_layout": "calendar_linear"}}})
-        self.assertEqual(ctrl.get_x_axis_layout(), "calendar_linear")
+        self.assertEqual(ctrl.get_progression_x_axis_mode(), "calendar_linear")
 
     def test_set_user_settings_syncs_line_style(self):
         ctrl = self._ctrl()
         ctrl.set_user_settings({"chess_log": {"charts": {"line_style": "straight"}}})
-        self.assertEqual(ctrl.get_line_style(), "straight")
+        self.assertEqual(ctrl.get_progression_line_style(), "straight")
 
     def test_set_user_settings_syncs_smoothing_strength(self):
         ctrl = self._ctrl()
         ctrl.set_user_settings({"chess_log": {"charts": {"smoothing_strength": 2.0}}})
-        self.assertAlmostEqual(ctrl.get_smoothing_strength(), 2.0)
+        self.assertAlmostEqual(ctrl.get_progression_line_smooth_strength(), 2.0)
 
     def test_set_user_settings_kicks_debounce_when_any_chart_field_changes(self):
         ctrl = self._ctrl()
@@ -602,16 +602,16 @@ class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
 
     def test_refresh_uses_live_x_axis_layout_not_stale_settings(self):
         ctrl = self._make_controller_ready_to_refresh()
-        ctrl.set_x_axis_layout("gap_compressed")
+        ctrl.set_progression_x_axis_mode("gap_compressed")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
         ctrl._schedule_charts_refresh(games=games)
         self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._x_axis_layout, "gap_compressed")
+        self.assertEqual(ctrl._agg_worker._progression_x_axis_mode, "gap_compressed")
         ctrl._cancel_agg_worker()
 
     def test_refresh_uses_live_target_bins_not_stale_settings(self):
         ctrl = self._make_controller_ready_to_refresh()
-        ctrl.set_target_bins(24)
+        ctrl.set_target_progression_bins(24)
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
         ctrl._schedule_charts_refresh(games=games)
         self.assertIsNotNone(ctrl._agg_worker)
@@ -620,7 +620,7 @@ class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
 
     def test_refresh_uses_live_binning_mode_via_chart_cfg(self):
         ctrl = self._make_controller_ready_to_refresh()
-        ctrl.set_binning_mode("equal_width")
+        ctrl.set_ordinal_fallback_mode("equal_width")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
         ctrl._schedule_charts_refresh(games=games)
         self.assertIsNotNone(ctrl._agg_worker)
@@ -629,11 +629,11 @@ class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
 
     def test_refresh_stamps_line_style_on_worker(self):
         ctrl = self._make_controller_ready_to_refresh()
-        ctrl.set_line_style("straight")
+        ctrl.set_progression_line_style("straight")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
         ctrl._schedule_charts_refresh(games=games)
         self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._line_style, "straight")
+        self.assertEqual(ctrl._agg_worker._progression_line_style, "straight")
         ctrl._cancel_agg_worker()
 
 

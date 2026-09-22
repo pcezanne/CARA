@@ -66,10 +66,10 @@ class ChessLogPlayerDropdownWorker(QThread):
 class ChessLogAggregationWorker(QThread):
     """Run chess_log_stats_service.aggregate() off the UI thread.
 
-    Rendering-only fields (x_axis_layout, max_gap_segment_days, line_style,
-    smoothing_strength) are stamped onto every ChessLogPresetSeries returned
-    by aggregate() before the result is emitted, so the widget can read them
-    directly from the series without knowing controller state.
+    Rendering-only fields (progression_x_axis_mode, compress_gap_max_segment_days,
+    progression_line_style, progression_line_smooth_strength) are stamped onto every
+    ChessLogPresetSeries returned by aggregate() before the result is emitted, so the
+    widget can read them directly from the series without knowing controller state.
     """
 
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
@@ -82,10 +82,10 @@ class ChessLogAggregationWorker(QThread):
         color_filter: str,
         chart_cfg: Dict[str, Any],
         preset_orders: Optional[Dict[str, List[str]]] = None,
-        x_axis_layout: str = "uniform_bins",
-        max_gap_segment_days: int = 28,
-        line_style: str = "smooth",
-        smoothing_strength: float = 1.0,
+        progression_x_axis_mode: str = "uniform_bins",
+        compress_gap_max_segment_days: int = 28,
+        progression_line_style: str = "smooth",
+        progression_line_smooth_strength: float = 1.0,
     ) -> None:
         super().__init__()
         self._games = games
@@ -93,10 +93,10 @@ class ChessLogAggregationWorker(QThread):
         self._color_filter = color_filter
         self._chart_cfg = chart_cfg
         self._preset_orders = preset_orders or {}
-        self._x_axis_layout = x_axis_layout
-        self._max_gap_segment_days = max_gap_segment_days
-        self._line_style = line_style
-        self._smoothing_strength = smoothing_strength
+        self._progression_x_axis_mode = progression_x_axis_mode
+        self._compress_gap_max_segment_days = compress_gap_max_segment_days
+        self._progression_line_style = progression_line_style
+        self._progression_line_smooth_strength = progression_line_smooth_strength
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -127,10 +127,10 @@ class ChessLogAggregationWorker(QThread):
         if result:
             # Stamp rendering fields onto each series before emit.
             for series in result.values():
-                series.x_axis_layout = self._x_axis_layout
-                series.max_gap_segment_days = self._max_gap_segment_days
-                series.line_style = self._line_style
-                series.smoothing_strength = self._smoothing_strength
+                series.progression_x_axis_mode = self._progression_x_axis_mode
+                series.compress_gap_max_segment_days = self._compress_gap_max_segment_days
+                series.progression_line_style = self._progression_line_style
+                series.progression_line_smooth_strength = self._progression_line_smooth_strength
             self.charts_updated.emit(result)
         else:
             with QMutexLocker(self._mutex):
@@ -344,12 +344,12 @@ class ChessLogChartsController(QObject):
         self._get_selected_games_callback: Optional[Callable[[bool], List[GameData]]] = None
 
         _charts_defaults = normalize_chess_log_charts_settings({})
-        self._target_bins: int = _charts_defaults["target_progression_bins"]
-        self._binning_mode: str = _charts_defaults["ordinal_fallback_mode"]
-        self._x_axis_layout: str = _charts_defaults["progression_x_axis_mode"]
-        self._max_gap_segment_days: int = _charts_defaults["compress_gap_max_segment_days"]
-        self._line_style: str = _charts_defaults["progression_line_style"]
-        self._smoothing_strength: float = _charts_defaults["progression_line_smooth_strength"]
+        self._target_progression_bins: int = _charts_defaults["target_progression_bins"]
+        self._ordinal_fallback_mode: str = _charts_defaults["ordinal_fallback_mode"]
+        self._progression_x_axis_mode: str = _charts_defaults["progression_x_axis_mode"]
+        self._compress_gap_max_segment_days: int = _charts_defaults["compress_gap_max_segment_days"]
+        self._progression_line_style: str = _charts_defaults["progression_line_style"]
+        self._progression_line_smooth_strength: float = _charts_defaults["progression_line_smooth_strength"]
 
         self._dropdown_worker: Optional[ChessLogPlayerDropdownWorker] = None
         self._agg_worker: Optional[ChessLogAggregationWorker] = None
@@ -420,22 +420,22 @@ class ChessLogChartsController(QObject):
             self.ai_configured_changed.emit(is_configured)
 
         old = (
-            self._target_bins, self._binning_mode, self._x_axis_layout,
-            self._max_gap_segment_days, self._line_style, self._smoothing_strength,
+            self._target_progression_bins, self._ordinal_fallback_mode, self._progression_x_axis_mode,
+            self._compress_gap_max_segment_days, self._progression_line_style, self._progression_line_smooth_strength,
         )
         charts = normalize_chess_log_charts_settings(
             user_settings.get("chess_log", {}).get("charts", {})
         )
-        self._target_bins = charts["target_progression_bins"]
-        self._binning_mode = charts["ordinal_fallback_mode"]
-        self._x_axis_layout = charts["progression_x_axis_mode"]
-        self._max_gap_segment_days = charts["compress_gap_max_segment_days"]
-        self._line_style = charts["progression_line_style"]
-        self._smoothing_strength = charts["progression_line_smooth_strength"]
+        self._target_progression_bins = charts["target_progression_bins"]
+        self._ordinal_fallback_mode = charts["ordinal_fallback_mode"]
+        self._progression_x_axis_mode = charts["progression_x_axis_mode"]
+        self._compress_gap_max_segment_days = charts["compress_gap_max_segment_days"]
+        self._progression_line_style = charts["progression_line_style"]
+        self._progression_line_smooth_strength = charts["progression_line_smooth_strength"]
 
         new = (
-            self._target_bins, self._binning_mode, self._x_axis_layout,
-            self._max_gap_segment_days, self._line_style, self._smoothing_strength,
+            self._target_progression_bins, self._ordinal_fallback_mode, self._progression_x_axis_mode,
+            self._compress_gap_max_segment_days, self._progression_line_style, self._progression_line_smooth_strength,
         )
         if old != new:
             self._selection_debounce.stop()
@@ -498,65 +498,65 @@ class ChessLogChartsController(QObject):
 
     # --- getters ---
 
-    def get_target_bins(self) -> int:
-        return self._target_bins
+    def get_target_progression_bins(self) -> int:
+        return self._target_progression_bins
 
-    def get_binning_mode(self) -> str:
-        return self._binning_mode
+    def get_ordinal_fallback_mode(self) -> str:
+        return self._ordinal_fallback_mode
 
-    def get_x_axis_layout(self) -> str:
-        return self._x_axis_layout
+    def get_progression_x_axis_mode(self) -> str:
+        return self._progression_x_axis_mode
 
-    def get_max_gap_segment_days(self) -> int:
-        return self._max_gap_segment_days
+    def get_compress_gap_max_segment_days(self) -> int:
+        return self._compress_gap_max_segment_days
 
-    def get_line_style(self) -> str:
-        return self._line_style
+    def get_progression_line_style(self) -> str:
+        return self._progression_line_style
 
-    def get_smoothing_strength(self) -> float:
-        return self._smoothing_strength
+    def get_progression_line_smooth_strength(self) -> float:
+        return self._progression_line_smooth_strength
 
     # --- setters (menu-driven) ---
 
-    def set_target_bins(self, n: int) -> None:
+    def set_target_progression_bins(self, n: int) -> None:
         if n not in CHOICES_TARGET_BINS:
             return
-        self._target_bins = n
+        self._target_progression_bins = n
         self._persist_chart_settings()
         self._kick_debounce()
 
-    def set_binning_mode(self, mode: str) -> None:
+    def set_ordinal_fallback_mode(self, mode: str) -> None:
         if mode not in CHOICES_BINNING_MODE:
             return
-        self._binning_mode = mode
+        self._ordinal_fallback_mode = mode
         self._persist_chart_settings()
         self._kick_debounce()
 
-    def set_x_axis_layout(self, layout: str) -> None:
+    def set_progression_x_axis_mode(self, layout: str) -> None:
         if layout not in CHOICES_X_AXIS_LAYOUT:
             return
-        self._x_axis_layout = layout
+        self._progression_x_axis_mode = layout
         self._persist_chart_settings()
         self._kick_debounce()
 
-    def set_max_gap_segment_days(self, days: int) -> None:
+    def set_compress_gap_max_segment_days(self, days: int) -> None:
         if days not in CHOICES_MAX_GAP_SEGMENT_DAYS:
             return
-        self._max_gap_segment_days = days
+        self._compress_gap_max_segment_days = days
         self._persist_chart_settings()
         self._kick_debounce()
 
-    def set_line_style(self, style: str) -> None:
+    def set_progression_line_style(self, style: str) -> None:
         if style not in CHOICES_LINE_STYLE:
             return
-        self._line_style = style
+        self._progression_line_style = style
         self._persist_chart_settings()
         self._kick_debounce()
 
-    def set_smoothing_strength(self, strength: float) -> None:
+    def set_progression_line_smooth_strength(self, strength: float) -> None:
         if strength not in CHOICES_SMOOTHING_STRENGTH:
             return
-        self._smoothing_strength = strength
+        self._progression_line_smooth_strength = strength
         self._persist_chart_settings()
         self._kick_debounce()
 
@@ -764,7 +764,7 @@ class ChessLogChartsController(QObject):
             games = self._resolve_games()
         self._cancel_agg_worker()
         chart_cfg = chart_cfg_with_chess_log_charts_overrides(
-            self._config, self._target_bins, self._binning_mode
+            self._config, self._target_progression_bins, self._ordinal_fallback_mode
         )
         worker = ChessLogAggregationWorker(
             games=games,
@@ -772,10 +772,10 @@ class ChessLogChartsController(QObject):
             color_filter=self._color_filter,
             chart_cfg=chart_cfg,
             preset_orders={},
-            x_axis_layout=self._x_axis_layout,
-            max_gap_segment_days=self._max_gap_segment_days,
-            line_style=self._line_style,
-            smoothing_strength=self._smoothing_strength,
+            progression_x_axis_mode=self._progression_x_axis_mode,
+            compress_gap_max_segment_days=self._compress_gap_max_segment_days,
+            progression_line_style=self._progression_line_style,
+            progression_line_smooth_strength=self._progression_line_smooth_strength,
         )
         worker.charts_updated.connect(self.charts_updated)
         worker.charts_unavailable.connect(self.charts_unavailable)
@@ -843,12 +843,12 @@ class ChessLogChartsController(QObject):
         try:
             UserSettingsService.get_instance().update_chess_log_settings({
                 "charts": {
-                    "target_progression_bins": self._target_bins,
-                    "ordinal_fallback_mode": self._binning_mode,
-                    "progression_x_axis_mode": self._x_axis_layout,
-                    "compress_gap_max_segment_days": self._max_gap_segment_days,
-                    "progression_line_style": self._line_style,
-                    "progression_line_smooth_strength": self._smoothing_strength,
+                    "target_progression_bins": self._target_progression_bins,
+                    "ordinal_fallback_mode": self._ordinal_fallback_mode,
+                    "progression_x_axis_mode": self._progression_x_axis_mode,
+                    "compress_gap_max_segment_days": self._compress_gap_max_segment_days,
+                    "progression_line_style": self._progression_line_style,
+                    "progression_line_smooth_strength": self._progression_line_smooth_strength,
                 }
             })
         except Exception:

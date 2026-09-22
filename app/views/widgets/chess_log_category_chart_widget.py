@@ -137,7 +137,7 @@ class ChessLogCategoryChartWidget(QWidget):
         if not centers:
             return None
         return build_gap_compressed_time_layout(
-            t_min, t_max, centers, series.max_gap_segment_days
+            t_min, t_max, centers, series.compress_gap_max_segment_days
         )
 
     # ------------------------------------------------------------------
@@ -175,7 +175,7 @@ class ChessLogCategoryChartWidget(QWidget):
         }
         self._draw_grid(painter, plot_x0, plot_y0, plot_x1, plot_y1, plot_w, plot_h)
         self._draw_axes(painter, plot_x0, plot_y0, plot_x1, plot_y1)
-        if self._series.x_axis_layout == "calendar_linear":
+        if self._series.progression_x_axis_mode == "calendar_linear":
             self._draw_calendar_axis(painter, plot_x0, plot_y0, plot_x1, plot_y1)
         else:
             self._draw_x_labels(painter, bins, plot_x0, plot_y1, plot_w)
@@ -273,15 +273,16 @@ class ChessLogCategoryChartWidget(QWidget):
     ) -> float:
         """Return the X pixel offset (from plot origin) for a given bin.
 
-        Layout modes (from series.x_axis_layout):
+        Layout modes (from series.progression_x_axis_mode):
           - "uniform_bins":    evenly spaced by bin index, ignoring calendar gaps.
           - "calendar_linear": each bin at its calendar center via ordinal_to_chart_x.
           - "gap_compressed":  calendar position via GapCompressedTimeLayout built in
-                               set_series; long game-free spans compressed.
+                               set_series; long game-free spans compressed. Falls back
+                               to uniform spacing if the gap layout could not be built.
         """
         if not self._series:
             return (time_pct / 100.0) * pw
-        layout = self._series.x_axis_layout
+        layout = self._series.progression_x_axis_mode
         if layout == "calendar_linear":
             bins = self._series.bins
             if bin_index < len(bins):
@@ -344,8 +345,8 @@ class ChessLogCategoryChartWidget(QWidget):
         p.setFont(self._font)
 
     def _draw_lines(self, p, categories, bins, x0, y0, pw, ph, totals: Dict[str, int]) -> None:
-        use_smooth = self._series and self._series.line_style == "smooth"
-        strength = self._series.smoothing_strength if self._series else 1.0
+        use_smooth = self._series and self._series.progression_line_style == "smooth"
+        strength = self._series.progression_line_smooth_strength if self._series else 1.0
         n = len(bins)
 
         for idx, cat in enumerate(categories):

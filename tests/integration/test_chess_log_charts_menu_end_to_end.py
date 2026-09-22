@@ -114,58 +114,58 @@ class TestChessLogChartsMenuEndToEnd(unittest.TestCase):
 
     def test_select_bins_24_updates_controller_live_field(self):
         self._menu._on_target_bins_selected(24)
-        self.assertEqual(self._ctrl.get_target_bins(), 24)
+        self.assertEqual(self._ctrl.get_target_progression_bins(), 24)
 
     def test_select_bins_8_updates_controller_live_field(self):
         self._menu._on_target_bins_selected(8)
-        self.assertEqual(self._ctrl.get_target_bins(), 8)
+        self.assertEqual(self._ctrl.get_target_progression_bins(), 8)
 
     def test_select_binning_mode_equal_width_updates_controller(self):
         self._menu._on_ordinal_mode_selected("equal_width")
-        self.assertEqual(self._ctrl.get_binning_mode(), "equal_width")
+        self.assertEqual(self._ctrl.get_ordinal_fallback_mode(), "equal_width")
 
     def test_select_binning_mode_preserves_other_controller_fields(self):
         self._menu._on_ordinal_mode_selected("equal_width")
-        self.assertEqual(self._ctrl.get_target_bins(), 16)
-        self.assertEqual(self._ctrl.get_x_axis_layout(), "uniform_bins")
+        self.assertEqual(self._ctrl.get_target_progression_bins(), 16)
+        self.assertEqual(self._ctrl.get_progression_x_axis_mode(), "uniform_bins")
 
     # --- Group B: X axis ---
 
     def test_select_x_axis_gap_compressed_updates_controller(self):
         self._menu._on_x_axis_mode_selected("gap_compressed")
-        self.assertEqual(self._ctrl.get_x_axis_layout(), "gap_compressed")
+        self.assertEqual(self._ctrl.get_progression_x_axis_mode(), "gap_compressed")
 
     def test_select_x_axis_calendar_updates_controller(self):
         self._menu._on_x_axis_mode_selected("calendar_linear")
-        self.assertEqual(self._ctrl.get_x_axis_layout(), "calendar_linear")
+        self.assertEqual(self._ctrl.get_progression_x_axis_mode(), "calendar_linear")
 
     def test_select_gap_segment_14_updates_controller(self):
         self._menu._on_gap_segment_days_selected(14)
-        self.assertEqual(self._ctrl.get_max_gap_segment_days(), 14)
+        self.assertEqual(self._ctrl.get_compress_gap_max_segment_days(), 14)
 
     def test_select_x_axis_preserves_bins_in_controller(self):
         self._menu._on_target_bins_selected(24)
         self._menu._on_x_axis_mode_selected("calendar_linear")
-        self.assertEqual(self._ctrl.get_target_bins(), 24)
-        self.assertEqual(self._ctrl.get_x_axis_layout(), "calendar_linear")
+        self.assertEqual(self._ctrl.get_target_progression_bins(), 24)
+        self.assertEqual(self._ctrl.get_progression_x_axis_mode(), "calendar_linear")
 
     # --- Group C: Line style ---
 
     def test_select_straight_line_style_updates_controller(self):
         self._menu._on_line_style_selected("straight")
-        self.assertEqual(self._ctrl.get_line_style(), "straight")
+        self.assertEqual(self._ctrl.get_progression_line_style(), "straight")
 
     def test_select_smooth_line_style_updates_controller(self):
         self._menu._on_line_style_selected("smooth")
-        self.assertEqual(self._ctrl.get_line_style(), "smooth")
+        self.assertEqual(self._ctrl.get_progression_line_style(), "smooth")
 
     def test_select_strength_2_0_updates_controller(self):
         self._menu._on_smooth_strength_selected(2.0)
-        self.assertAlmostEqual(self._ctrl.get_smoothing_strength(), 2.0)
+        self.assertAlmostEqual(self._ctrl.get_progression_line_smooth_strength(), 2.0)
 
     def test_select_strength_0_5_updates_controller(self):
         self._menu._on_smooth_strength_selected(0.5)
-        self.assertAlmostEqual(self._ctrl.get_smoothing_strength(), 0.5)
+        self.assertAlmostEqual(self._ctrl.get_progression_line_smooth_strength(), 0.5)
 
     def test_all_six_settings_round_trip(self):
         """Changing all 6 settings via the menu propagates correctly to the controller."""
@@ -176,12 +176,12 @@ class TestChessLogChartsMenuEndToEnd(unittest.TestCase):
         self._menu._on_line_style_selected("straight")
         self._menu._on_smooth_strength_selected(2.0)
 
-        self.assertEqual(self._ctrl.get_target_bins(), 32)
-        self.assertEqual(self._ctrl.get_binning_mode(), "equal_width")
-        self.assertEqual(self._ctrl.get_x_axis_layout(), "gap_compressed")
-        self.assertEqual(self._ctrl.get_max_gap_segment_days(), 14)
-        self.assertEqual(self._ctrl.get_line_style(), "straight")
-        self.assertAlmostEqual(self._ctrl.get_smoothing_strength(), 2.0)
+        self.assertEqual(self._ctrl.get_target_progression_bins(), 32)
+        self.assertEqual(self._ctrl.get_ordinal_fallback_mode(), "equal_width")
+        self.assertEqual(self._ctrl.get_progression_x_axis_mode(), "gap_compressed")
+        self.assertEqual(self._ctrl.get_compress_gap_max_segment_days(), 14)
+        self.assertEqual(self._ctrl.get_progression_line_style(), "straight")
+        self.assertAlmostEqual(self._ctrl.get_progression_line_smooth_strength(), 2.0)
 
 
 if __name__ == "__main__":

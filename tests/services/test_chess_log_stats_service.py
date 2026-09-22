@@ -570,10 +570,10 @@ class TestBinningModeRouting(unittest.TestCase):
         result = aggregate(games, player="Alice", chart_cfg=cfg)
         series = result["CLAMP"]
         # Rendering fields are defaults — aggregate() doesn't set them
-        self.assertEqual(series.x_axis_layout, "uniform_bins")
-        self.assertEqual(series.max_gap_segment_days, 28)
-        self.assertEqual(series.line_style, "smooth")
-        self.assertAlmostEqual(series.smoothing_strength, 1.0)
+        self.assertEqual(series.progression_x_axis_mode, "uniform_bins")
+        self.assertEqual(series.compress_gap_max_segment_days, 28)
+        self.assertEqual(series.progression_line_style, "smooth")
+        self.assertAlmostEqual(series.progression_line_smooth_strength, 1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -593,27 +593,27 @@ class TestPresetSeriesRenderingFields(unittest.TestCase):
 
     def test_default_x_axis_layout(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].x_axis_layout, "uniform_bins")
+        self.assertEqual(result["CLAMP"].progression_x_axis_mode, "uniform_bins")
 
     def test_default_max_gap_segment_days(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].max_gap_segment_days, 28)
+        self.assertEqual(result["CLAMP"].compress_gap_max_segment_days, 28)
 
     def test_default_line_style(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].line_style, "smooth")
+        self.assertEqual(result["CLAMP"].progression_line_style, "smooth")
 
     def test_default_smoothing_strength(self):
         result = self._one_game_result()
-        self.assertAlmostEqual(result["CLAMP"].smoothing_strength, 1.0)
+        self.assertAlmostEqual(result["CLAMP"].progression_line_smooth_strength, 1.0)
 
     def test_rendering_fields_are_mutable(self):
         result = self._one_game_result()
         series = result["CLAMP"]
-        series.x_axis_layout = "gap_compressed"
-        series.line_style = "straight"
-        self.assertEqual(series.x_axis_layout, "gap_compressed")
-        self.assertEqual(series.line_style, "straight")
+        series.progression_x_axis_mode = "gap_compressed"
+        series.progression_line_style = "straight"
+        self.assertEqual(series.progression_x_axis_mode, "gap_compressed")
+        self.assertEqual(series.progression_line_style, "straight")
 
 
 class TestCalendarLinearTimePct(unittest.TestCase):

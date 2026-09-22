@@ -78,9 +78,9 @@ def _make_series(
         preset="CLAMP",
         categories=cats,
         bins=bins,
-        x_axis_layout=x_axis_layout,
-        line_style=line_style,
-        smoothing_strength=smoothing_strength,
+        progression_x_axis_mode=x_axis_layout,
+        progression_line_style=line_style,
+        progression_line_smooth_strength=smoothing_strength,
     )
 
 
@@ -332,7 +332,7 @@ class TestBinXLayout(unittest.TestCase):
             _Bin(time_pct=0.0, total=1, lab0="2026-01-01", lab1="2026-01-31", counts={"C": 1}),
             _Bin(time_pct=100.0, total=1, lab0="2026-07-01", lab1="2026-07-31", counts={"C": 1}),
         ]
-        series = _S(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="calendar_linear",
+        series = _S(preset="CLAMP", categories=["C"], bins=bins, progression_x_axis_mode="calendar_linear",
                     t_min=o_a, t_max=_d(2026, 7, 31).toordinal())
         w = self._widget()
         w._series = series
@@ -383,10 +383,10 @@ class TestBinXLayout(unittest.TestCase):
             _Bin(time_pct=100.0, total=1, lab0="2025-07-08", lab1="2025-07-08", counts={"C": 1}),
         ]
         series_gc = _S(preset="CLAMP", categories=["C"], bins=bins,
-                       x_axis_layout="gap_compressed", t_min=o_jan, t_max=o_jul8,
-                       max_gap_segment_days=28)
+                       progression_x_axis_mode="gap_compressed", t_min=o_jan, t_max=o_jul8,
+                       compress_gap_max_segment_days=28)
         series_uni = _S(preset="CLAMP", categories=["C"], bins=bins,
-                        x_axis_layout="uniform_bins", t_min=o_jan, t_max=o_jul8)
+                        progression_x_axis_mode="uniform_bins", t_min=o_jan, t_max=o_jul8)
         pw = 1000.0
         w = self._widget()
         w.set_series(series_gc)
@@ -422,8 +422,8 @@ class TestBinXLayout(unittest.TestCase):
         t_min = _d.fromisoformat("2026-04-01").toordinal()
         t_max = _d.fromisoformat("2026-07-21").toordinal()
         series_cal = _Series(preset="CLAMP", categories=["C"], bins=bins,
-                             x_axis_layout="calendar_linear", t_min=t_min, t_max=t_max)
-        series_uni = _Series(preset="CLAMP", categories=["C"], bins=bins, x_axis_layout="uniform_bins")
+                             progression_x_axis_mode="calendar_linear", t_min=t_min, t_max=t_max)
+        series_uni = _Series(preset="CLAMP", categories=["C"], bins=bins, progression_x_axis_mode="uniform_bins")
 
         w = self._widget()
         pw = 900.0
@@ -478,7 +478,7 @@ class TestBinXLayout(unittest.TestCase):
             _Bin(time_pct=0.0, total=3, lab0="2026-07-02", lab1="2026-07-30", counts={"C": 3}),
         ]
         series = _Series(preset="CLAMP", categories=["C"], bins=bins,
-                         x_axis_layout="calendar_linear", t_min=o_apr1, t_max=o_jul30)
+                         progression_x_axis_mode="calendar_linear", t_min=o_apr1, t_max=o_jul30)
         w = self._widget()
         w._series = series
         pw = 1200.0  # 10px per day for 120-day span (Apr 1–Jul 30)
@@ -512,7 +512,7 @@ class TestCalendarAxisPainting(unittest.TestCase):
             _Bin(time_pct=100.0, total=3, lab0="2026-09-01", lab1="2026-11-30", counts={"C": 3}),
         ]
         return _S(preset="CLAMP", categories=["C"], bins=bins,
-                  x_axis_layout="calendar_linear", t_min=t_min, t_max=t_max)
+                  progression_x_axis_mode="calendar_linear", t_min=t_min, t_max=t_max)
 
     def _render_to_image(self, widget, width=1200, height=220):
         from PyQt6.QtGui import QImage, QPainter
@@ -591,7 +591,7 @@ class TestCalendarAxisPainting(unittest.TestCase):
         t_min = _d(2026, 2, 1).toordinal()
         t_max = _d(2026, 12, 31).toordinal()
         series = _S(preset="CLAMP", categories=["C"], bins=bins,
-                    x_axis_layout="uniform_bins", t_min=t_min, t_max=t_max)
+                    progression_x_axis_mode="uniform_bins", t_min=t_min, t_max=t_max)
         w.set_series(series)
         width, height = 1200, 220
         img = self._render_to_image(w, width, height)

@@ -246,6 +246,12 @@ def build_prompt(
         if getattr(game, "has_chess_log_tags", False):
             paths_data = ChessLogStorageService.load_tags(game)
             for entries in paths_data.values():
+                has_3x3_notes = any(
+                    e.get("preset") == "3x3" and (e.get("why") or "").strip()
+                    for e in entries
+                )
+                if has_3x3_notes:
+                    why_notes.append((_3X3_MOMENT_SENTINEL, ""))
                 for entry in entries:
                     preset = entry.get("preset", "")
                     cat = entry.get("cat", "") or ""
@@ -393,10 +399,16 @@ _3X3_STRUCTURE_BLOCK = (
         for i, q in enumerate(THREE_BY_THREE_PROMPTS.values())
     )
     + "\n\n"
-    "These are the four questions from GM Noel Studer's 3x3 method. Treat a "
-    "missing answer to any of the four as simply unanswered, not as evidence of "
-    "anything. All four always describe the player's own chosen move and their "
-    "own reasoning about it, never the opponent's move."
+    "These are the four questions from GM Noel Studer's 3x3 method. Together, the "
+    "four answers form one connected reasoning chain about a single decision: "
+    "Why1 establishes the player's intent, Why2 identifies what was wrong with "
+    "their chosen move, Why3 explains why the better move is better -- this is often "
+    "the same underlying point as Why2 restated from a different angle, not always a "
+    "distinct second step, so don't force them into a strict cause-then-effect "
+    "sequence if the player's own answers don't split that way -- and Why4 names the "
+    "lesson for next time. Either Why2 or Why3, or both, may be blank. Treat a blank "
+    "as simply unanswered, not as a break in the chain. All four always describe the "
+    "player's own chosen move and their own reasoning about it, never the opponent's move."
 )
 
 
@@ -506,12 +518,28 @@ def _format_category_counts(
     return "\n".join(lines)
 
 
+_3X3_MOMENT_SENTINEL = "__3x3_moment__"
+
+_3X3_MOMENT_FRAMING = (
+    "[One connected decision follows, in order: "
+    "Why1 = the player's intent, "
+    "Why2 = what was wrong with their move, "
+    "Why3 = why the better move is better (often the same underlying point as Why2, "
+    "restated from a different angle, not always a distinct second step), "
+    "Why4 = the lesson for next time. "
+    "Either Why2 or Why3, or both, may be blank -- treat a blank as simply unanswered, not a gap.]"
+)
+
+
 def _format_why_notes(why_notes: List[Tuple[str, str]]) -> str:
     if not why_notes:
         return "(no notes written)"
     lines = []
     for label, note in why_notes:
-        lines.append(f"- [{label}] {note}")
+        if label == _3X3_MOMENT_SENTINEL:
+            lines.append(f"\n{_3X3_MOMENT_FRAMING}")
+        else:
+            lines.append(f"- [{label}] {note}")
     return "\n".join(lines)
 
 

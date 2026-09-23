@@ -107,17 +107,17 @@ class TestDetailChessLogChartsViewPlaceholder(unittest.TestCase):
 
     def test_placeholder_visible_on_startup(self):
         view = self._make_view()
-        self.assertTrue(view._placeholder.isVisible())
+        self.assertFalse(view._placeholder.isHidden())
 
     def test_charts_container_hidden_on_startup(self):
         view = self._make_view()
-        self.assertFalse(view._charts_container.isVisible())
+        self.assertTrue(view._charts_container.isHidden())
 
     def test_charts_unavailable_shows_placeholder(self):
         view = self._make_view()
         view._on_charts_unavailable("no_source")
-        self.assertTrue(view._placeholder.isVisible())
-        self.assertFalse(view._charts_container.isVisible())
+        self.assertFalse(view._placeholder.isHidden())
+        self.assertTrue(view._charts_container.isHidden())
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -131,7 +131,7 @@ class TestDetailChessLogChartsViewNarrativePanel(unittest.TestCase):
     def test_ai_hint_visible_when_unconfigured(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=False))
-        self.assertTrue(view._ai_hint.isVisible())
+        self.assertFalse(view._ai_hint.isHidden())
 
     def test_generate_button_enabled_when_configured(self):
         view = DetailChessLogChartsView(config={})
@@ -172,13 +172,13 @@ class TestDetailChessLogChartsViewNarrativePanel(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))
         view._on_narrative_ready("Narrative.", ["shallow note 1"])
-        self.assertTrue(view._flagged_box.isVisible())
+        self.assertFalse(view._flagged_box.isHidden())
 
     def test_narrative_ready_no_flags_hides_flagged_box(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))
         view._on_narrative_ready("Narrative.", [])
-        self.assertFalse(view._flagged_box.isVisible())
+        self.assertTrue(view._flagged_box.isHidden())
 
     def test_narrative_failed_sets_error_text(self):
         view = DetailChessLogChartsView(config={})
@@ -205,14 +205,14 @@ class TestDetailChessLogChartsViewCharts(unittest.TestCase):
         view.set_controller(_make_stub_controller())
         data = {"CLAMP": _make_series("CLAMP", ["C"])}
         view._on_charts_updated(data)
-        self.assertFalse(view._placeholder.isVisible())
-        self.assertTrue(view._charts_container.isVisible())
+        self.assertTrue(view._placeholder.isHidden())
+        self.assertFalse(view._charts_container.isHidden())
 
     def test_charts_updated_with_empty_dict_shows_placeholder(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_charts_updated({})
-        self.assertTrue(view._placeholder.isVisible())
+        self.assertFalse(view._placeholder.isHidden())
 
     def test_second_update_replaces_first(self):
         view = DetailChessLogChartsView(config={})
@@ -434,9 +434,12 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         self.assertEqual(view._model_combo.itemText(1), "gpt-4-turbo")
 
     def test_model_combo_selects_default_model(self):
-        view = self._make_view(ai=True, models=["gpt-3.5-turbo", "gpt-4o"])
-        view._controller.get_default_narrative_model.return_value = "gpt-4o"
-        view._refresh_ai_state()
+        # Build the controller with gpt-4o as the default before constructing the view
+        # so the initial _refresh_ai_state call selects it (no prior selection to preserve).
+        ctrl = _make_stub_controller(ai_configured=True, models=["gpt-3.5-turbo", "gpt-4o"])
+        ctrl.get_default_narrative_model.return_value = "gpt-4o"
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(ctrl)
         self.assertEqual(view._model_combo.currentText(), "gpt-4o")
 
     def test_model_combo_change_calls_controller(self):
@@ -484,7 +487,7 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
 
     def test_tokens_spin_default_value(self):
         view = self._make_view()
-        self.assertEqual(view._tokens_spin.value(), 4000)
+        self.assertEqual(view._tokens_spin.value(), 12000)
 
     def test_tokens_spin_range(self):
         view = self._make_view()

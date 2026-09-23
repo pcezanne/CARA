@@ -51,6 +51,8 @@ def make_controller(game=None, active_path=(), user_settings_service=None) -> tu
     gm = make_game_model_mock(game, active_path)
     gc = make_game_controller_mock(gm)
     ctrl = ChessLogController({}, gc, user_settings_service=user_settings_service)
+    if game is not None:
+        ctrl._cached_game = game
     return ctrl, gm
 
 
@@ -744,6 +746,306 @@ class TestSaveAllIncludesCurrentGame(unittest.TestCase):
         ctrl, gm, game = self._make_ctrl_with_tagged_active_game()
         ctrl.save_all_dirty_games()
         gm.metadata_updated.emit.assert_called()
+
+
+class TestSaveCurrentGameDirtyState(unittest.TestCase):
+    """Dirty-state regression tests for save and clear paths."""
+
+    def test_save_current_game_clears_dirty_flag(self):
+        """save_tags_for_current_game must pop _dirty_games for the saved game.
+
+        Scenario: game B is dirtied via replace_entries_at_path_for_game while A
+        is active (simulating a ShowTagsDialog OK); user switches to B; hits
+        Ctrl+Alt+L — after save has_dirty_games() must be False.
+        """
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        gm.active_game = game_a
+        ctrl._cached_game_id = game_a.game_number
+
+        # Dirty game B while A is active (via ShowTagsDialog OK path)
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "edit-b"}]
+        )
+        self.assertIn(game_b.game_number, ctrl._dirty_games)
+
+        # Switch active to B (Rule A promotes from multi-cache)
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        # Save B via single-game save (Ctrl+Alt+L)
+        ctrl.save_tags_for_current_game()
+
+        # After save, no games should remain dirty
+        self.assertFalse(ctrl.has_dirty_games())
+
+    def test_clear_active_game_leaves_inactive_game_dirty(self):
+        """Clearing the active game must not disturb an inactive game's dirty state."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        gm.active_game = game_a
+        ctrl._cached_game_id = game_a.game_number
+
+        # Tag A while A is active, then switch to B and tag B
+        ctrl.replace_entries_at_path_for_game(
+            game_a, "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "a-tag"}]
+        )
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        ctrl.replace_entries_at_path_for_game(
+            game_b, "0", "CCT", [{"preset": "CCT", "cat": "C", "why": "b-tag"}]
+        )
+
+        # Switch back to A and clear it
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        ctrl.clear_tags_for_current_game()
+
+        # A is clean
+        self.assertNotIn(game_a.game_number, ctrl._dirty_games)
+        self.assertEqual(ctrl._cached_paths_data, {})
+        # B is still dirty with its tag intact
+        self.assertIn(game_b.game_number, ctrl._dirty_games)
+        b_data = ctrl._multi_cache.get(game_b.game_number, {})
+        self.assertIn("0", b_data)
+        self.assertEqual(b_data["0"][0]["cat"], "C")
+
+    def test_repeated_save_all_cycles_stay_consistent(self):
+        """Two successive tag → save-all cycles must each leave a clean dirty state."""
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+
+        # First cycle
+        ctrl.replace_entries_at_path_for_game(
+            game, "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "first"}]
+        )
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertFalse(ctrl.has_dirty_games())
+
+        # Second cycle — a fresh tag on a different path
+        ctrl.replace_entries_at_path_for_game(
+            game, "1", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "second"}]
+        )
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertFalse(ctrl.has_dirty_games())
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertIn("0", loaded)
+        self.assertIn("1", loaded)
+
+    def test_clear_writes_to_pgn_immediately(self):
+        """clear_tags_for_current_game writes through to the PGN at once;
+        switching away and back does NOT restore the pre-clear data from disk."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        gm.active_game = game_a
+
+        # Tag A and persist to disk
+        ctrl._cached_paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "M")]}
+        ctrl.save_tags_for_current_game()
+        self.assertTrue(ChessLogStorageService.has_chess_log_tags(game_a))
+
+        # Clear A — writes through to PGN immediately, no separate save needed
+        ctrl.clear_tags_for_current_game()
+        self.assertFalse(ChessLogStorageService.has_chess_log_tags(game_a))
+
+        # Switch away and back — reload from disk must still show empty
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        self.assertEqual(ctrl._cached_paths_data, {})
+
+
+class TestSwitchAndSaveAllIntegration(unittest.TestCase):
+    """Scenario 2: tag A via add_moment → switch to B → save-all → A persisted."""
+
+    def test_clear_tag_switch_save_all_persists(self):
+        """Regression: clear → tag → switch → save-all must save the new moment.
+
+        save_all_dirty_games previously missed this because add_moment_at_active_path
+        does not write _dirty_games, and the special active-game check only applies to
+        the *currently* active game.  Rule B now marks the outgoing game dirty on every
+        game switch that flushes a non-empty cache.
+        """
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        gm.active_game = game_a
+
+        # Seed PGN with existing data so clear actually removes something
+        ctrl._cached_paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "M")]}
+        ctrl.save_tags_for_current_game()
+
+        # Clear A (writes through, removes from _dirty_games)
+        ctrl.clear_tags_for_current_game()
+        self.assertFalse(ctrl.has_dirty_games())
+
+        # Tag a fresh moment on A — only _cached_paths_data is touched
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="1"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": "after-clear"}])
+
+        # Switch to B — Rule B should flush A to multi_cache AND mark A dirty
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        self.assertIn(game_a.game_number, ctrl._dirty_games)
+
+        # Save All while B is active — must reach A via _dirty_games
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+
+        loaded = ChessLogStorageService.load_tags(game_a)
+        self.assertIn("1", loaded)
+        self.assertEqual(loaded["1"][0]["why"], "after-clear")
+
+    def test_tag_switch_save_all_persists(self):
+        """tag A → switch to B (stay on B) → save-all → A's moment persisted."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        gm.active_game = game_a
+
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": "no-return"}])
+
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        self.assertIn(game_a.game_number, ctrl._dirty_games)
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+
+        loaded = ChessLogStorageService.load_tags(game_a)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["why"], "no-return")
+
+    def test_tag_switch_back_save_all_persists(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        gm.active_game = game_a
+
+        # Tag A via the UI path — writes to _cached_paths_data only (not _dirty_games)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": "switch test"}])
+
+        # Switch to B — Rule B flushes A's cache to multi_cache
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        # Switch back to A — Rule A promotes A's data from multi_cache
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+
+        # Save All — must include A's moment via has_unsaved_changes() check
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+
+        loaded = ChessLogStorageService.load_tags(game_a)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["why"], "switch test")
+
+
+class TestShallowFlagPersistence(unittest.TestCase):
+    """is_shallow and ignore_shallow flags must survive save_all_dirty_games."""
+
+    def test_is_shallow_flag_persists_via_save_all(self):
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        ctrl.replace_entries_at_path_for_game(game, "0", "CLAMP", [entry])
+        ctrl.save_all_dirty_games()
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertTrue(loaded["0"][0].get("is_shallow"))
+
+    def test_ignore_shallow_flag_persists_via_save_all(self):
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", ignore_shallow=True)
+        ctrl.replace_entries_at_path_for_game(game, "0", "CLAMP", [entry])
+        ctrl.save_all_dirty_games()
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertTrue(loaded["0"][0].get("ignore_shallow"))
+
+    def test_shallow_flags_across_active_and_inactive_games(self):
+        """Shallow flags in both active and inactive games must both persist via save_all."""
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm = make_controller(game_a)
+        ctrl._cached_game_id = game_a.game_number
+        gm.active_game = game_a
+
+        entry_a = ChessLogStorageService.make_entry("CLAMP", "M", "active-note", is_shallow=True)
+        ctrl.replace_entries_at_path_for_game(game_a, "0", "CLAMP", [entry_a])
+
+        entry_b = ChessLogStorageService.make_entry("CCT", "Checks", "inactive-note", ignore_shallow=True)
+        ctrl.replace_entries_at_path_for_game(game_b, "0", "CCT", [entry_b])
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 2)
+        self.assertEqual(failed, 0)
+
+        loaded_a = ChessLogStorageService.load_tags(game_a)
+        loaded_b = ChessLogStorageService.load_tags(game_b)
+        self.assertTrue(loaded_a["0"][0].get("is_shallow"))
+        self.assertTrue(loaded_b["0"][0].get("ignore_shallow"))
+
+
+class TestNagRoundTrip(unittest.TestCase):
+    """Nag flag set in memory → save → fresh controller reloads → flag rehydrated."""
+
+    def test_nag_flag_survives_save_and_reload(self):
+        game = make_game(1)
+        ctrl, gm = make_controller(game)
+        ctrl._cached_game_id = game.game_number
+        gm.active_game = game
+
+        # Three moments to put us at the threshold
+        ctrl._cached_paths_data = {
+            "0":     [ChessLogStorageService.make_entry("CLAMP", "M")],
+            "0.0":   [ChessLogStorageService.make_entry("CLAMP", "L")],
+            "0.0.0": [ChessLogStorageService.make_entry("CCT",   "C")],
+        }
+
+        # Trigger the nag for a fourth new path — sets _nag_shown_by_game[1]
+        gm.get_active_path.return_value = (99,)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="fresh"), \
+             patch("app.views.dialogs.confirmation_dialog.ConfirmationDialog.show_confirmation",
+                   return_value=True):
+            ctrl.should_confirm_extra_moment(None)
+        self.assertTrue(ctrl._nag_shown_by_game.get(1))
+
+        # Save — nag_shown flag rides along with the PGN payload
+        ctrl.save_tags_for_current_game()
+
+        # Fresh controller — simulates a new session (session-level flag reset)
+        ctrl2, gm2 = make_controller(game)
+        gm2.active_game = game
+        ctrl2._on_active_game_changed(game)  # triggers _load_into_cache
+
+        # Per-game nag flag must be rehydrated from disk
+        self.assertTrue(ctrl2._nag_shown_by_game.get(1, False))
 
 
 if __name__ == "__main__":

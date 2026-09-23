@@ -90,7 +90,10 @@ class TestChessLogChartsControllerSourceSelection(unittest.TestCase):
     def _make_controller(self, games=None) -> ChessLogChartsController:
         games = games or []
         db_ctrl = _make_db_controller(games)
-        return ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        return ctrl
 
     def test_source_none_emits_charts_unavailable(self):
         ctrl = self._make_controller()
@@ -119,9 +122,9 @@ class TestChessLogChartsControllerSourceSelection(unittest.TestCase):
     def test_set_source_starts_dropdown_worker(self):
         game = _make_game(entries_per_path={"0": [_clamp("C")]})
         ctrl = self._make_controller(games=[game])
+        ctrl._start_dropdown_worker = MagicMock()
         ctrl.set_source_selection(1)
-        self.assertIsNotNone(ctrl._dropdown_worker)
-        ctrl._cancel_dropdown_worker()
+        ctrl._start_dropdown_worker.assert_called_once()
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -162,9 +165,9 @@ class TestChessLogChartsControllerPlayerSelection(unittest.TestCase):
         ctrl._source_selection = 1
         ctrl._player_explicit_selected = True
         ctrl._current_player = "Alice"
+        ctrl._schedule_charts_refresh = MagicMock()
         ctrl._on_selection_debounced()
-        self.assertIsNotNone(ctrl._agg_worker)
-        ctrl._cancel_agg_worker()
+        ctrl._schedule_charts_refresh.assert_called_once()
 
     def test_has_player_selected_starts_false(self):
         ctrl = self._make_controller()
@@ -177,6 +180,7 @@ class TestChessLogChartsControllerPlayerSelection(unittest.TestCase):
 
     def test_has_player_selected_resets_on_set_source(self):
         ctrl = self._make_controller()
+        ctrl._start_dropdown_worker = MagicMock()
         ctrl.set_player_selection("Alice")
         self.assertTrue(ctrl.has_player_selected())
         ctrl.set_source_selection(1)
@@ -289,6 +293,10 @@ class TestChessLogChartsControllerActiveDatabaseChanged(unittest.TestCase):
         ctrl._source_selection = source
         ctrl._player_explicit_selected = True
         ctrl._current_player = "Alice"
+        # Prevent real QThreads from being started in these tests.
+        # Tests that specifically verify thread-start behavior check the mock.
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
         return ctrl
 
     def test_active_db_changed_resets_player_flag_for_source_1(self):
@@ -352,21 +360,20 @@ class TestChessLogChartsControllerActiveDatabaseChanged(unittest.TestCase):
     def test_active_db_changed_starts_dropdown_worker_for_source_1(self):
         ctrl = self._make_controller_with_source(1)
         ctrl._on_active_database_changed(None)
-        self.assertIsNotNone(ctrl._dropdown_worker)
-        ctrl._cancel_dropdown_worker()
+        # _start_dropdown_worker is mocked in _make_controller_with_source;
+        # verify it was called rather than checking the live _dropdown_worker reference.
+        ctrl._start_dropdown_worker.assert_called_once()
 
     def test_active_db_changed_cancels_agg_worker(self):
         ctrl = self._make_controller_with_source(1)
-        ctrl._source_selection = 1
-        ctrl._player_explicit_selected = True
-        ctrl._current_player = "Alice"
-        # Start a real aggregation worker first
-        ctrl._on_selection_debounced()
-        self.assertIsNotNone(ctrl._agg_worker)
-        # Active DB change should cancel it
+        # Inject a mock agg worker (real QThread would crash on destroy)
+        mock_agg = MagicMock()
+        mock_agg.isRunning.return_value = True
+        mock_agg.finished = MagicMock()
+        ctrl._agg_worker = mock_agg
+        # Active DB change should cancel the agg worker
         ctrl._on_active_database_changed(None)
         self.assertIsNone(ctrl._agg_worker)
-        ctrl._cancel_dropdown_worker()
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -535,12 +542,14 @@ class TestChessLogChartsControllerChartSettings(unittest.TestCase):
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
-    """flag_shallow_notes() must skip entries with ignore_shallow=True."""
+    """request_flag_shallow_notes() must skip entries with ignore_shallow=True."""
 
     def _make_controller_with_note(self, ignore: bool) -> "ChessLogChartsController":
         entry = ChessLogStorageService.make_entry("CLAMP", "C", "I blundered", ignore_shallow=ignore)
         game = _make_game(entries_per_path={"0": [entry]})
         db_ctrl = _make_db_controller([game])
+        # Ensure get_all_games() returns the game so _resolve_games() works for source 1
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
         ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
         ctrl._source_selection = 1
         ctrl._player_explicit_selected = True
@@ -550,40 +559,50 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         })
         return ctrl
 
-    def test_ignored_entry_not_sent_to_ai(self):
+    def test_ignored_entry_emits_shallow_ready_empty_immediately(self):
+        """Entry with ignore_shallow=True → notes list is empty → shallow_ready({}) emitted
+        synchronously without starting a thread or calling the AI."""
         ctrl = self._make_controller_with_note(ignore=True)
-        captured_messages = []
+        received: list = []
+        ctrl.shallow_ready.connect(received.append)
 
-        def fake_send(provider, model, api_key, messages, **kwargs):
-            captured_messages.extend(messages)
-            return False, "no response"
+        ctrl.request_flag_shallow_notes()
 
-        with patch(
-            "app.services.ai_service.AIService.send_message",
-            side_effect=fake_send,
-        ):
-            ctrl.flag_shallow_notes()
+        # Signal emitted synchronously (no notes → no thread)
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], set())
+        # No shallow thread was created
+        self.assertIsNone(ctrl._shallow_thread)
 
-        # If the entry was ignored, flag_shallow_notes returns early (no notes → no AI call)
-        self.assertEqual(len(captured_messages), 0)
-
-    def test_non_ignored_entry_is_sent_to_ai(self):
+    def test_non_ignored_entry_starts_shallow_thread_with_note(self):
+        """Entry without ignore_shallow → a ChessLogShallowThread is started
+        and the why-note is included in the notes list passed to the thread."""
         ctrl = self._make_controller_with_note(ignore=False)
-        captured_messages = []
 
-        def fake_send(provider, model, api_key, messages, **kwargs):
-            captured_messages.extend(messages)
-            return False, "no response"
+        thread_kwargs: list = []
+
+        class FakeThread:
+            def __init__(self, **kwargs):
+                thread_kwargs.append(kwargs)
+                self.shallow_ready = MagicMock()
+                self.shallow_ready.connect = MagicMock()
+                self.shallow_failed = MagicMock()
+                self.shallow_failed.connect = MagicMock()
+                self.finished = MagicMock()
+                self.finished.connect = MagicMock()
+
+            def start(self):
+                pass
 
         with patch(
-            "app.services.ai_service.AIService.send_message",
-            side_effect=fake_send,
+            "app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+            side_effect=FakeThread,
         ):
-            ctrl.flag_shallow_notes()
+            ctrl.request_flag_shallow_notes()
 
-        # Non-ignored why-note should reach the AI
-        self.assertTrue(len(captured_messages) > 0)
-        self.assertIn("I blundered", captured_messages[0]["content"])
+        self.assertEqual(len(thread_kwargs), 1)
+        notes = thread_kwargs[0]["notes"]
+        self.assertTrue(any("I blundered" in n[4] for n in notes))
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
@@ -600,41 +619,52 @@ class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):
         ctrl._current_player = "Alice"
         return ctrl
 
+    def _refresh_and_cancel(self, ctrl, games, assertion_fn):
+        """Start a real refresh, assert worker config, then wait for thread to exit
+        cleanly before releasing the reference (avoids QThread-on-GC crash)."""
+        ctrl._schedule_charts_refresh(games=games)
+        worker = ctrl._agg_worker
+        self.assertIsNotNone(worker)
+        assertion_fn(worker)
+        worker.cancel()
+        worker.wait()
+        ctrl._agg_worker = None
+
     def test_refresh_uses_live_x_axis_layout_not_stale_settings(self):
         ctrl = self._make_controller_ready_to_refresh()
         ctrl.set_progression_x_axis_mode("gap_compressed")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
-        ctrl._schedule_charts_refresh(games=games)
-        self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._progression_x_axis_mode, "gap_compressed")
-        ctrl._cancel_agg_worker()
+        self._refresh_and_cancel(
+            ctrl, games,
+            lambda w: self.assertEqual(w._progression_x_axis_mode, "gap_compressed"),
+        )
 
     def test_refresh_uses_live_target_bins_not_stale_settings(self):
         ctrl = self._make_controller_ready_to_refresh()
         ctrl.set_target_progression_bins(24)
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
-        ctrl._schedule_charts_refresh(games=games)
-        self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._chart_cfg["target_progression_bins"], 24)
-        ctrl._cancel_agg_worker()
+        self._refresh_and_cancel(
+            ctrl, games,
+            lambda w: self.assertEqual(w._chart_cfg["target_progression_bins"], 24),
+        )
 
     def test_refresh_uses_live_binning_mode_via_chart_cfg(self):
         ctrl = self._make_controller_ready_to_refresh()
         ctrl.set_ordinal_fallback_mode("equal_width")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
-        ctrl._schedule_charts_refresh(games=games)
-        self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._chart_cfg.get("ordinal_fallback_mode"), "equal_width")
-        ctrl._cancel_agg_worker()
+        self._refresh_and_cancel(
+            ctrl, games,
+            lambda w: self.assertEqual(w._chart_cfg.get("ordinal_fallback_mode"), "equal_width"),
+        )
 
     def test_refresh_stamps_line_style_on_worker(self):
         ctrl = self._make_controller_ready_to_refresh()
         ctrl.set_progression_line_style("straight")
         games = [_make_game(entries_per_path={"0": [_clamp("C")]})]
-        ctrl._schedule_charts_refresh(games=games)
-        self.assertIsNotNone(ctrl._agg_worker)
-        self.assertEqual(ctrl._agg_worker._progression_line_style, "straight")
-        ctrl._cancel_agg_worker()
+        self._refresh_and_cancel(
+            ctrl, games,
+            lambda w: self.assertEqual(w._progression_line_style, "straight"),
+        )
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

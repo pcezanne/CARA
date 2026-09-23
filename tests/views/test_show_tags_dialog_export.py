@@ -52,9 +52,8 @@ def _make_game_data(pgn: str = MAINLINE_PGN, game_number: int = 1):
 
 def _make_mock_controller(game):
     ctrl = MagicMock()
-    ctrl.get_custom_categories.return_value = []
     ctrl.get_tags_for_game.return_value = {
-        "0,0": [{"preset": "CLAMP", "cat": "C", "why": "test", "id": "x", "created": "y"}]
+        "0": [{"preset": "CLAMP", "cat": "C", "why": "test", "id": "x", "created": "y"}]
     }
     return ctrl
 
@@ -68,7 +67,6 @@ class TestTagRowWidgetSnapshot(unittest.TestCase):
             config={},
             preset=preset,
             entries=entries,
-            custom_categories=[],
             move_label="1. e4",
             fen=None,
             played_move=None,
@@ -124,7 +122,6 @@ class TestTagRowWidgetSnapshot(unittest.TestCase):
             config={},
             preset="CLAMP",
             entries=[],
-            custom_categories=[],
             move_label="1. e4",
             fen=fen,
             played_move=move,

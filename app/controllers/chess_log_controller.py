@@ -36,6 +36,7 @@ class ChessLogController:
         self._user_settings_service = user_settings_service
         self._cached_paths_data: Dict[str, List[Dict[str, Any]]] = {}
         self._cached_game_id: Optional[int] = None
+        self._cached_game: Optional[Any] = None  # game object for the active game
 
         # Multi-game cache for Tags Report and save-all.
         # Games not currently active live here; the active game lives in
@@ -126,6 +127,7 @@ class ChessLogController:
             nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
         )
         if ok:
+            self._dirty_games.pop(game.game_number, None)
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -313,12 +315,21 @@ class ChessLogController:
         """
         # Rule B — flush outgoing active game into multi-cache
         old_gid = self._cached_game_id
+        old_game = self._cached_game
         if old_gid is not None and (self._cached_paths_data or old_gid in self._dirty_games):
             self._multi_cache[old_gid] = dict(self._cached_paths_data)
+            # Ensure save_all_dirty_games can reach this game.  add_moment_at_active_path
+            # and replace_entries_at_path only write _cached_paths_data; a game that has
+            # unsaved UI edits but was never touched by replace_entries_at_path_for_game
+            # (the only method that explicitly marks dirty) would be silently skipped by
+            # save_all.  setdefault preserves any richer game object already in the map.
+            if old_game is not None and old_gid not in self._dirty_games and self._cached_paths_data:
+                self._dirty_games[old_gid] = old_game
 
         if game is None:
             self._cached_paths_data = {}
             self._cached_game_id = None
+            self._cached_game = None
         else:
             self._load_into_cache(game)
 
@@ -337,6 +348,7 @@ class ChessLogController:
             self._cached_paths_data = ChessLogStorageService.load_tags(game)
             self._nag_shown_by_game[gid] = ChessLogStorageService.load_nag_shown(game)
         self._cached_game_id = gid
+        self._cached_game = game
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:

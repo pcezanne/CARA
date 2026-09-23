@@ -29,3 +29,18 @@ def game_matches_player_color(
     if color_filter == "black" and not is_black:
         return False
     return True
+
+
+def game_player_is_black(game: "GameData", player_name: str) -> bool:
+    """Return True iff `player_name` played Black in `game`.
+
+    Case-insensitive, whitespace-stripped comparison against `game.black`.
+    Returns False when `player_name` is empty, when the player didn't play
+    at all, or when the player played White. Used to decide mini-board
+    orientation in Chess Log dialogs: True → flip so Black is at bottom.
+    """
+    player_cf = (player_name or "").casefold().strip()
+    if not player_cf:
+        return False
+    black_cf = (game.black or "").casefold().strip()
+    return player_cf == black_cf

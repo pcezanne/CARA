@@ -743,7 +743,7 @@ class DetailChessLogChartsView(QWidget):
         )
         from app.views.dialogs._tag_row_helpers import node_info as _node_info
 
-        player_name = self._player_combo.currentText()
+        player_name = self._player_combo.itemData(self._player_combo.currentIndex()) or ""
         suggested = default_chess_log_charts_pdf_filename(player_name)
         path, _ = QFileDialog.getSaveFileName(
             self, "Export PDF Report", suggested, "PDF Files (*.pdf)"

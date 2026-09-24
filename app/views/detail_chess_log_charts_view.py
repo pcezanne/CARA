@@ -573,7 +573,6 @@ class DetailChessLogChartsView(QWidget):
             controller=chess_log_ctrl,
             shallow_keys=shallow_keys,
             parent=self,
-            player_name=self._player_combo.currentText(),
         )
         dlg.exec()
 
@@ -742,7 +741,6 @@ class DetailChessLogChartsView(QWidget):
             ChessLogPDFService,
             default_chess_log_charts_pdf_filename,
         )
-        from app.utils.player_matcher import game_player_is_black
         from app.views.dialogs._tag_row_helpers import node_info as _node_info
 
         player_name = self._player_combo.currentText()
@@ -794,7 +792,6 @@ class DetailChessLogChartsView(QWidget):
                                 fen=fen or None,
                                 played_move=played_move,
                                 show_ignore=True,
-                                is_flipped=game_player_is_black(game, player_name),
                             ))
 
         label = self._source_combo.currentText()

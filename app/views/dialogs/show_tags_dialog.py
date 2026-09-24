@@ -28,7 +28,6 @@ from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
 from app.utils.pgn_variation_path import decode_path
-from app.utils.player_matcher import game_player_is_black
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.style.style_manager import StyleManager
 from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget
@@ -299,13 +298,11 @@ class ShowTagsDialog(QDialog):
         games: List,
         controller,
         parent=None,
-        player_name: str = "",
     ) -> None:
         super().__init__(parent)
         self.config = config
         self._controller = controller
         self._games = list(games)
-        self._player_name = player_name or ""
 
         self._load_config()
 
@@ -470,7 +467,6 @@ class ShowTagsDialog(QDialog):
                 fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_is_shallow = any(e.get("is_shallow") for e in entries)
-                row_is_flipped = game_player_is_black(game, self._player_name)
                 row_widget = _TagRowWidget(
                     self.config,
                     preset,
@@ -482,7 +478,6 @@ class ShowTagsDialog(QDialog):
                     self._text_color_rgb,
                     show_ignore_checkbox=row_is_shallow,
                     best_move=best_move,
-                    is_flipped=row_is_flipped,
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

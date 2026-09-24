@@ -48,7 +48,6 @@ class DetailMovesListView(QWidget):
         self._game_controller: Optional[GameController] = None
         self._database_controller: Optional["DatabaseController"] = None
         self._chess_log_controller: Optional["ChessLogController"] = None
-        self._chess_log_charts_controller = None
         self._column_profile_controller: Optional[ColumnProfileController] = None
         self._active_move_ply: int = 0
         self._setup_ui()
@@ -71,13 +70,7 @@ class DetailMovesListView(QWidget):
         """Set chess log controller for tagging moments."""
         self._chess_log_controller = controller
 
-    def set_chess_log_charts_controller(self, controller) -> None:
-        """Set Chess Log Charts controller — read only, for its current-player selection.
 
-        Used to orient miniature boards in the Show Tags dialog to the tracked player.
-        """
-        self._chess_log_charts_controller = controller
-    
     def _setup_ui(self) -> None:
         """Setup the moves list UI."""
         layout = QVBoxLayout(self)
@@ -553,17 +546,11 @@ class DetailMovesListView(QWidget):
         if game_data is None:
             return
         from app.views.dialogs.show_tags_dialog import ShowTagsDialog
-        player_name = (
-            self._chess_log_charts_controller.get_current_player()
-            if self._chess_log_charts_controller is not None
-            else ""
-        )
         dlg = ShowTagsDialog(
             self.config,
             [game_data],
             self._chess_log_controller,
             self,
-            player_name=player_name,
         )
         dlg.exec()
 

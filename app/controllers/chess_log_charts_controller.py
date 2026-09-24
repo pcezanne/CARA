@@ -576,15 +576,6 @@ class ChessLogChartsController(QObject):
         self._player_explicit_selected = True
         self._kick_debounce()
 
-    def get_current_player(self) -> str:
-        """The name currently selected in the Chess Log Charts player combo.
-
-        Empty string when no player has been picked. Callers outside the Charts
-        tab (e.g. `ShowTagsDialog` opened from the moves list) read this to
-        orient miniature boards to the tracked player's side of the game.
-        """
-        return self._current_player
-
     def set_color_filter(self, color_filter: str) -> None:
         self._color_filter = color_filter
         self._kick_debounce()

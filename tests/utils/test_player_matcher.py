@@ -3,7 +3,7 @@
 import unittest
 from unittest.mock import MagicMock
 
-from app.utils.player_matcher import game_matches_player_color, game_player_is_black
+from app.utils.player_matcher import game_matches_player_color
 
 
 def _game(white="Alice", black="Bob"):
@@ -56,37 +56,6 @@ class TestGameMatchesPlayerColor(unittest.TestCase):
     def test_whitespace_stripped(self):
         """Leading/trailing whitespace in game headers is stripped."""
         self.assertTrue(game_matches_player_color(_game("  Alice  ", "Bob"), "alice", "both"))
-
-
-class TestGamePlayerIsBlack(unittest.TestCase):
-    def test_matches_black_player(self):
-        self.assertTrue(game_player_is_black(_game("Alice", "Bob"), "Bob"))
-
-    def test_white_player_returns_false(self):
-        self.assertFalse(game_player_is_black(_game("Alice", "Bob"), "Alice"))
-
-    def test_no_match_returns_false(self):
-        self.assertFalse(game_player_is_black(_game("Alice", "Bob"), "Charlie"))
-
-    def test_empty_player_name_returns_false(self):
-        """Empty player name means no orientation preference — default (White at bottom)."""
-        self.assertFalse(game_player_is_black(_game("Alice", "Bob"), ""))
-
-    def test_case_insensitive(self):
-        self.assertTrue(game_player_is_black(_game("Alice", "Bob Jones"), "bob jones"))
-        self.assertTrue(game_player_is_black(_game("Alice", "BOB"), "bob"))
-
-    def test_whitespace_stripped_on_game_header(self):
-        self.assertTrue(game_player_is_black(_game("Alice", "  Bob  "), "Bob"))
-
-    def test_whitespace_stripped_on_argument(self):
-        self.assertTrue(game_player_is_black(_game("Alice", "Bob"), "  Bob  "))
-
-    def test_none_black_header_returns_false(self):
-        self.assertFalse(game_player_is_black(_game("Alice", None), "Bob"))
-
-    def test_none_white_header_still_matches_black(self):
-        self.assertTrue(game_player_is_black(_game(None, "Bob"), "Bob"))
 
 
 if __name__ == "__main__":

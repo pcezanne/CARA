@@ -186,16 +186,6 @@ class TestChessLogChartsControllerPlayerSelection(unittest.TestCase):
         ctrl.set_source_selection(1)
         self.assertFalse(ctrl.has_player_selected())
 
-    def test_get_current_player_starts_empty(self):
-        ctrl = self._make_controller()
-        self.assertEqual(ctrl.get_current_player(), "")
-
-    def test_get_current_player_reflects_selection(self):
-        ctrl = self._make_controller()
-        ctrl.set_player_selection("Alice")
-        self.assertEqual(ctrl.get_current_player(), "Alice")
-
-
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerAIConfigured(unittest.TestCase):
 

@@ -784,7 +784,7 @@ class DetailChessLogChartsView(QWidget):
                             if k not in self._last_shallow_keys or k in seen:
                                 continue
                             seen.add(k)
-                            fen, played_move, move_label = _node_info(pgn_game, path_key)
+                            fen, played_move, move_label, mover_is_black = _node_info(pgn_game, path_key)
                             shallow_rows.append(TagRowSnapshot(
                                 move_label=move_label,
                                 preset=preset,
@@ -792,6 +792,7 @@ class DetailChessLogChartsView(QWidget):
                                 fen=fen or None,
                                 played_move=played_move,
                                 show_ignore=True,
+                                is_flipped=mover_is_black,
                             ))
 
         label = self._source_combo.currentText()

@@ -34,19 +34,20 @@ def ply_for_path(pgn_game: Optional[chess.pgn.Game], path) -> int:
 def node_info(
     pgn_game: Optional[chess.pgn.Game],
     path_key: str,
-) -> Tuple[str, Optional[chess.Move], str]:
-    """Return (fen_after_move, played_move, move_label) for display.
+) -> Tuple[str, Optional[chess.Move], str, bool]:
+    """Return (fen_after_move, played_move, move_label, mover_is_black) for display.
 
-    Returns ("", None, path_key) when the node cannot be located.
+    mover_is_black is True when the move at this ply was played by Black.
+    Returns ("", None, path_key, False) when the node cannot be located.
     """
     if pgn_game is None:
-        return ("", None, path_key)
+        return ("", None, path_key, False)
     path = decode_path(path_key)
     if not path:
-        return ("", None, path_key)
+        return ("", None, path_key, False)
     node = node_at_path(pgn_game, path)
     if node is None or node.move is None:
-        return ("", None, path_key)
+        return ("", None, path_key, False)
     try:
         pre_board = node.parent.board()
         san = pre_board.san(node.move)
@@ -56,6 +57,7 @@ def node_info(
         else:
             move_label = f"{fullmove}… {san}"
         fen = node.board().fen()
-        return (fen, node.move, move_label)
+        mover_is_black = pre_board.turn == chess.BLACK
+        return (fen, node.move, move_label, mover_is_black)
     except Exception:
-        return ("", None, path_key)
+        return ("", None, path_key, False)

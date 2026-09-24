@@ -652,5 +652,31 @@ class TestShowTagsDialogThemeColors(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Mini-board orientation follows the mover at the tagged ply, per row
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMiniBoardOrientationMoverAtPly(unittest.TestCase):
+    """Row orientation comes from pre_board.turn at the tagged ply, not player selection."""
+
+    def test_white_ply_row_not_flipped(self):
+        # MAINLINE_PGN: path "0" is 1.e4 — White to move → not flipped
+        dlg, _ = _make_dialog({"0": [_make_entry("CLAMP", "C")]})
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_black_ply_row_is_flipped(self):
+        # MAINLINE_PGN: path "0.0" is 1...e5 — Black to move → flipped
+        dlg, _ = _make_dialog({"0.0": [_make_entry("CLAMP", "C")]})
+        self.assertTrue(dlg._row_widgets[0]._is_flipped)
+
+    def test_snapshot_carries_flip_for_black_ply(self):
+        dlg, _ = _make_dialog({"0.0": [_make_entry("CLAMP", "C")]})
+        self.assertTrue(dlg._row_widgets[0].snapshot().is_flipped)
+
+    def test_snapshot_carries_false_for_white_ply(self):
+        dlg, _ = _make_dialog({"0": [_make_entry("CLAMP", "C")]})
+        self.assertFalse(dlg._row_widgets[0].snapshot().is_flipped)
+
+
 if __name__ == "__main__":
     unittest.main()

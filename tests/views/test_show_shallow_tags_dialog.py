@@ -220,5 +220,34 @@ class TestCloseButton(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "_close_btn"))
 
 
+# ---------------------------------------------------------------------------
+# Mini-board orientation follows the mover at the tagged ply, per row
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMiniBoardOrientationMoverAtPly(unittest.TestCase):
+    """Shallow dialog row orientation comes from pre_board.turn at the tagged ply."""
+
+    def test_white_ply_row_not_flipped(self):
+        # MAINLINE_PGN: path "0" is 1.e4 — White to move → not flipped
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP")})
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_black_ply_row_is_flipped(self):
+        # MAINLINE_PGN: path "0.0" is 1...e5 — Black to move → flipped
+        game = _make_game()
+        tags = {"0.0": [_make_entry("CLAMP", "C", "shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0.0", "CLAMP")})
+        self.assertTrue(dlg._row_widgets[0]._is_flipped)
+
+    def test_snapshot_carries_flip_for_black_ply(self):
+        game = _make_game()
+        tags = {"0.0": [_make_entry("CLAMP", "C", "shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0.0", "CLAMP")})
+        self.assertTrue(dlg._row_widgets[0].snapshot().is_flipped)
+
+
 if __name__ == "__main__":
     unittest.main()

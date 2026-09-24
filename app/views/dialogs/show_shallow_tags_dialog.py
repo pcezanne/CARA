@@ -202,7 +202,7 @@ class ShowShallowTagsDialog(QDialog):
                 elif i > 0:
                     rows_layout.addWidget(self._make_separator())
 
-                fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
+                fen, played_move, move_label, mover_is_black = _node_info_fn(pgn_game, path_key)
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_widget = _TagRowWidget(
                     self._config,
@@ -215,6 +215,7 @@ class ShowShallowTagsDialog(QDialog):
                     self._text_color_rgb,
                     show_ignore_checkbox=True,
                     best_move=best_move,
+                    is_flipped=mover_is_black,
                 )
                 # Live edit: persist immediately on any change
                 row_widget.edited.connect(

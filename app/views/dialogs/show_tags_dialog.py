@@ -464,7 +464,7 @@ class ShowTagsDialog(QDialog):
                 elif i > 0:
                     self._rows_layout.addWidget(self._make_separator())
 
-                fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
+                fen, played_move, move_label, mover_is_black = _node_info_fn(pgn_game, path_key)
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_is_shallow = any(e.get("is_shallow") for e in entries)
                 row_widget = _TagRowWidget(
@@ -478,6 +478,7 @@ class ShowTagsDialog(QDialog):
                     self._text_color_rgb,
                     show_ignore_checkbox=row_is_shallow,
                     best_move=best_move,
+                    is_flipped=mover_is_black,
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

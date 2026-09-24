@@ -492,7 +492,7 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
     def test_tokens_spin_range(self):
         view = self._make_view()
         self.assertEqual(view._tokens_spin.minimum(), 256)
-        self.assertEqual(view._tokens_spin.maximum(), 16000)
+        self.assertEqual(view._tokens_spin.maximum(), 99999)
 
     def test_tokens_spin_change_calls_controller(self):
         view = self._make_view(ai=True, models=["gpt-4o"])

@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
 
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.pgn_variation_path import decode_path
+from app.utils.player_matcher import game_player_is_black
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER
 from app.views.style.style_manager import StyleManager
@@ -53,11 +54,14 @@ class ShowShallowTagsDialog(QDialog):
         controller,
         shallow_keys: Set[Tuple[int, str, str]],
         parent=None,
+        *,
+        player_name: str = "",
     ) -> None:
         super().__init__(parent)
         self._config = config
         self._controller = controller
         self._shallow_keys = shallow_keys
+        self._player_name = player_name or ""
 
         self._load_config()
 
@@ -204,6 +208,7 @@ class ShowShallowTagsDialog(QDialog):
 
                 fen, played_move, move_label = _node_info_fn(pgn_game, path_key)
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
+                row_is_flipped = game_player_is_black(game, self._player_name)
                 row_widget = _TagRowWidget(
                     self._config,
                     preset,
@@ -215,6 +220,7 @@ class ShowShallowTagsDialog(QDialog):
                     self._text_color_rgb,
                     show_ignore_checkbox=True,
                     best_move=best_move,
+                    is_flipped=row_is_flipped,
                 )
                 # Live edit: persist immediately on any change
                 row_widget.edited.connect(

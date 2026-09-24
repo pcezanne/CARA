@@ -123,6 +123,7 @@ Human-authored move tagging layer — player self-diagnosis, complementing CARA'
 
 - **No hardcoded colors**: all Chess Log dialog `setStyleSheet` calls must read from config — never bare `rgb(…)` literals. Both `ui.dialogs.moment` and `ui.dialogs.chess_log_settings` blocks must exist in all three theme files.
 - **Dirty-marking**: only `replace_entries_at_path_for_game` explicitly marks a game dirty. `add_moment_at_active_path` and `replace_entries_at_path` write only to `_cached_paths_data`; `save_all_dirty_games` recovers the active game via `has_unsaved_changes()`.
+- **Mini-board orientation**: Chess Log dialogs (`ShowTagsDialog`, `ShowShallowTagsDialog`) orient each row's mini board to the current Chess Log Charts player (`ChessLogChartsController.get_current_player()`), computed **per row** via `game_player_is_black`. Independent of the main board's flip toggle. `TagRowSnapshot.is_flipped` carries this into the PDF export.
 
 **Key files**: `app/services/chess_log_storage_service.py`, `app/controllers/chess_log_controller.py`, `app/views/dialogs/moment_dialog.py`, `app/views/dialogs/chess_log_settings_dialog.py`, `app/views/menus/chess_log_menu.py`.
 

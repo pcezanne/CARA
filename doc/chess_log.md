@@ -82,6 +82,8 @@ Rows whose entries carry `is_shallow=True` render a **⚠️ + Ignore** group ri
 
 **Miniature board arrows** — each row's board thumbnail uses `MiniChessBoardWidget.set_played_and_best(played, best)` (opt-in two-arrow mode): played move in yellow (`playedmove_arrow.color`, default `[255,255,0]`), best move in reddish (`bestalternativemove_arrow.color`, default `[200,0,100]`). The best arrow is suppressed when `best_move` is None or equals the played move. Variation-move tags and tags on unanalyzed games show played-arrow only. Non-Chess-Log call sites (`set_move(...)`) are unaffected — their single-arrow default (blue) is unchanged.
 
+**Miniature board orientation** — each row's board is oriented so the **tracked player** (the current Chess Log Charts player, from `ChessLogChartsController.get_current_player()`) is at the bottom, matching the first-person framing of why-notes. Orientation is computed **per row** via `game_player_is_black(game, player_name)` (`app/utils/player_matcher.py`) since the tracked player may be White in one game and Black in the next. Falls back to unflipped (White at bottom) when no player is selected or when the tracked player didn't play that specific game. Independent of the main detail board's flip toggle. The value is carried on `TagRowSnapshot.is_flipped` so PDF export stays WYSIWYG with the on-screen dialog.
+
 ### "Show Chess Logs for all games"
 
 Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one tagged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.

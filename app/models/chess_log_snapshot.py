@@ -19,3 +19,4 @@ class TagRowSnapshot:
     played_move: Optional[chess.Move]
     show_ignore: bool
     best_move: Optional[chess.Move] = field(default=None)
+    is_flipped: bool = field(default=False)

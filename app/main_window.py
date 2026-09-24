@@ -1492,12 +1492,15 @@ class MainWindow(QMainWindow):
         chess_log_controller = self.controller.get_chess_log_controller()
         if not chess_log_controller:
             return
+        charts_controller = self.controller.get_chess_log_charts_controller()
+        player_name = charts_controller.get_current_player() if charts_controller else ""
         from app.views.dialogs.show_tags_dialog import ShowTagsDialog
         dlg = ShowTagsDialog(
             config=self.config,
             games=games,
             controller=chess_log_controller,
             parent=self,
+            player_name=player_name,
         )
         dlg.exec()
 
@@ -2053,6 +2056,9 @@ class MainWindow(QMainWindow):
                 self.detail_panel.moves_view.set_database_controller(database_controller)
                 self.detail_panel.moves_view.set_chess_log_controller(
                     self.controller.get_chess_log_controller()
+                )
+                self.detail_panel.moves_view.set_chess_log_charts_controller(
+                    self.controller.get_chess_log_charts_controller()
                 )
             if hasattr(self.detail_panel, 'pgn_view'):
                 self.detail_panel.pgn_view.set_database_controller(database_controller)

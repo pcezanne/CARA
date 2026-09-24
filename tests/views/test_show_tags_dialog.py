@@ -651,5 +651,89 @@ class TestShowTagsDialogThemeColors(unittest.TestCase):
         self.assertIn("rgb(5,6,7)", te.styleSheet())
 
 
+# ---------------------------------------------------------------------------
+# Mini-board orientation follows the tracked player, not the main board's flip
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMiniBoardOrientation(unittest.TestCase):
+    """Chess Log mini boards orient to the selected player, per row."""
+
+    def _open(self, player_name: str, white: str = "Alice", black: str = "Bob"):
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+
+        pgn = (
+            f'[Event "T"][Site "?"][Date "2026.01.01"]'
+            f'[Round "?"][White "{white}"][Black "{black}"][Result "*"]\n\n'
+            "1. e4 e5 *\n"
+        )
+        game = GameData(game_number=1, white=white, black=black, pgn=pgn)
+        ctrl = _make_controller({"0": [_make_entry("CLAMP", "C")]})
+        return ShowTagsDialog({}, [game], ctrl, player_name=player_name)
+
+    def test_tracked_player_black_flips_row(self):
+        dlg = self._open(player_name="Bob")
+        self.assertTrue(dlg._row_widgets[0]._is_flipped)
+
+    def test_tracked_player_white_leaves_row_unflipped(self):
+        dlg = self._open(player_name="Alice")
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_tracked_player_not_in_game_leaves_row_unflipped(self):
+        dlg = self._open(player_name="Charlie")
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_empty_player_name_leaves_row_unflipped(self):
+        dlg = self._open(player_name="")
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_default_player_name_is_empty_and_unflipped(self):
+        # Older callers (or callers that lack a charts controller) don't pass
+        # player_name at all — dialog must still construct and leave rows
+        # unflipped.
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+
+        game = GameData(game_number=1, pgn=MAINLINE_PGN)
+        ctrl = _make_controller({"0": [_make_entry("CLAMP", "C")]})
+        dlg = ShowTagsDialog({}, [game], ctrl)
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+
+    def test_multi_game_row_orientation_computed_per_game(self):
+        """One game where tracked player is White, another where tracked player is Black."""
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+
+        pgn_white = (
+            '[Event "T"][Site "?"][Date "2026.01.01"]'
+            '[Round "?"][White "Paul"][Black "Opp1"][Result "*"]\n\n'
+            "1. e4 e5 *\n"
+        )
+        pgn_black = (
+            '[Event "T"][Site "?"][Date "2026.02.01"]'
+            '[Round "?"][White "Opp2"][Black "Paul"][Result "*"]\n\n'
+            "1. d4 d5 *\n"
+        )
+        g1 = GameData(game_number=1, white="Paul", black="Opp1", pgn=pgn_white)
+        g2 = GameData(game_number=2, white="Opp2", black="Paul", pgn=pgn_black)
+        ctrl = _make_controller({"0": [_make_entry("CLAMP", "C")]})
+        dlg = ShowTagsDialog({}, [g1, g2], ctrl, player_name="Paul")
+        # Row 0 = game 1 (Paul White) — not flipped; Row 1 = game 2 (Paul Black) — flipped
+        self.assertFalse(dlg._row_widgets[0]._is_flipped)
+        self.assertTrue(dlg._row_widgets[1]._is_flipped)
+
+    def test_snapshot_carries_is_flipped(self):
+        """PDF export path: TagRowSnapshot.is_flipped mirrors the row's orientation."""
+        dlg = self._open(player_name="Bob")
+        snapshot = dlg._row_widgets[0].snapshot()
+        self.assertTrue(snapshot.is_flipped)
+
+    def test_snapshot_carries_is_flipped_false_when_white(self):
+        dlg = self._open(player_name="Alice")
+        snapshot = dlg._row_widgets[0].snapshot()
+        self.assertFalse(snapshot.is_flipped)
+
+
 if __name__ == "__main__":
     unittest.main()

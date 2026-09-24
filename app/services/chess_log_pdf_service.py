@@ -412,7 +412,7 @@ class ChessLogPDFService(BasePDFReportService):
         y_inner += header_h + 4.0
 
         # Board miniature
-        board_px = self._render_board(row.fen, row.played_move, row.best_move)
+        board_px = self._render_board(row.fen, row.played_move, row.best_move, row.is_flipped)
         if board_px and not board_px.isNull():
             target = QRectF(x_inner, y_inner, board_sz, board_sz)
             painter.drawPixmap(
@@ -1009,6 +1009,7 @@ class ChessLogPDFService(BasePDFReportService):
         fen: Optional[str],
         played_move: Optional[chess.Move],
         best_move: Optional[chess.Move] = None,
+        is_flipped: bool = False,
     ) -> Optional[QPixmap]:
         """Rasterize a MiniChessBoardWidget for PDF embedding."""
         try:
@@ -1020,6 +1021,7 @@ class ChessLogPDFService(BasePDFReportService):
                 fen or chess_lib.STARTING_FEN,
                 embedded=True,
                 size_override=size_px,
+                is_flipped=is_flipped,
             )
             widget.set_played_and_best(played_move, best_move)
             widget_size = widget.size()

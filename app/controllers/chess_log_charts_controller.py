@@ -37,6 +37,13 @@ from app.services.chess_log_stats_service import (
 from app.services.user_settings_service import UserSettingsService
 from app.utils.ai_provider_config import resolve_default_provider
 
+_3X3_SHORT_LABELS: Dict[str, str] = {
+    "Why1": "Why I played it",
+    "Why2": "What was wrong",
+    "Why3": "Why the better move is better",
+    "Why4": "Lesson",
+}
+
 
 class ChessLogPlayerDropdownWorker(QThread):
     """Populate the player dropdown from the current game set."""
@@ -211,6 +218,18 @@ class ChessLogShallowThread(QThread):
             "- \"It appears that the engine wants to make sure they don't have a bishop\n"
             "  pair, but that's a guess.\" (explains the engine's logic, not the\n"
             "  player's own reasoning)\n\n"
+            "For entries beginning with [3x3], the parts form one connected\n"
+            "self-analysis of a single decision (Why I played it = player's\n"
+            "intent, What was wrong = what was wrong with their move, Why the\n"
+            "better move is better = often the same underlying point restated,\n"
+            "Lesson = the takeaway). 'What was wrong' and 'Why the better move\n"
+            "is better' are board-fact questions by design — a factual answer to\n"
+            "either is NOT shallow. Classify the whole [3x3] entry as DEEP if\n"
+            "'Why I played it' or 'Lesson' contains genuine player-perspective\n"
+            "reasoning: what they were thinking, what they misread, or a specific\n"
+            "lesson that names the pattern (not just 'be more careful'). Classify\n"
+            "as SHALLOW only if all parts are bare board facts or generic filler\n"
+            "with no player angle.\n\n"
             "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
             f"{notes_text}"
         )
@@ -652,12 +671,29 @@ class ChessLogChartsController(QObject):
                     p = entry.get("preset", "")
                     by_preset.setdefault(p, []).append(entry)
                 for preset, preset_entries in by_preset.items():
-                    for entry in preset_entries:
-                        if entry.get("ignore_shallow"):
-                            continue
-                        why = (entry.get("why") or "").strip()
-                        if why:
-                            notes.append((len(notes), game.game_number, path_key, preset, why))
+                    if preset == "3x3":
+                        # Group all four Why answers into one note so the
+                        # classifier judges the whole self-analysis, not
+                        # isolated fragments (Why2/Why3 are board-fact
+                        # questions by design and look shallow in isolation).
+                        parts: List[str] = []
+                        for entry in preset_entries:
+                            if entry.get("ignore_shallow"):
+                                continue
+                            cat = entry.get("cat", "")
+                            why = (entry.get("why") or "").strip()
+                            if why and cat in _3X3_SHORT_LABELS:
+                                parts.append(f"{_3X3_SHORT_LABELS[cat]}: {why}")
+                        if parts:
+                            combined = "[3x3] " + " | ".join(parts)
+                            notes.append((len(notes), game.game_number, path_key, preset, combined))
+                    else:
+                        for entry in preset_entries:
+                            if entry.get("ignore_shallow"):
+                                continue
+                            why = (entry.get("why") or "").strip()
+                            if why:
+                                notes.append((len(notes), game.game_number, path_key, preset, why))
 
         if not notes:
             self.shallow_ready.emit(set())

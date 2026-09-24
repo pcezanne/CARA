@@ -603,6 +603,105 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         notes = thread_kwargs[0]["notes"]
         self.assertTrue(any("I blundered" in n[4] for n in notes))
 
+    def _make_controller_with_3x3(
+        self, why1="", why2="", why3="", why4="", ignore=False
+    ) -> "ChessLogChartsController":
+        entries = []
+        for cat, why in [("Why1", why1), ("Why2", why2), ("Why3", why3), ("Why4", why4)]:
+            if why:
+                entries.append(
+                    ChessLogStorageService.make_entry("3x3", cat, why, ignore_shallow=ignore)
+                )
+        game = _make_game(entries_per_path={"0": entries})
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({
+            "ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}
+        })
+        return ctrl
+
+    def _capture_notes(self, ctrl) -> list:
+        thread_kwargs: list = []
+
+        class FakeThread:
+            def __init__(self, **kwargs):
+                thread_kwargs.append(kwargs)
+                self.shallow_ready = MagicMock()
+                self.shallow_ready.connect = MagicMock()
+                self.shallow_failed = MagicMock()
+                self.shallow_failed.connect = MagicMock()
+                self.finished = MagicMock()
+                self.finished.connect = MagicMock()
+
+            def start(self):
+                pass
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+            side_effect=FakeThread,
+        ):
+            ctrl.request_flag_shallow_notes()
+
+        return thread_kwargs[0]["notes"] if thread_kwargs else []
+
+    def test_3x3_moment_grouped_into_one_note(self):
+        """Four Why entries for one moment produce ONE note, not four."""
+        ctrl = self._make_controller_with_3x3(
+            why1="I wanted to control the center",
+            why2="My bishop was hanging",
+            why3="The knight fork wins material",
+            why4="Calculate before committing",
+        )
+        notes = self._capture_notes(ctrl)
+        self.assertEqual(len(notes), 1)
+
+    def test_3x3_note_starts_with_marker(self):
+        ctrl = self._make_controller_with_3x3(
+            why1="I saw the free pawn",
+            why2="My rook was undefended",
+        )
+        notes = self._capture_notes(ctrl)
+        self.assertTrue(notes[0][4].startswith("[3x3]"))
+
+    def test_3x3_note_contains_all_why_text(self):
+        ctrl = self._make_controller_with_3x3(
+            why1="I wanted tempo",
+            why2="The pawn was poisoned",
+            why4="Check piece safety first",
+        )
+        notes = self._capture_notes(ctrl)
+        note_text = notes[0][4]
+        self.assertIn("I wanted tempo", note_text)
+        self.assertIn("The pawn was poisoned", note_text)
+        self.assertIn("Check piece safety first", note_text)
+
+    def test_3x3_blank_why_omitted_from_note(self):
+        ctrl = self._make_controller_with_3x3(
+            why1="I was focused on attack",
+            why4="Defend before attacking",
+        )
+        notes = self._capture_notes(ctrl)
+        self.assertEqual(len(notes), 1)
+        note_text = notes[0][4]
+        self.assertIn("I was focused on attack", note_text)
+        self.assertIn("Defend before attacking", note_text)
+
+    def test_3x3_all_ignored_emits_empty_immediately(self):
+        ctrl = self._make_controller_with_3x3(
+            why1="I saw the free pawn",
+            why2="Rook was hanging",
+            ignore=True,
+        )
+        received: list = []
+        ctrl.shallow_ready.connect(received.append)
+        ctrl.request_flag_shallow_notes()
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], set())
+
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerRefreshUsesLiveFields(unittest.TestCase):

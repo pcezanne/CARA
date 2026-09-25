@@ -1,9 +1,7 @@
 """Service for storing and loading Chess Log moments in PGN tags."""
 
 import json
-import re
 import uuid
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any
 from io import StringIO
 from datetime import datetime, timezone
@@ -18,16 +16,6 @@ from app.utils.pgn_tag_compression import (
     compress_and_encode_from_str,
     compute_checksum,
 )
-
-
-@dataclass
-class ConvertResult:
-    """Result of a single-game legacy chip conversion attempt."""
-    changed: bool
-    tags_before: str = ""
-    tags_after: str = ""
-    skipped_reason: str = ""
-    error: Optional[str] = None
 
 
 class ChessLogStorageService:
@@ -58,7 +46,6 @@ class ChessLogStorageService:
     TAG_NAME = "CARAChessLog"
     TAG_INFO = "CARAChessLogInfo"
     TAG_CHECKSUM = "CARAChessLogChecksum"
-    _CHIP = "🏷"
 
     @staticmethod
     def has_chess_log_tags(game: GameData) -> bool:
@@ -234,55 +221,3 @@ class ChessLogStorageService:
             game.game_tags = tags_display_text(parse_game_tags(new_raw))
         except Exception as e:
             LoggingService.get_instance().warning(f"Chess Log tag cleanup failed: {e}")
-
-    @staticmethod
-    def convert_legacy_chip(game: GameData) -> ConvertResult:
-        """Strip the 🏷 chip from CARAGameTags in-place for a game that has CARAChessLog data.
-
-        Edits only the [CARAGameTags "..."] header line in game.pgn — no
-        re-serialisation via chess.pgn, preserving all other bytes exactly.
-        Updates game.game_tags_raw and game.game_tags in place.
-        Does NOT mark the game dirty; the caller does that.
-        """
-        if not game.pgn:
-            return ConvertResult(changed=False, skipped_reason="no_pgn")
-        if ChessLogStorageService.TAG_NAME not in game.pgn:
-            return ConvertResult(changed=False, skipped_reason="no_chess_log")
-
-        pattern = re.compile(r'^(\[CARAGameTags\s+")([^"]*)("\])$', re.MULTILINE)
-        m = pattern.search(game.pgn)
-        if m is None:
-            return ConvertResult(changed=False, skipped_reason="no_game_tags")
-
-        current_tags_str = m.group(2)
-        chip = ChessLogStorageService._CHIP
-        if chip.casefold() not in current_tags_str.casefold():
-            return ConvertResult(changed=False, skipped_reason="no_chip")
-
-        tags = [t.strip() for t in current_tags_str.split(";")]
-        tags = [t for t in tags if t and t.casefold() != chip.casefold()]
-        new_tags_str = ";".join(tags)
-
-        if new_tags_str:
-            new_line = m.group(1) + new_tags_str + m.group(3)
-            new_pgn = game.pgn[: m.start()] + new_line + game.pgn[m.end() :]
-        else:
-            # Delete the entire header line including its trailing newline.
-            end = m.end()
-            if game.pgn[end : end + 2] == "\r\n":
-                new_pgn = game.pgn[: m.start()] + game.pgn[end + 2 :]
-            elif end < len(game.pgn) and game.pgn[end] == "\n":
-                new_pgn = game.pgn[: m.start()] + game.pgn[end + 1 :]
-            else:
-                new_pgn = game.pgn[: m.start()] + game.pgn[end:]
-
-        tags_before = current_tags_str
-        game.pgn = new_pgn
-        game.game_tags_raw = new_tags_str
-        try:
-            from app.utils.game_tags_utils import parse_game_tags, tags_display_text
-            game.game_tags = tags_display_text(parse_game_tags(new_tags_str))
-        except Exception:
-            game.game_tags = new_tags_str
-
-        return ConvertResult(changed=True, tags_before=tags_before, tags_after=new_tags_str)

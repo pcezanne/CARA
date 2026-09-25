@@ -2,21 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.controllers.game_controller import GameController
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.pgn_variation_path import encode_path
-
-
-@dataclass
-class ConvertAllResult:
-    """Aggregate result from ChessLogController.convert_legacy_chip_all."""
-    converted: int = 0
-    skipped: int = 0
-    no_data_with_chip: int = 0
-    errors: int = 0
 
 
 class ChessLogController:
@@ -405,45 +395,6 @@ class ChessLogController:
         self._nag_shown_by_game[gid] = True
         self._nag_shown_this_session = True
         return confirmed
-
-    def convert_legacy_chip_all(self) -> ConvertAllResult:
-        """Strip the 🏷 chip from CARAGameTags on every game in the active database.
-
-        Temporary migration helper for databases saved before commit (a) removed
-        chip injection.  Does NOT auto-save; caller shows a report and the user
-        saves deliberately.  Second run on a clean database reports 0 converted.
-        """
-        if self._database_controller is None:
-            return ConvertAllResult()
-        db = self._database_controller.get_active_database()
-        if db is None:
-            return ConvertAllResult()
-
-        result = ConvertAllResult()
-        chip = ChessLogStorageService._CHIP
-        for game in db.get_all_games():
-            has_chip = chip in (getattr(game, "game_tags_raw", "") or "")
-            has_log = getattr(game, "has_chess_log_tags", False)
-
-            if not has_chip:
-                result.skipped += 1
-                continue
-
-            if not has_log:
-                result.no_data_with_chip += 1
-                continue
-
-            try:
-                cr = ChessLogStorageService.convert_legacy_chip(game)
-                if cr.changed:
-                    self._mark_database_unsaved(game)
-                    result.converted += 1
-                else:
-                    result.skipped += 1
-            except Exception:
-                result.errors += 1
-
-        return result
 
     def _confirm_extra_moment(self, parent_widget=None) -> bool:
         """Show the 4th-moment 'Are you sure?' confirmation dialog."""

@@ -1512,6 +1512,38 @@ class MainWindow(QMainWindow):
             self._notify_moveslist_chess_log_changed()
             self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
+    def _convert_legacy_chess_log(self) -> None:
+        """Strip the 🏷 chip from CARAGameTags on all games in the active database."""
+        if not self.controller:
+            return
+        chess_log_controller = self.controller.get_chess_log_controller()
+        if not chess_log_controller:
+            return
+        result = chess_log_controller.convert_legacy_chip_all()
+        n = result.converted
+        parts = [f"Converted {n} game{'s' if n != 1 else ''}."]
+        if result.skipped:
+            s = result.skipped
+            parts.append(f"Skipped {s} game{'s' if s != 1 else ''} with no Chess Log chip.")
+        if result.no_data_with_chip:
+            k = result.no_data_with_chip
+            parts.append(
+                f"{k} game{'s have' if k != 1 else ' has'} a \U0001F3F7 tag but no Chess Log"
+                f" data — left alone."
+            )
+        if result.errors:
+            e = result.errors
+            parts.append(f"{e} error{'s' if e != 1 else ''}.")
+        if n > 0:
+            parts.append(
+                "Review and save each game (or use “Save Chess Logs for all games”) to persist."
+            )
+        from PyQt6.QtWidgets import QMessageBox
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Convert Legacy Chess Log Data")
+        msg.setText("\n".join(parts))
+        msg.exec()
+
     def _on_highlight_chess_log_moves_toggled(self, checked: bool) -> None:
         """Handle 'Highlight tagged moves in moves list' toggle."""
         if not hasattr(self, '_settings_service') or self._settings_service is None:

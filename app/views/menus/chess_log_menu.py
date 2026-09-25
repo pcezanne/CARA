@@ -54,6 +54,12 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
 
     chess_log_menu.addSeparator()
 
+    mw.convert_legacy_chess_log_action = QAction("Convert Legacy Chess Log Data…", mw)
+    mw.convert_legacy_chess_log_action.triggered.connect(mw._convert_legacy_chess_log)
+    chess_log_menu.addAction(mw.convert_legacy_chess_log_action)
+
+    chess_log_menu.addSeparator()
+
     _setup_chess_log_charts_submenu(mw, chess_log_menu)
 
 

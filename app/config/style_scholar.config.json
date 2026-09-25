@@ -3830,6 +3830,7 @@
             "col_analyzed": 80,
             "col_annotated": 80,
             "col_notes": 80,
+            "col_log": 80,
             "col_source_db": 120,
             "col_ref_ply": 70,
             "col_tags": 260

@@ -43,10 +43,15 @@ _CHESS_LOG_CHARTS_CHART_KEYS = [
     "ui.panels.detail.chess_log_charts.chart.title_color",
 ]
 
+_DATABASE_COLUMN_WIDTH_KEYS = [
+    "ui.panels.database.table.column_widths.col_log",
+]
+
 _ALL_PATHS = (
     _CHESS_LOG_CHARTS_COLOR_KEYS
     + _CHESS_LOG_CHARTS_PDF_KEYS
     + _CHESS_LOG_CHARTS_CHART_KEYS
+    + _DATABASE_COLUMN_WIDTH_KEYS
 )
 
 
@@ -89,6 +94,10 @@ class TestChessLogThemeCoverage(unittest.TestCase):
 
     def test_chess_log_charts_chart_keys_present(self):
         for path in _CHESS_LOG_CHARTS_CHART_KEYS:
+            self._check_path(path)
+
+    def test_database_column_width_keys_present(self):
+        for path in _DATABASE_COLUMN_WIDTH_KEYS:
             self._check_path(path)
 
 

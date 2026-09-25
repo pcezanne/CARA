@@ -1691,6 +1691,7 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.panels.database.table.column_widths.col_event",
     "ui.panels.database.table.column_widths.col_file_num",
     "ui.panels.database.table.column_widths.col_moves",
+    "ui.panels.database.table.column_widths.col_log",
     "ui.panels.database.table.column_widths.col_notes",
     "ui.panels.database.table.column_widths.col_num",
     "ui.panels.database.table.column_widths.col_ref_ply",

@@ -418,6 +418,7 @@ class DatabasePanel(QWidget):
             widths_config.get('col_analyzed', 70),
             widths_config.get('col_annotated', 70),
             widths_config.get('col_notes', 70),
+            widths_config.get('col_log', 80),
             widths_config.get('col_source_db', 120),
             widths_config.get('col_ref_ply', 70),
             widths_config.get('col_tags', 260),

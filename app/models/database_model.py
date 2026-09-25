@@ -136,10 +136,11 @@ class DatabaseModel(QAbstractTableModel):
     COL_ANALYZED = 15
     COL_ANNOTATED = 16
     COL_NOTES = 17
-    COL_SOURCE_DB = 18
-    COL_REF_PLY = 19
-    COL_TAGS = 20
-    COL_PGN = 21
+    COL_LOG = 18
+    COL_SOURCE_DB = 19
+    COL_REF_PLY = 20
+    COL_TAGS = 21
+    COL_PGN = 22
     
     def __init__(self, file_path: Optional[str] = None, config: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the database model.
@@ -326,6 +327,8 @@ class DatabaseModel(QAbstractTableModel):
             return "✓" if getattr(game, "annotated", False) else ""
         elif col == self.COL_NOTES:
             return "✓" if getattr(game, "has_notes", False) else ""
+        elif col == self.COL_LOG:
+            return "✓" if getattr(game, "has_chess_log_tags", False) else ""
         elif col == self.COL_SOURCE_DB:
             return game.source_database
         elif col == self.COL_REF_PLY:
@@ -388,6 +391,7 @@ class DatabaseModel(QAbstractTableModel):
                 "Analyzed",
                 "Annotated",
                 "Notes",
+                "Log",
                 "Source DB",
                 "Move",
                 "Game tags",
@@ -1396,6 +1400,8 @@ class DatabaseModel(QAbstractTableModel):
                 return getattr(game, "annotated", False)
             elif column == self.COL_NOTES:
                 return getattr(game, "has_notes", False)
+            elif column == self.COL_LOG:
+                return getattr(game, "has_chess_log_tags", False)
             elif column == self.COL_SOURCE_DB:
                 return game.source_database or ""
             elif column == self.COL_REF_PLY:

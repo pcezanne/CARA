@@ -395,5 +395,101 @@ class TestNoChipInCARAGameTags(unittest.TestCase):
         self.assertEqual(loaded, paths)
 
 
+class TestClearTagsPreservesCARAGameTags(unittest.TestCase):
+    """clear_tags must not touch CARAGameTags (re-serialises via chess.pgn but only removes the
+    three CARAChessLog* headers)."""
+
+    def _cara_game_tags_from_pgn(self, game: GameData) -> str:
+        import chess.pgn
+        from io import StringIO
+        g = chess.pgn.read_game(StringIO(game.pgn))
+        return g.headers.get("CARAGameTags", "") if g else ""
+
+    def test_clear_tags_preserves_manual_game_tags(self):
+        pgn = (
+            '[Event "Test"]\n[Site "?"]\n[Date "2026.01.01"]\n'
+            '[Round "?"]\n[White "W"]\n[Black "B"]\n[Result "*"]\n'
+            '[CARAGameTags "Favourite;London"]\n\n*\n'
+        )
+        game = make_game(pgn)
+        paths = {"0": [{"id": "a", "preset": "CLAMP", "cat": "M", "why": "", "created": "x"}]}
+        ChessLogStorageService.store_tags(game, paths)
+        ChessLogStorageService.clear_tags(game)
+        self.assertEqual(self._cara_game_tags_from_pgn(game), "Favourite;London")
+
+    def test_clear_tags_no_game_tags_stays_empty(self):
+        game = make_game()
+        paths = {"0": [{"id": "a", "preset": "CLAMP", "cat": "M", "why": "", "created": "x"}]}
+        ChessLogStorageService.store_tags(game, paths)
+        ChessLogStorageService.clear_tags(game)
+        self.assertEqual(self._cara_game_tags_from_pgn(game), "")
+
+
+class TestHasChessLogTagsFlag(unittest.TestCase):
+    """has_chess_log_tags is True/False at load, after store, and after clear.
+    Does not bleed between sibling games.
+
+    _extract_game_data filters out 0-move games, so load-time tests must use a
+    PGN that has at least one move.
+    """
+
+    # Minimal one-move PGN without any CARA headers.
+    ONE_MOVE_PGN = (
+        '[Event "Test"]\n[Site "?"]\n[Date "2026.01.01"]\n'
+        '[Round "?"]\n[White "W"]\n[Black "B"]\n[Result "*"]\n'
+        '\n1. e4 *\n'
+    )
+
+    def _extract(self, pgn_text: str) -> dict:
+        import chess.pgn
+        from io import StringIO
+        from app.services.pgn_service import PgnService
+        chess_game = chess.pgn.read_game(StringIO(pgn_text))
+        result = PgnService._extract_game_data(chess_game, pgn_text)
+        self.assertIsNotNone(result, "PGN was filtered out by _extract_game_data (needs at least one move)")
+        return result
+
+    def _pgn_with_chess_log(self) -> str:
+        """Build a one-move PGN that has a CARAChessLog header."""
+        game = make_game(self.ONE_MOVE_PGN)
+        paths = {"0": [ChessLogStorageService.make_entry("CLAMP", "C", "")]}
+        ChessLogStorageService.store_tags(game, paths)
+        return game.pgn
+
+    def test_true_at_load_when_chess_log_header_present(self):
+        game_dict = self._extract(self._pgn_with_chess_log())
+        self.assertTrue(game_dict.get("has_chess_log_tags", False))
+
+    def test_false_at_load_when_no_chess_log_header(self):
+        game_dict = self._extract(self.ONE_MOVE_PGN)
+        self.assertFalse(game_dict.get("has_chess_log_tags", False))
+
+    def test_true_after_store_with_moments(self):
+        game = make_game()
+        paths = {"0": [ChessLogStorageService.make_entry("CLAMP", "M", "")]}
+        ChessLogStorageService.store_tags(game, paths)
+        self.assertTrue(game.has_chess_log_tags)
+
+    def test_false_after_store_with_empty_paths(self):
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {})
+        self.assertFalse(game.has_chess_log_tags)
+
+    def test_false_after_clear(self):
+        game = make_game()
+        paths = {"0": [ChessLogStorageService.make_entry("CLAMP", "A", "")]}
+        ChessLogStorageService.store_tags(game, paths)
+        self.assertTrue(game.has_chess_log_tags)
+        ChessLogStorageService.clear_tags(game)
+        self.assertFalse(game.has_chess_log_tags)
+
+    def test_no_bleed_between_sibling_games(self):
+        """Extracting an untagged game does not affect a tagged game's flag."""
+        tagged_dict = self._extract(self._pgn_with_chess_log())
+        untagged_dict = self._extract(self.ONE_MOVE_PGN)
+        self.assertTrue(tagged_dict.get("has_chess_log_tags", False))
+        self.assertFalse(untagged_dict.get("has_chess_log_tags", False))
+
+
 if __name__ == "__main__":
     unittest.main()

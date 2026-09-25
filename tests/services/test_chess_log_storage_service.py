@@ -348,5 +348,52 @@ class TestRemoveChessLogTagsLogsOnFailure(unittest.TestCase):
         self.assertIn("Chess Log tag cleanup failed", mock_svc.warning.call_args.args[0])
 
 
+class TestNoChipInCARAGameTags(unittest.TestCase):
+    """After removing chip injection, Chess Log saves must never touch CARAGameTags."""
+
+    def _cara_game_tags(self, game: GameData) -> str:
+        import chess.pgn
+        from io import StringIO
+        g = chess.pgn.read_game(StringIO(game.pgn))
+        return g.headers.get("CARAGameTags", "") if g else ""
+
+    def test_store_tags_does_not_add_chip_to_cara_game_tags(self):
+        game = make_game()
+        paths = {"0": [{"id": "a", "preset": "CLAMP", "cat": "M", "why": "", "created": "x"}]}
+        ChessLogStorageService.store_tags(game, paths)
+        self.assertNotIn("🏷", self._cara_game_tags(game))
+
+    def test_store_tags_preserves_existing_cara_game_tags_unchanged(self):
+        pgn = (
+            '[Event "Test"]\n[Site "?"]\n[Date "2026.01.01"]\n'
+            '[Round "?"]\n[White "W"]\n[Black "B"]\n[Result "*"]\n'
+            '[CARAGameTags "Rapid;London"]\n\n*\n'
+        )
+        game = make_game(pgn)
+        paths = {"0": [{"id": "a", "preset": "CLAMP", "cat": "M", "why": "", "created": "x"}]}
+        ChessLogStorageService.store_tags(game, paths)
+        self.assertEqual(self._cara_game_tags(game), "Rapid;London")
+
+    def test_load_tags_with_legacy_chip_in_pgn_returns_moments_unchanged(self):
+        """Legacy PGN that has 🏷 in CARAGameTags still loads moments correctly."""
+        import json, gzip, base64
+        paths = {"0": [{"id": "a", "preset": "CLAMP", "cat": "M", "why": "test", "created": "x"}]}
+        json_text = json.dumps({"_v": 1, "paths": paths})
+        data_bytes = json_text.encode("utf-8")
+        encoded = base64.b64encode(gzip.compress(data_bytes, compresslevel=9)).decode("ascii")
+        from app.utils.pgn_tag_compression import compute_checksum
+        checksum = compute_checksum(data_bytes)
+        pgn = (
+            '[Event "Test"]\n[Site "?"]\n[Date "2026.01.01"]\n'
+            '[Round "?"]\n[White "W"]\n[Black "B"]\n[Result "*"]\n'
+            f'[CARAGameTags "🏷;Rapid"]\n'
+            f'[CARAChessLog "{encoded}"]\n'
+            f'[CARAChessLogChecksum "{checksum}"]\n\n*\n'
+        )
+        game = make_game(pgn)
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertEqual(loaded, paths)
+
+
 if __name__ == "__main__":
     unittest.main()

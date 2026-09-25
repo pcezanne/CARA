@@ -84,7 +84,7 @@ class MomentDialog(QDialog):
         move_label = (
             f"{move_number}. {san}" if is_white else f"{move_number}… {san}"
         )
-        self.setWindowTitle(f"Tag this moment — {move_label} ({color_str})")
+        self.setWindowTitle(f"Log this moment — {move_label} ({color_str})")
 
     # ------------------------------------------------------------------
     # Config

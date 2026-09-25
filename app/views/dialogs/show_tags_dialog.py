@@ -329,7 +329,7 @@ class ShowTagsDialog(QDialog):
 
         self._setup_ui()
         self.setWindowTitle(
-            "Show Chess Logs for all games" if len(self._games) > 1 else "Chess Log Tags"
+            "Show Logged Moments for All Games" if len(self._games) > 1 else "Logged Moments"
         )
 
     # ------------------------------------------------------------------

@@ -40,7 +40,7 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     mw.save_all_chess_logs_action.triggered.connect(mw._save_chess_logs_for_all_games)
     chess_log_menu.addAction(mw.save_all_chess_logs_action)
 
-    mw.show_all_chess_logs_action = QAction("Show Chess Logs for all games", mw)
+    mw.show_all_chess_logs_action = QAction("Show Logged Moments for All Games", mw)
     mw.show_all_chess_logs_action.triggered.connect(mw._show_chess_logs_for_all_games)
     chess_log_menu.addAction(mw.show_all_chess_logs_action)
 

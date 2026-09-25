@@ -266,7 +266,7 @@ class DetailChessLogChartsView(QWidget):
         layout.addLayout(model_row)
 
         shallow_row = QHBoxLayout()
-        self._show_shallow_btn = QPushButton("Show Shallow Tags")
+        self._show_shallow_btn = QPushButton("Show Shallow Notes")
         self._show_shallow_btn.clicked.connect(self._on_show_shallow_clicked)
         self._show_shallow_btn.setEnabled(False)
         shallow_row.addWidget(self._show_shallow_btn)
@@ -457,7 +457,7 @@ class DetailChessLogChartsView(QWidget):
         self._player_combo.blockSignals(True)
         self._player_combo.clear()
         for name, count in players:
-            self._player_combo.addItem(f"{name} ({count} tagged)", name)
+            self._player_combo.addItem(f"{name} ({count} logged)", name)
         if had_selection and players:
             idx = self._player_combo.findData(current_raw)
             self._player_combo.setCurrentIndex(idx)  # -1 if not found → stay unselected

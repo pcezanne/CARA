@@ -87,7 +87,7 @@ class ChessLogPDFService(BasePDFReportService):
             content = self._content_rect(writer)
             self._page_number = 1
             self._draw_page_chrome(painter, content)
-            title = "Chess Log — Shallow Notes" if is_shallow_only else "Chess Log — Tagged Moments"
+            title = "Chess Log — Shallow Notes" if is_shallow_only else "Chess Log — Logged Moments"
             y = self._draw_report_header(painter, content, title)
 
             for group in tag_groups:

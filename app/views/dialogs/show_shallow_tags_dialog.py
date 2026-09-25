@@ -102,7 +102,7 @@ class ShowShallowTagsDialog(QDialog):
         self._row_widgets: List[_TagRowWidget] = []
         self._rows_layout = None
         self._setup_ui()
-        self.setWindowTitle("Show Shallow Tags")
+        self.setWindowTitle("Show Shallow Notes")
 
     # ------------------------------------------------------------------
     # Config

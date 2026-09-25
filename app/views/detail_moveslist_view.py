@@ -607,7 +607,7 @@ class DetailMovesListView(QWidget):
 
         menu.addSeparator()
 
-        tag_moment_action = menu.addAction("Tag this moment…")
+        tag_moment_action = menu.addAction("Log this moment…")
         can_tag = (
             self._chess_log_controller is not None
             and self._game_model is not None
@@ -622,7 +622,7 @@ class DetailMovesListView(QWidget):
             lambda _checked=False, idx=index: self._on_tag_moment(idx)
         )
 
-        show_tags_action = menu.addAction("Show Tags")
+        show_tags_action = menu.addAction("Show Logged Moments")
         can_show = (
             self._chess_log_controller is not None
             and self._game_model is not None
@@ -631,7 +631,7 @@ class DetailMovesListView(QWidget):
         )
         show_tags_action.setEnabled(can_show)
         if not can_show:
-            show_tags_action.setToolTip("No tagged moments in this game.")
+            show_tags_action.setToolTip("No logged moments in this game.")
         show_tags_action.triggered.connect(self._on_show_tags)
 
         menu.addSeparator()

@@ -312,7 +312,7 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
         view._on_players_ready([("Alice", 7)])
-        self.assertIn("7 tagged", view._player_combo.itemText(0))
+        self.assertIn("7 logged", view._player_combo.itemText(0))
 
     def test_item_data_is_raw_name(self):
         view = DetailChessLogChartsView(config={})

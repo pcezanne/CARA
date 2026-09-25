@@ -1,6 +1,6 @@
 # Chess Log
 
-Human-authored move tagging layer — player self-diagnosis, complementing CARA's engine-based classification. Players tag up to three "moments" per game with a category and optional note.
+Human-authored move logging layer — player self-diagnosis, complementing CARA's engine-based classification. Players log up to three "moments" per game with a category and optional note.
 
 See also: `doc/chess_log_charts.md` for the Charts tab (reporting and narrative); `chess-log-design-doc.md` §3.2–3.4 for the full preset design.
 
@@ -8,23 +8,31 @@ See also: `doc/chess_log_charts.md` for the Charts tab (reporting and narrative)
 
 `CARAChessLog` / `CARAChessLogInfo` / `CARAChessLogChecksum` PGN header triple (same gzip+base64 pattern as Annotations and Notes). Payload is JSON keyed by variation path (`encode_path` from `app/utils/pgn_variation_path.py`). One path = one moment; the 3-moment cap counts distinct non-empty path keys, not total entries (so a CCT moment with two letters = 1 moment).
 
+Chess Log writes only its own `CARAChessLog*` headers — it does **not** inject anything into `CARAGameTags`. The `has_chess_log_tags` field on `GameData` (set from the presence of `CARAChessLog` in the PGN at load time) drives the **Log** column in the database panel independently of any game-tag chip.
+
 ### CARA-namespaced PGN tags (all read-only in metadata view and model)
 
 - `CARAAnalysisData` / `CARAAnalysisInfo` / `CARAAnalysisChecksum` — per-move engine data
 - `CARAAnnotations` / `CARAAnnotationsInfo` / `CARAAnnotationsChecksum` — board drawing annotations
 - `CARANotes` / `CARANotesInfo` / `CARANotesChecksum` — whole-game text notes
 - `CARAChessLog` / `CARAChessLogInfo` / `CARAChessLogChecksum` — Chess Log moments
-- `CARAGameTags` — whole-game chip tags
+- `CARAGameTags` — whole-game chip tags (independent of Chess Log)
 
 ## Vocabulary
 
-"moment" in all user-facing text; `tag` is fine in internal code. Avoids collision with `CARAGameTags` whole-game chips.
+"Moment" in all user-facing text; `tag`/`tagged` is acceptable in internal code. Avoids collision with `CARAGameTags` whole-game chips.
+
+## Log column
+
+`COL_LOG = 18` in `DatabaseModel` — shows `✓` for games where `has_chess_log_tags` is `True`. Sits between Annotated/Notes and Source DB in the column order. Backed by `"CARAChessLog": DatabaseModel.COL_LOG` in the metadata controller's header-tag map, so the column lights up whenever the PGN carries a `CARAChessLog` header.
+
+Column width key: `"col_log"` in `ui.panels.database.table.column_widths` (all three theme files). Existing saved column profiles that predate `col_log` get it appended automatically (see `ColumnProfile.get_column_order`).
 
 ## Presets
 
 Three presets: **CLAMP**, **CCT**, **3x3**. The player selects one active preset in the Chess Log Settings dialog (Chess Log menu → "Chess Log Settings…"), mirroring the Engines/AI Summary setup pattern. CLAMP and CCT both allow multiple letters per moment.
 
-3x3 is the sole preset with free-form text at tag time. Its four Whys use GM Noel Studer's exact wording:
+3x3 is the sole preset with free-form text at log time. Its four Whys use GM Noel Studer's exact wording:
 - "Why did I choose that move?"
 - "Why is my move not ideal?"
 - "Why is the better move better than my chosen move?"
@@ -32,9 +40,9 @@ Three presets: **CLAMP**, **CCT**, **3x3**. The player selects one active preset
 
 Storage keys: `Why1` / `Why2` / `Why3` / `Why4`. These strings are defined once in `app/utils/chess_log_prompts.py` (`THREE_BY_THREE_PROMPTS` dict) and imported by `moment_dialog.py`, `show_tags_dialog.py`, and `chess_log_pdf_service.py`.
 
-The active preset can change over time — a library may end up with moments tagged under more than one preset. This is expected, not an error.
+The active preset can change over time — a library may end up with moments logged under more than one preset. This is expected, not an error.
 
-## Tagging behavior
+## Logging behavior
 
 ### Zero-category save (CLAMP, CCT)
 
@@ -42,19 +50,19 @@ If no chips are checked but the why-field has content, the moment saves as a sin
 
 ### "More than three moments?" nag
 
-When a player tries to add a *new* path (a fresh moment, not re-tagging an existing one) and the game already has ≥ 3 tagged moments, a soft "Are you sure?" dialog fires. The nag fires **before** Tag This Moment opens (checked in `DetailMovesListView._on_tag_moment` via `ChessLogController.should_confirm_extra_moment`) so the user is asked before investing typing effort.
+When a player tries to add a *new* path (a fresh moment, not re-logging an existing one) and the game already has ≥ 3 logged moments, a soft "Are you sure?" dialog fires. The nag fires **before** Log This Moment opens (checked in `DetailMovesListView._on_tag_moment` via `ChessLogController.should_confirm_extra_moment`) so the user is asked before investing typing effort.
 
 Once shown, the nag is suppressed for:
 - The rest of the session (`_nag_shown_this_session: bool`, global across all games).
 - All future sessions for that specific game (`_nag_shown_by_game: Dict[int, bool]`, persisted in the `CARAChessLog` payload as `"nag_shown": true`).
 
-Persistence follows the explicit-save convention: the flag rides with the next Ctrl+Alt+L save; if the user never saves the game, the flag is lost along with the moment itself. Re-tagging an existing path (adding a second preset's entries to an already-tagged move) never counts as a new moment and never triggers the nag.
+Persistence follows the explicit-save convention: the flag rides with the next Ctrl+Alt+L save; if the user never saves the game, the flag is lost along with the moment itself. Re-logging an existing path (adding a second preset's entries to an already-logged move) never counts as a new moment and never triggers the nag.
 
 ## User interface
 
 ### Entry point
 
-First-time users: Chess Log → Chess Log Settings to pick their preset (CLAMP, CCT, or 3x3). Then right-click a move in the Moves List → "Tag this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
+First-time users: Chess Log → Chess Log Settings to pick their preset (CLAMP, CCT, or 3x3). Then right-click a move in the Moves List → "Log this moment…". Save via Chess Log menu → "Save Chess Log to current game" (`Ctrl+Alt+L`). Clear via `Ctrl+Shift+L`.
 
 ### Moves-list context menu structure (right-click on any move)
 
@@ -63,14 +71,14 @@ First-time users: Chess Log → Chess Log Settings to pick their preset (CLAMP, 
 3. Copy value
 4. Edit Comments (conditional — only when clicking a Comment cell)
 5. --- separator ---
-6. Tag this moment…
-7. **Show Tags** — opens `ShowTagsDialog` scoped to the current game, sorted by ply ascending then preset in canonical order (CLAMP → CCT → 3x3). Enabled iff the game has at least one tagged entry. Disabled with tooltip "No tagged moments in this game." when the game has zero tags.
+6. Log this moment…
+7. **Show Logged Moments** — opens `ShowTagsDialog` scoped to the current game, sorted by ply ascending then preset in canonical order (CLAMP → CCT → 3x3). Enabled iff the game has at least one logged entry. Disabled with tooltip "No logged moments in this game." when the game has zero moments.
 8. --- separator ---
 9. Copy Table as CSV / TSV (4 actions)
 
-### Show Tags dialog
+### Show Logged Moments dialog
 
-`app/views/dialogs/show_tags_dialog.py`, class `ShowTagsDialog`. Parameterized for single-game or multi-game — pass `games=[game]` for single-game (context-menu path), `games=[g1, g2, …]` for multi-game ("Show Chess Logs for all games" menu path). Each row represents one (move, preset) pair: board miniature, category checkboxes (blank for 3x3), why-note text. All fields editable on open.
+`app/views/dialogs/show_tags_dialog.py`, class `ShowTagsDialog`. Parameterized for single-game or multi-game — pass `games=[game]` for single-game (context-menu path), `games=[g1, g2, …]` for multi-game ("Show Logged Moments for All Games" menu path). Each row represents one (move, preset) pair: board miniature, category checkboxes (blank for 3x3), why-note text. All fields editable on open.
 
 **Buffered editing** — OK persists changes to the in-memory cache via `replace_entries_at_path_for_game`; Cancel discards all edits. Multi-game usage inserts a game-header label (`White - Black Result (Date - N moves)`) between each game's rows; single-game usage shows no header. Zero-category saves (`cat=""`) round-trip correctly through OK. `ignore_shallow` field is transparently preserved through edits.
 
@@ -80,13 +88,13 @@ Rows whose entries carry `is_shallow=True` render a **⚠️ + Ignore** group ri
 
 `_TagRowWidget.snapshot()` captures the live widget state into a `TagRowSnapshot` dataclass (`app/models/chess_log_snapshot.py`) used by the exporter. `TagRowSnapshot` carries a `best_move: Optional[chess.Move]` field (default `None`) resolved at row-construction time via `resolve_best_move_for_path` (`app/utils/chess_log_best_move.py`).
 
-**Miniature board arrows** — each row's board thumbnail uses `MiniChessBoardWidget.set_played_and_best(played, best)` (opt-in two-arrow mode): played move in yellow (`playedmove_arrow.color`, default `[255,255,0]`), best move in reddish (`bestalternativemove_arrow.color`, default `[200,0,100]`). The best arrow is suppressed when `best_move` is None or equals the played move. Variation-move tags and tags on unanalyzed games show played-arrow only. Non-Chess-Log call sites (`set_move(...)`) are unaffected — their single-arrow default (blue) is unchanged.
+**Miniature board arrows** — each row's board thumbnail uses `MiniChessBoardWidget.set_played_and_best(played, best)` (opt-in two-arrow mode): played move in yellow (`playedmove_arrow.color`, default `[255,255,0]`), best move in reddish (`bestalternativemove_arrow.color`, default `[200,0,100]`). The best arrow is suppressed when `best_move` is None or equals the played move. Variation-move moments and moments on unanalyzed games show played-arrow only. Non-Chess-Log call sites (`set_move(...)`) are unaffected — their single-arrow default (blue) is unchanged.
 
-**Miniature board orientation** — each row's board is oriented so the **mover at the tagged ply** is at the bottom. Orientation is derived per row from `pre_board.turn` inside `node_info()` (`app/views/dialogs/_tag_row_helpers.py`): `mover_is_black = pre_board.turn == chess.BLACK`. No player-selection dependency — works correctly on first open, for right-click Show Tags, and for CCT entries at either color. Independent of the main detail board's flip toggle. The value is carried on `TagRowSnapshot.is_flipped` so PDF export stays WYSIWYG with the on-screen dialog.
+**Miniature board orientation** — each row's board is oriented so the **mover at the logged ply** is at the bottom. Orientation is derived per row from `pre_board.turn` inside `node_info()` (`app/views/dialogs/_tag_row_helpers.py`): `mover_is_black = pre_board.turn == chess.BLACK`. No player-selection dependency — works correctly on first open, for right-click Show Logged Moments, and for CCT entries at either color. Independent of the main detail board's flip toggle. The value is carried on `TagRowSnapshot.is_flipped` so PDF export stays WYSIWYG with the on-screen dialog.
 
-### "Show Chess Logs for all games"
+### "Show Logged Moments for All Games"
 
-Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one tagged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.
+Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one logged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.
 
 ## Dialog theming
 
@@ -106,7 +114,7 @@ All four dialogs are opened via `.exec()` (modal), so "repaint on next open" mat
 
 ## Unbuilt
 
-"highlight tagged moves" toggle — not yet implemented.
+"Highlight logged moves" toggle — not yet implemented.
 
 ## Key files
 

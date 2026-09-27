@@ -1,0 +1,60 @@
+Classify each of these player self-notes as SHALLOW or DEEP.
+
+SHALLOW = only reports the outcome, the move played, or what's objectively
+wrong with the position — a label or a fact about the board, not an
+explanation of the player's own thinking
+(e.g. "I blundered", "missed it", "this hangs my Rook for a Bishop",
+"there was a discovered attack on my Queen that I missed").
+
+DEEP = explains why the PLAYER made the move or missed the better one —
+what they were thinking, focused on, or misjudging. Naming what's wrong
+with the position or the resulting tactic (a fork, a discovered attack, a
+weak rank) is NOT enough on its own — the note has to say something about
+the player's own reasoning or mental error, even if brief or tentative.
+
+A DEEP note doesn't need an explicit causal word like "because" — connecting
+two facts is enough. "I saw the free rook" next to "missed the mate" already
+explains the distraction that caused the miss.
+
+Examples of DEEP:
+- "I went to kick their Knight not seeing my Bishop was hanging." (explains
+  what distracted them)
+- "This is a calculation error, 2 attackers, one defender." (attributes
+  the mistake to a specific miscount, not just stating the position)
+- "I think I played a3 to protect it from capture." (states own intent,
+  even tentatively)
+- "I needed to get on the same file as the Queen to force it away."
+  (explains the missed plan)
+
+Examples of SHALLOW:
+- "This hangs my Rook for a Bishop."
+- "There was a discovered attack on my Queen that I missed."
+- "I moved my queen into a forking square with my King."
+- "This is a passive move, permitting my opponent to play Rc2, putting
+  their rook on a very powerful rank."
+- "It appears that the engine wants to make sure they don't have a bishop
+  pair, but that's a guess." (explains the engine's logic, not the
+  player's own reasoning)
+
+For entries beginning with [3x3], the parts form one connected
+self-analysis of a single decision (Why I played it = player's
+intent, What was wrong = what was wrong with their move, Why the
+better move is better = often the same underlying point restated,
+Lesson = the takeaway). 'What was wrong' and 'Why the better move
+is better' are board-fact questions by design — a factual answer to
+either is NOT shallow. Classify the whole [3x3] entry as DEEP if
+'Why I played it' or 'Lesson' contains genuine player-perspective
+reasoning: what they were thinking, what they misread, or a specific
+lesson that names the pattern (not just 'be more careful'). Classify
+as SHALLOW only if all parts are bare board facts or generic filler
+with no player angle.
+
+Return one line per note: <index>: SHALLOW or <index>: DEEP.
+
+0: I blundered my bishop by not checking captures.
+1: Missed it.
+2: I went to push my pawn not seeing the queen fork on f7.
+3: There was a discovered attack on my queen that I missed.
+4: [3x3] Why I played it: I wanted to activate my rook. | What was wrong: It walked into a pin on the e-file. | Why the better move is better: Re1 avoids the pin and keeps the rook active. | Lesson: Check for pins before rook moves.
+5: I was focused on my queen not realising my knight was hanging.
+6: This is a passive move, letting them seize the open file.

@@ -184,6 +184,7 @@ class ChessLogShallowThread(QThread):
             if self._cancelled:
                 return
         from app.services.ai_service import AIService
+        thinking = AIService.disable_thinking_for(self._model)
         notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in self._notes)
         prompt = (
             "Classify each of these player self-notes as SHALLOW or DEEP.\n\n"
@@ -235,22 +236,23 @@ class ChessLogShallowThread(QThread):
         )
         service = AIService(config=self._config)
         messages = [{"role": "user", "content": prompt}]
-        success, response = service.send_message(
+        result = service.send_message(
             provider=self._provider,
             model=self._model,
             api_key=self._api_key,
             messages=messages,
             base_url_override=self._base_url_override,
             timeout_seconds=self._timeout_seconds,
+            thinking=thinking,
         )
         with QMutexLocker(self._mutex):
             if self._cancelled:
                 return
-        if not success:
-            self.shallow_failed.emit(response or "Classification failed.")
+        if not result.success:
+            self.shallow_failed.emit(result.error or "Classification failed.")
             return
         shallow: Set[Tuple[int, str, str]] = set()
-        for line in response.splitlines():
+        for line in result.text.splitlines():
             line = line.strip()
             if not line:
                 continue

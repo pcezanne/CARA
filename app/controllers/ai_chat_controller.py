@@ -50,7 +50,7 @@ class AIRequestThread(QThread):
     def run(self) -> None:
         """Execute the AI request in the background thread."""
         ai_service = AIService(self.config)
-        success, response = ai_service.send_message(
+        result = ai_service.send_message(
             self.provider,
             self.model,
             self.api_key,
@@ -60,7 +60,10 @@ class AIRequestThread(QThread):
             base_url_override=self.base_url_override,
             timeout_seconds=self.timeout_seconds
         )
-        self.response_received.emit(success, response)
+        self.response_received.emit(
+            result.success,
+            result.text if result.success else (result.error or ""),
+        )
 
 
 class AIChatController(QObject):

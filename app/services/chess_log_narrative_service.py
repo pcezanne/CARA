@@ -350,15 +350,11 @@ def generate_narrative(
         color_filter=color_filter,
     )
 
-    thinking = (
-        {"type": "disabled"}
-        if any(name in (model or "").lower() for name in ("sonnet-5", "opus-5"))
-        else None
-    )
+    thinking = AIService.disable_thinking_for(model)
 
     service = AIService(config=config)
     messages = [{"role": "user", "content": prompt}]
-    success, response = service.send_message(
+    result = service.send_message(
         provider=provider,
         model=model,
         api_key=api_key,
@@ -369,10 +365,10 @@ def generate_narrative(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
     )
-    if not success:
-        return False, response, []
+    if not result.success:
+        return False, result.error or "Unknown error", []
 
-    narrative, shallow_flags = _parse_response(response)
+    narrative, shallow_flags = _parse_response(result.text)
     return True, narrative, shallow_flags
 
 

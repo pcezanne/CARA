@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 from app.models.database_model import GameData
+from app.services.ai_service import AIResult
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.chess_log_narrative_service import (
     _NARRATIVE_STEP,
@@ -422,7 +423,7 @@ class TestGenerateNarrative(unittest.TestCase):
             "- 'I blundered a piece': partially restates the category\n"
         )
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, response_text)
+        mock_service.send_message.return_value = AIResult(success=True, text=response_text, error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         success, narrative, flags = generate_narrative(
@@ -441,7 +442,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_api_failure_returns_false(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (False, "Connection error")
+        mock_service.send_message.return_value = AIResult(success=False, text="", error="Connection error", usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         success, message, flags = generate_narrative(
@@ -459,7 +460,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_prompt_sent_contains_why_note(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "Solid work.")
+        mock_service.send_message.return_value = AIResult(success=True, text="Solid work.", error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         generate_narrative(
@@ -478,7 +479,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_system_prompt_included(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "Good.")
+        mock_service.send_message.return_value = AIResult(success=True, text="Good.", error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         generate_narrative(
@@ -497,7 +498,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_custom_provider_passes_base_url(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "OK.")
+        mock_service.send_message.return_value = AIResult(success=True, text="OK.", error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         generate_narrative(
@@ -527,7 +528,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_timeout_passed_to_send_message(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "Good work.")
+        mock_service.send_message.return_value = AIResult(success=True, text="Good work.", error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         generate_narrative(
@@ -545,7 +546,7 @@ class TestGenerateNarrative(unittest.TestCase):
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_token_limit_passed_to_send_message(self, MockAIService):
         mock_service = MagicMock()
-        mock_service.send_message.return_value = (True, "Good work.")
+        mock_service.send_message.return_value = AIResult(success=True, text="Good work.", error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
         generate_narrative(
@@ -745,15 +746,15 @@ class TestAnthropicTruncationNotice(unittest.TestCase):
             text="You show progress in checks but", stop_reason="max_tokens"
         )
         service = AIService()
-        success, text = service._send_anthropic_message(
+        result = service._send_anthropic_message(
             model="claude-sonnet-4-6",
             api_key="sk-test",
             messages=[{"role": "user", "content": "Analyse my games."}],
         )
-        self.assertTrue(success)
-        self.assertIn("You show progress in checks but", text)
-        self.assertIn("cut off", text.lower())
-        self.assertIn("token limit", text.lower())
+        self.assertTrue(result.success)
+        self.assertIn("You show progress in checks but", result.text)
+        self.assertIn("cut off", result.text.lower())
+        self.assertIn("token limit", result.text.lower())
 
     @patch("app.services.ai_service.requests.post")
     def test_no_truncation_notice_on_end_turn(self, mock_post):
@@ -762,13 +763,13 @@ class TestAnthropicTruncationNotice(unittest.TestCase):
             text="Great work overall.", stop_reason="end_turn"
         )
         service = AIService()
-        success, text = service._send_anthropic_message(
+        result = service._send_anthropic_message(
             model="claude-sonnet-4-6",
             api_key="sk-test",
             messages=[{"role": "user", "content": "Analyse my games."}],
         )
-        self.assertTrue(success)
-        self.assertEqual(text, "Great work overall.")
+        self.assertTrue(result.success)
+        self.assertEqual(result.text, "Great work overall.")
 
     @patch("app.services.ai_service.requests.post")
     def test_error_returned_when_max_tokens_no_text(self, mock_post):
@@ -782,13 +783,13 @@ class TestAnthropicTruncationNotice(unittest.TestCase):
         }
         mock_post.return_value = mock_response
         service = AIService()
-        success, text = service._send_anthropic_message(
+        result = service._send_anthropic_message(
             model="claude-sonnet-4-6",
             api_key="sk-test",
             messages=[{"role": "user", "content": "Analyse my games."}],
         )
-        self.assertFalse(success)
-        self.assertIn("token limit", text.lower())
+        self.assertFalse(result.success)
+        self.assertIn("token limit", (result.error or "").lower())
 
 
 # ---------------------------------------------------------------------------
@@ -806,8 +807,13 @@ class TestGenerateNarrativeThinkingGating(unittest.TestCase):
                       system_prompt=None, token_limit=None,
                       base_url_override=None, timeout_seconds=60,
                       thinking=None):
+            from app.services.ai_service import AIResult
             captured["thinking"] = thinking
-            return True, "## Narrative Summary\nOK\n\n## Key Takeaways\n- OK"
+            return AIResult(
+                success=True,
+                text="## Narrative Summary\nOK\n\n## Key Takeaways\n- OK",
+                error=None, usage=None, model=model,
+            )
 
         with patch("app.services.chess_log_narrative_service.AIService.send_message", fake_send):
             generate_narrative(

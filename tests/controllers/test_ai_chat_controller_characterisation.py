@@ -29,6 +29,7 @@ from PyQt6.QtWidgets import QApplication
 _app = QApplication.instance() or QApplication(sys.argv)
 
 from app.controllers.ai_chat_controller import AIRequestThread
+from app.services.ai_service import AIResult, TokenUsage
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +76,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_provider_passed_as_positional(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "Great move!")
+        mock_svc.send_message.return_value = AIResult(success=True, text="Great move!", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(provider="anthropic")
         thread.run()
         args, kwargs = mock_svc.send_message.call_args
@@ -84,7 +85,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_model_passed_as_positional(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(model="claude-3-5-sonnet-20241022")
         thread.run()
         args, kwargs = mock_svc.send_message.call_args
@@ -93,7 +94,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_api_key_passed_as_positional(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(api_key="sk-secret")
         thread.run()
         args, kwargs = mock_svc.send_message.call_args
@@ -102,7 +103,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_messages_passed_as_positional(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         msgs = [{"role": "user", "content": "Is e4 good here?"}]
         thread = _make_thread(messages=msgs)
         thread.run()
@@ -112,7 +113,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_system_prompt_passed(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         sysp = "You are a grandmaster."
         thread = _make_thread(system_prompt=sysp)
         thread.run()
@@ -123,7 +124,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_token_limit_passed_as_keyword(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(token_limit=4096)
         thread.run()
         _args, kwargs = mock_svc.send_message.call_args
@@ -132,7 +133,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_base_url_override_passed_as_keyword(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(base_url_override="http://localhost:1234/v1")
         thread.run()
         _args, kwargs = mock_svc.send_message.call_args
@@ -141,7 +142,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     @patch("app.controllers.ai_chat_controller.AIService")
     def test_timeout_seconds_passed_as_keyword(self, MockAIService):
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread(timeout_seconds=90)
         thread.run()
         _args, kwargs = mock_svc.send_message.call_args
@@ -151,7 +152,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     def test_no_thinking_parameter(self, MockAIService):
         """AI Chat never passes thinking= — unlike the Chess Log narrative service."""
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         thread = _make_thread()
         thread.run()
         _args, kwargs = mock_svc.send_message.call_args
@@ -161,7 +162,7 @@ class TestAIRequestThreadCallSignature(unittest.TestCase):
     def test_config_forwarded_to_ai_service_constructor(self, MockAIService):
         """AIService is constructed with self.config, not the default config."""
         mock_svc = MockAIService.return_value
-        mock_svc.send_message.return_value = (True, "OK")
+        mock_svc.send_message.return_value = AIResult(success=True, text="OK", error=None, usage=None, model="gpt-4o")
         cfg = {"version": "9.9"}
         thread = _make_thread(config=cfg)
         thread.run()
@@ -194,7 +195,8 @@ class TestAIRequestThreadResponseSemantics(unittest.TestCase):
         return received
 
     def test_success_emits_true_and_response_string(self):
-        received = self._run_and_collect_signal((True, "Excellent positional play."))
+        rv = AIResult(success=True, text="Excellent positional play.", error=None, usage=None, model="gpt-4o")
+        received = self._run_and_collect_signal(rv)
         self.assertEqual(len(received), 1)
         success, response = received[0]
         self.assertIs(type(success), bool)
@@ -203,7 +205,8 @@ class TestAIRequestThreadResponseSemantics(unittest.TestCase):
         self.assertEqual(response, "Excellent positional play.")
 
     def test_failure_emits_false_and_error_string(self):
-        received = self._run_and_collect_signal((False, "Connection refused."))
+        rv = AIResult(success=False, text="", error="Connection refused.", usage=None, model="gpt-4o")
+        received = self._run_and_collect_signal(rv)
         self.assertEqual(len(received), 1)
         success, response = received[0]
         self.assertIs(type(success), bool)
@@ -212,11 +215,13 @@ class TestAIRequestThreadResponseSemantics(unittest.TestCase):
         self.assertEqual(response, "Connection refused.")
 
     def test_response_received_emitted_exactly_once(self):
-        received = self._run_and_collect_signal((True, "Once only."))
+        rv = AIResult(success=True, text="Once only.", error=None, usage=None, model="gpt-4o")
+        received = self._run_and_collect_signal(rv)
         self.assertEqual(len(received), 1)
 
     def test_empty_response_string_forwarded(self):
-        received = self._run_and_collect_signal((True, ""))
+        rv = AIResult(success=True, text="", error=None, usage=None, model="gpt-4o")
+        received = self._run_and_collect_signal(rv)
         self.assertEqual(len(received), 1)
         _success, response = received[0]
         self.assertEqual(response, "")

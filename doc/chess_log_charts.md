@@ -89,9 +89,24 @@ Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, ig
 
 Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, is_shallow=False)`. Omitted when `False` (backward-compatible). Written by `ChessLogChartsController._on_shallow_thread_ready()` after classification — full sync: entries in the result set get `is_shallow=True`; all others have `is_shallow` removed. Persisted to the PGN via the normal Save Chess Log flow (same lifecycle as `ignore_shallow`). Both `_TagRowWidget._preserved_is_shallow` and `get_current_entries()` carry the flag through edits so it survives round-trips in both dialogs.
 
+**`is_shallow` is written per `(game_number, path_key, preset)` key, not per note.** A position tagged with two CLAMP letters (e.g. C and L) produces two entries and two classifier indices, but shares one key — if the classifier returns SHALLOW for either, the whole key is flagged and both entries get `is_shallow=True`. This is pre-existing behavior unchanged in this branch; it becomes relevant when the token label shows "Marked N positions shallow," where N counts distinct keys, not individual classified notes.
+
 ### `request_flag_shallow_notes()` in `ChessLogChartsController`
 
 Spawns `ChessLogShallowThread`; on completion writes `is_shallow` onto all in-scope entries (via `replace_entries_at_path_for_game`), marks those games dirty, and emits `shallow_ready(Set[Tuple[int,str,str]])`. On error emits `shallow_failed(str)`. Skips entries with `ignore_shallow=True`. Public accessor `get_chess_log_controller()` exposes the underlying `ChessLogController` to the view.
+
+### `ChessLogShallowService` — classifier service
+
+Classification logic lives in `app/services/chess_log_shallow_service.py` (extracted from the controller thread in commit 4). `ChessLogShallowThread` is now a thin QThread wrapper that calls `classify_notes()` and handles signals.
+
+**Behavior change (from commit 4 onward):** Previously an empty or unparseable classifier reply was a silent no-op — every note stayed DEEP with no record of what the model failed to classify. Now every input index is accounted for:
+
+- An index is "parsed" when the reply contains `<idx>: SHALLOW` or `<idx>: DEEP` for it.
+- Unparsed indices are returned in `ShallowResult.unparsed_indices`.
+- An unparsed index is **never** marked SHALLOW — it stays DEEP unchanged.
+- When `unparsed_indices` is non-empty, `ChessLogShallowThread` emits `shallow_failed` with the notice *"N notes couldn't be classified — left unchanged. Marked M shallow."* before emitting `shallow_ready` with the partial results.
+
+This means the old no-op case (model returns prose, markdown fences, empty text, or garbled output) now surfaces a warning to the user instead of silently passing.
 
 ## Right-click context menu
 

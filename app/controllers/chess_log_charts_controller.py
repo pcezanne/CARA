@@ -150,7 +150,8 @@ class ChessLogShallowThread(QThread):
     """Classify why-notes as SHALLOW or DEEP off the UI thread."""
 
     shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
-    shallow_failed = pyqtSignal(str)     # error message
+    shallow_failed = pyqtSignal(str)     # hard error — no results follow
+    shallow_partial = pyqtSignal(str)    # informational: N notes unparsed, results follow
 
     def __init__(
         self,
@@ -183,67 +184,15 @@ class ChessLogShallowThread(QThread):
         with QMutexLocker(self._mutex):
             if self._cancelled:
                 return
-        from app.services.ai_service import AIService
-        thinking = AIService.disable_thinking_for(self._model)
-        notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in self._notes)
-        prompt = (
-            "Classify each of these player self-notes as SHALLOW or DEEP.\n\n"
-            "SHALLOW = only reports the outcome, the move played, or what's objectively\n"
-            "wrong with the position — a label or a fact about the board, not an\n"
-            "explanation of the player's own thinking\n"
-            "(e.g. \"I blundered\", \"missed it\", \"this hangs my Rook for a Bishop\",\n"
-            "\"there was a discovered attack on my Queen that I missed\").\n\n"
-            "DEEP = explains why the PLAYER made the move or missed the better one —\n"
-            "what they were thinking, focused on, or misjudging. Naming what's wrong\n"
-            "with the position or the resulting tactic (a fork, a discovered attack, a\n"
-            "weak rank) is NOT enough on its own — the note has to say something about\n"
-            "the player's own reasoning or mental error, even if brief or tentative.\n\n"
-            "A DEEP note doesn't need an explicit causal word like \"because\" — connecting\n"
-            "two facts is enough. \"I saw the free rook\" next to \"missed the mate\" already\n"
-            "explains the distraction that caused the miss.\n\n"
-            "Examples of DEEP:\n"
-            "- \"I went to kick their Knight not seeing my Bishop was hanging.\" (explains\n"
-            "  what distracted them)\n"
-            "- \"This is a calculation error, 2 attackers, one defender.\" (attributes\n"
-            "  the mistake to a specific miscount, not just stating the position)\n"
-            "- \"I think I played a3 to protect it from capture.\" (states own intent,\n"
-            "  even tentatively)\n"
-            "- \"I needed to get on the same file as the Queen to force it away.\"\n"
-            "  (explains the missed plan)\n\n"
-            "Examples of SHALLOW:\n"
-            "- \"This hangs my Rook for a Bishop.\"\n"
-            "- \"There was a discovered attack on my Queen that I missed.\"\n"
-            "- \"I moved my queen into a forking square with my King.\"\n"
-            "- \"This is a passive move, permitting my opponent to play Rc2, putting\n"
-            "  their rook on a very powerful rank.\"\n"
-            "- \"It appears that the engine wants to make sure they don't have a bishop\n"
-            "  pair, but that's a guess.\" (explains the engine's logic, not the\n"
-            "  player's own reasoning)\n\n"
-            "For entries beginning with [3x3], the parts form one connected\n"
-            "self-analysis of a single decision (Why I played it = player's\n"
-            "intent, What was wrong = what was wrong with their move, Why the\n"
-            "better move is better = often the same underlying point restated,\n"
-            "Lesson = the takeaway). 'What was wrong' and 'Why the better move\n"
-            "is better' are board-fact questions by design — a factual answer to\n"
-            "either is NOT shallow. Classify the whole [3x3] entry as DEEP if\n"
-            "'Why I played it' or 'Lesson' contains genuine player-perspective\n"
-            "reasoning: what they were thinking, what they misread, or a specific\n"
-            "lesson that names the pattern (not just 'be more careful'). Classify\n"
-            "as SHALLOW only if all parts are bare board facts or generic filler\n"
-            "with no player angle.\n\n"
-            "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
-            f"{notes_text}"
-        )
-        service = AIService(config=self._config)
-        messages = [{"role": "user", "content": prompt}]
-        result = service.send_message(
+        from app.services.chess_log_shallow_service import classify_notes
+        result = classify_notes(
+            notes=self._notes,
             provider=self._provider,
             model=self._model,
             api_key=self._api_key,
-            messages=messages,
             base_url_override=self._base_url_override,
+            config=self._config,
             timeout_seconds=self._timeout_seconds,
-            thinking=thinking,
         )
         with QMutexLocker(self._mutex):
             if self._cancelled:
@@ -251,22 +200,15 @@ class ChessLogShallowThread(QThread):
         if not result.success:
             self.shallow_failed.emit(result.error or "Classification failed.")
             return
-        shallow: Set[Tuple[int, str, str]] = set()
-        for line in result.text.splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parts = line.split(":", 1)
-            if len(parts) != 2:
-                continue
-            try:
-                idx = int(parts[0].strip())
-            except ValueError:
-                continue
-            if parts[1].strip().upper() == "SHALLOW" and 0 <= idx < len(self._notes):
-                _, gn, pk, pr, _ = self._notes[idx]
-                shallow.add((gn, pk, pr))
-        self.shallow_ready.emit(shallow)
+        if result.unparsed_indices:
+            n = len(result.unparsed_indices)
+            m = len(result.shallow_keys)
+            self.shallow_partial.emit(
+                f"{n} note{'s' if n != 1 else ''} couldn't be classified "
+                f"— left unchanged. "
+                f"Marked {m} position{'s' if m != 1 else ''} shallow."
+            )
+        self.shallow_ready.emit(result.shallow_keys)
 
 
 class ChessLogNarrativeThread(QThread):
@@ -342,7 +284,8 @@ class ChessLogChartsController(QObject):
     narrative_ready = pyqtSignal(str, list)
     narrative_failed = pyqtSignal(str)
     shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
-    shallow_failed = pyqtSignal(str)
+    shallow_failed = pyqtSignal(str)     # hard error — no results follow
+    shallow_partial = pyqtSignal(str)    # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
 
     def __init__(
@@ -714,6 +657,7 @@ class ChessLogChartsController(QObject):
         )
         thread.shallow_ready.connect(self._on_shallow_thread_ready)
         thread.shallow_failed.connect(self._on_shallow_thread_failed)
+        thread.shallow_partial.connect(self.shallow_partial)
         thread.finished.connect(self._on_shallow_thread_finished)
         self._shallow_thread = thread
         thread.start()

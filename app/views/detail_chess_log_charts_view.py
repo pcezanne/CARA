@@ -89,6 +89,7 @@ class DetailChessLogChartsView(QWidget):
                 self._controller.narrative_failed.disconnect(self._on_narrative_failed)
                 self._controller.shallow_ready.disconnect(self._on_shallow_ready)
                 self._controller.shallow_failed.disconnect(self._on_shallow_failed)
+                self._controller.shallow_partial.disconnect(self._on_shallow_partial)
                 self._controller.ai_configured_changed.disconnect(self._on_ai_configured_changed)
             except RuntimeError:
                 pass
@@ -106,6 +107,7 @@ class DetailChessLogChartsView(QWidget):
         controller.narrative_failed.connect(self._on_narrative_failed)
         controller.shallow_ready.connect(self._on_shallow_ready)
         controller.shallow_failed.connect(self._on_shallow_failed)
+        controller.shallow_partial.connect(self._on_shallow_partial)
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
 
         self._refresh_ai_state()
@@ -582,6 +584,10 @@ class DetailChessLogChartsView(QWidget):
         self._refresh_ai_state()
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.warning(self, "Shallow Tags Error", f"Could not classify notes:\n{message}")
+
+    def _on_shallow_partial(self, message: str) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        QMessageBox.information(self, "Shallow Notes", message)
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())

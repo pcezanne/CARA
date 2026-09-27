@@ -587,6 +587,8 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
                 self.shallow_ready.connect = MagicMock()
                 self.shallow_failed = MagicMock()
                 self.shallow_failed.connect = MagicMock()
+                self.shallow_partial = MagicMock()
+                self.shallow_partial.connect = MagicMock()
                 self.finished = MagicMock()
                 self.finished.connect = MagicMock()
 
@@ -634,6 +636,8 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
                 self.shallow_ready.connect = MagicMock()
                 self.shallow_failed = MagicMock()
                 self.shallow_failed.connect = MagicMock()
+                self.shallow_partial = MagicMock()
+                self.shallow_partial.connect = MagicMock()
                 self.finished = MagicMock()
                 self.finished.connect = MagicMock()
 

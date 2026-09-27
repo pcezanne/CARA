@@ -95,5 +95,38 @@ class TestSendAnthropicMessageThinking(unittest.TestCase):
         self.assertNotIn("thinking", _captured_payload(mock_post))
 
 
+class TestDisableThinkingFor(unittest.TestCase):
+    """disable_thinking_for — per-family probe results (2026-09-27).
+
+    Empirically verified via real API calls:
+    - sonnet-5 and opus-5: {"type": "disabled"} accepted silently.
+    - fable-5-1: {"type": "disabled"} returns HTTP 400 — must return None.
+    - opus-4-7 (control): {"type": "disabled"} accepted; returns None anyway
+      (not in _THINKING_DISABLE_MODELS — thinking not on by default).
+    No model triggered thinking without an explicit thinking parameter.
+    """
+
+    def test_sonnet_5_returns_disabled(self):
+        self.assertEqual(AIService.disable_thinking_for("claude-sonnet-5-20251101"), {"type": "disabled"})
+
+    def test_opus_5_returns_disabled(self):
+        self.assertEqual(AIService.disable_thinking_for("claude-opus-5-20251101"), {"type": "disabled"})
+
+    def test_fable_5_returns_none(self):
+        self.assertIsNone(AIService.disable_thinking_for("claude-fable-5-1-20251101"))
+
+    def test_opus_4_7_returns_none(self):
+        self.assertIsNone(AIService.disable_thinking_for("claude-opus-4-7-20250514"))
+
+    def test_sonnet_4_6_returns_none(self):
+        self.assertIsNone(AIService.disable_thinking_for("claude-sonnet-4-6-20250514"))
+
+    def test_empty_string_returns_none(self):
+        self.assertIsNone(AIService.disable_thinking_for(""))
+
+    def test_none_model_returns_none(self):
+        self.assertIsNone(AIService.disable_thinking_for(None))
+
+
 if __name__ == "__main__":
     unittest.main()

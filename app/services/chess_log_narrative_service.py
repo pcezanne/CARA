@@ -111,6 +111,12 @@ _PRESET_GLOSSARIES: Dict[str, str] = {
     "3x3": "",
 }
 
+# Placeholders in _USER_PREAMBLE (authoritative names — commit-6 ConfigLoader
+# validator must match these exactly):
+#   {glossary_section}       — preset glossary block, empty string for 3x3
+#   {category_counts_block}  — per-preset category-count table
+#   {why_notes_block}        — player's own why-notes, one per line
+#   {game_notes_block}       — whole-game notes, or "(no whole-game notes)"
 _USER_PREAMBLE = """\
 Below is a summary of the moments I have tagged across my recent games in CARA's Chess Log.
 {glossary_section}## Category counts by preset (over time)

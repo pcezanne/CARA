@@ -43,10 +43,16 @@ def set_debug_flags(outbound_enabled: bool = False, inbound_enabled: bool = Fals
     _debug_inbound_enabled = inbound_enabled
 
 
-# Model name substrings that trigger extended thinking by default and should have
-# it disabled for Chess Log calls — otherwise the entire output budget is consumed
-# by reasoning tokens and the reply is empty.  Matches claude-sonnet-5-* and
-# claude-opus-5-* model IDs (and any future variants containing these substrings).
+# Model name substrings for which {"type": "disabled"} must be sent to suppress
+# thinking.  Matches claude-sonnet-5-* and claude-opus-5-* IDs (and future
+# variants).
+# Fable models ("fable-5") are intentionally excluded for two reasons:
+#   1. They use a different thinking API (thinking.type.adaptive + output_config.effort);
+#      {"type": "disabled"} returns HTTP 400 on Fable.
+#   2. Empirically (tested 2026-09-27 with claude-fable-5-1 on a real narrative
+#      prompt), Fable does not self-trigger extended thinking — reasoning_tokens
+#      is absent and the full narrative reply is returned without issue.
+#      Returning None (no thinking override) is therefore safe for Fable.
 _THINKING_DISABLE_MODELS = ("sonnet-5", "opus-5")
 
 

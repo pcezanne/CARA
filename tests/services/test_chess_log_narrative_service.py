@@ -426,7 +426,7 @@ class TestGenerateNarrative(unittest.TestCase):
         mock_service.send_message.return_value = AIResult(success=True, text=response_text, error=None, usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
-        success, narrative, flags = generate_narrative(
+        result = generate_narrative(
             games=[self._game_with_clamp()],
             provider="openai",
             model="gpt-4o",
@@ -434,10 +434,10 @@ class TestGenerateNarrative(unittest.TestCase):
             base_url_override=None,
         )
 
-        self.assertTrue(success)
-        self.assertIn("Calculation", narrative)
+        self.assertTrue(result.success)
+        self.assertIn("Calculation", result.text)
         # Shallow-note flagging removed: flags always empty
-        self.assertEqual(flags, [])
+        self.assertEqual(result.shallow_flags, [])
 
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_api_failure_returns_false(self, MockAIService):
@@ -445,7 +445,7 @@ class TestGenerateNarrative(unittest.TestCase):
         mock_service.send_message.return_value = AIResult(success=False, text="", error="Connection error", usage=None, model="gpt-4o")
         MockAIService.return_value = mock_service
 
-        success, message, flags = generate_narrative(
+        result = generate_narrative(
             games=[self._game_with_clamp()],
             provider="openai",
             model="gpt-4o",
@@ -453,9 +453,9 @@ class TestGenerateNarrative(unittest.TestCase):
             base_url_override=None,
         )
 
-        self.assertFalse(success)
-        self.assertIn("Connection error", message)
-        self.assertEqual(flags, [])
+        self.assertFalse(result.success)
+        self.assertIn("Connection error", result.text)
+        self.assertEqual(result.shallow_flags, [])
 
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_prompt_sent_contains_why_note(self, MockAIService):
@@ -514,16 +514,16 @@ class TestGenerateNarrative(unittest.TestCase):
         self.assertEqual(base_url, "http://localhost:11434")
 
     def test_no_games_returns_false(self):
-        success, message, flags = generate_narrative(
+        result = generate_narrative(
             games=[],
             provider="openai",
             model="gpt-4o",
             api_key="sk-test",
             base_url_override=None,
         )
-        self.assertFalse(success)
-        self.assertIn("No Chess Log data", message)
-        self.assertEqual(flags, [])
+        self.assertFalse(result.success)
+        self.assertIn("No Chess Log data", result.text)
+        self.assertEqual(result.shallow_flags, [])
 
     @patch("app.services.chess_log_narrative_service.AIService")
     def test_timeout_passed_to_send_message(self, MockAIService):

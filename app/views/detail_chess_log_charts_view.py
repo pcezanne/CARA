@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.controllers.chess_log_charts_controller import ChessLogChartsController
+from app.services.ai_service import TokenUsage
 from app.services.chess_log_narrative_service import sanitize_narrative_markdown
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
@@ -285,6 +286,10 @@ class DetailChessLogChartsView(QWidget):
         shallow_row.addStretch()
         layout.addLayout(shallow_row)
 
+        self._shallow_token_label = QLabel("")
+        self._shallow_token_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self._shallow_token_label)
+
         self._shallow_hint = QLabel("")
         self._shallow_hint.setWordWrap(True)
         self._shallow_hint.setVisible(False)
@@ -309,6 +314,10 @@ class DetailChessLogChartsView(QWidget):
         self._narrative_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         self._narrative_edit.document().contentsChanged.connect(self._fit_narrative_height)
         layout.addWidget(self._narrative_edit)
+
+        self._narrative_token_label = QLabel("")
+        self._narrative_token_label.setAlignment(Qt.AlignmentFlag.AlignRight)
+        layout.addWidget(self._narrative_token_label)
 
         self._flagged_box = QGroupBox("Also flagged")
         self._flagged_box.setCheckable(True)
@@ -375,6 +384,17 @@ class DetailChessLogChartsView(QWidget):
             QGroupBox {{ border: 1px solid {border_s}; border-radius: 4px; margin-top: 8px; }}
             QGroupBox::title {{ color: {text_s}; subcontrol-origin: margin; left: 8px; }}
         """)
+        token_label_cfg = cl_cfg.get("token_usage_label", {})
+        token_color = token_label_cfg.get("color")
+        token_font_size = token_label_cfg.get("font_size", 10)
+        if isinstance(token_color, list) and len(token_color) >= 3:
+            token_color_s = f"rgb({token_color[0]},{token_color[1]},{token_color[2]})"
+        else:
+            token_color_s = hint_s
+        token_label_style = f"color: {token_color_s}; font-size: {token_font_size}pt; border: none;"
+        self._narrative_token_label.setStyleSheet(token_label_style)
+        self._shallow_token_label.setStyleSheet(token_label_style)
+
         self._ai_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._ai_hint.setText(
             f'Configure an AI provider in Chess Log → '
@@ -414,6 +434,7 @@ class DetailChessLogChartsView(QWidget):
         if self._controller:
             self._generate_btn.setEnabled(False)
             self._narrative_edit.setPlainText("Generating…")
+            self._narrative_token_label.setText("")
             self._controller.request_narrative()
 
     def _on_charts_loading(self) -> None:
@@ -469,7 +490,7 @@ class DetailChessLogChartsView(QWidget):
         if not players:
             self._set_placeholder_text("No players found in this data.")
 
-    def _on_narrative_ready(self, narrative: str, flags: List[str]) -> None:
+    def _on_narrative_ready(self, narrative: str, flags: List[str], usage) -> None:
         self._last_narrative = narrative
         self._narrative_edit.setMarkdown(sanitize_narrative_markdown(narrative))
         if flags:
@@ -477,11 +498,13 @@ class DetailChessLogChartsView(QWidget):
             self._flagged_box.setVisible(True)
         else:
             self._flagged_box.setVisible(False)
+        self._narrative_token_label.setText(self._format_token_usage(usage))
         self._refresh_ai_state()
 
     def _on_narrative_failed(self, message: str) -> None:
         self._last_narrative = ""
         self._narrative_edit.setPlainText(f"Error: {message}")
+        self._narrative_token_label.setText("")
         self._refresh_ai_state()
 
     def _on_ai_configured_changed(self, configured: bool) -> None:
@@ -502,6 +525,19 @@ class DetailChessLogChartsView(QWidget):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    def _format_token_usage(self, usage: Optional[TokenUsage]) -> str:
+        if usage is None:
+            return ""
+        if not usage.reported:
+            return "Token usage not reported by this provider"
+        inp = f"{usage.input_tokens:,}" if usage.input_tokens is not None else "?"
+        out = f"{usage.output_tokens:,}" if usage.output_tokens is not None else "?"
+        text = f"Tokens: {inp} in / {out} out"
+        if usage.reasoning_tokens and usage.reasoning_tokens > 0:
+            thinking = f"{usage.reasoning_tokens:,}"
+            text += f" / {thinking} thinking"
+        return text
 
     def _fit_narrative_height(self) -> None:
         """Resize _narrative_edit to its document height so the outer scroll area handles overflow."""
@@ -551,11 +587,13 @@ class DetailChessLogChartsView(QWidget):
         self._show_shallow_btn.setEnabled(False)
         self._shallow_spinner.start()
         self._shallow_status_label.setVisible(True)
+        self._shallow_token_label.setText("")
         self._controller.request_flag_shallow_notes()
 
-    def _on_shallow_ready(self, shallow_keys) -> None:
+    def _on_shallow_ready(self, shallow_keys, usage) -> None:
         self._shallow_spinner.stop()
         self._shallow_status_label.setVisible(False)
+        self._shallow_token_label.setText(self._format_token_usage(usage))
         self._refresh_ai_state()
         self._last_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         if not self._controller:
@@ -581,6 +619,7 @@ class DetailChessLogChartsView(QWidget):
     def _on_shallow_failed(self, message: str) -> None:
         self._shallow_spinner.stop()
         self._shallow_status_label.setVisible(False)
+        self._shallow_token_label.setText("")
         self._refresh_ai_state()
         from PyQt6.QtWidgets import QMessageBox
         QMessageBox.warning(self, "Shallow Tags Error", f"Could not classify notes:\n{message}")

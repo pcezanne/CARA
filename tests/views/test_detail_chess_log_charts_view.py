@@ -165,19 +165,19 @@ class TestDetailChessLogChartsViewNarrativePanel(unittest.TestCase):
     def test_narrative_ready_sets_text(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))
-        view._on_narrative_ready("Great patterns found.", [])
+        view._on_narrative_ready("Great patterns found.", [], None)
         self.assertIn("Great patterns", view._narrative_edit.toPlainText())
 
     def test_narrative_ready_with_flags_shows_flagged_box(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))
-        view._on_narrative_ready("Narrative.", ["shallow note 1"])
+        view._on_narrative_ready("Narrative.", ["shallow note 1"], None)
         self.assertFalse(view._flagged_box.isHidden())
 
     def test_narrative_ready_no_flags_hides_flagged_box(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller(ai_configured=True))
-        view._on_narrative_ready("Narrative.", [])
+        view._on_narrative_ready("Narrative.", [], None)
         self.assertTrue(view._flagged_box.isHidden())
 
     def test_narrative_failed_sets_error_text(self):
@@ -582,7 +582,7 @@ class TestNarrativeSanitizationOnScreen(unittest.TestCase):
             original_set_markdown(text)
 
         view._narrative_edit.setMarkdown = _capture
-        view._on_narrative_ready(narrative, [])
+        view._on_narrative_ready(narrative, [], None)
 
         self.assertEqual(len(calls), 1)
         self.assertNotIn("---", calls[0].splitlines(), "bare --- should be stripped before setMarkdown")
@@ -605,7 +605,7 @@ class TestNarrativeSanitizationOnScreen(unittest.TestCase):
             original_set_markdown(text)
 
         view._narrative_edit.setMarkdown = _capture
-        view._on_narrative_ready(narrative, [])
+        view._on_narrative_ready(narrative, [], None)
 
         self.assertEqual(len(calls), 1)
         self.assertNotIn("Missed tactic", calls[0], "row with empty Strategic Impact should be stripped")

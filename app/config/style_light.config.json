@@ -2049,6 +2049,12 @@
               170
             ]
           },
+          "token_usage_label": {
+            "color": {
+              "$ref": "$_COLOR_TEXT_4"
+            },
+            "font_size": 10
+          },
           "pdf_report": {
             "colors": {
               "warning_fill": [241, 196, 15],

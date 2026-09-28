@@ -563,7 +563,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         synchronously without starting a thread or calling the AI."""
         ctrl = self._make_controller_with_note(ignore=True)
         received: list = []
-        ctrl.shallow_ready.connect(received.append)
+        ctrl.shallow_ready.connect(lambda k, u: received.append(k))
 
         ctrl.request_flag_shallow_notes()
 
@@ -701,7 +701,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
             ignore=True,
         )
         received: list = []
-        ctrl.shallow_ready.connect(received.append)
+        ctrl.shallow_ready.connect(lambda k, u: received.append(k))
         ctrl.request_flag_shallow_notes()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0], set())

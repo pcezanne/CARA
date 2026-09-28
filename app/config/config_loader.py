@@ -2147,6 +2147,8 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.panels.detail.chess_log_charts.colors.input_background",
     "ui.panels.detail.chess_log_charts.colors.spinner_color",
     "ui.panels.detail.chess_log_charts.colors.text",
+    "ui.panels.detail.chess_log_charts.token_usage_label.color",
+    "ui.panels.detail.chess_log_charts.token_usage_label.font_size",
     "ui.panels.detail.player_stats.accuracy_distribution.axis_color",
     "ui.panels.detail.player_stats.accuracy_distribution.background_color",
     "ui.panels.detail.player_stats.accuracy_distribution.bar_color",

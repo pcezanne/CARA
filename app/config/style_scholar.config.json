@@ -2055,6 +2055,12 @@
               "$ref": "$_COLOR_BOURBON_TEAL"
             }
           },
+          "token_usage_label": {
+            "color": {
+              "$ref": "$_COLOR_DRIFTWOOD"
+            },
+            "font_size": 10
+          },
           "pdf_report": {
             "colors": {
               "warning_fill": [241, 196, 15],

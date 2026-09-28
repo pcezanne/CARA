@@ -984,5 +984,46 @@ class TestPDFPrintTheme(unittest.TestCase):
         self.assertEqual(cfg, original)
 
 
+try:
+    import pypdf as _pypdf
+    _HAS_PYPDF = True
+except ImportError:
+    _HAS_PYPDF = False
+
+
+@requires_qt
+@unittest.skipUnless(_HAS_PYPDF, "pypdf not installed")
+class TestNarrativeTokenLabelAbsentFromPDF(unittest.TestCase):
+    """Prove the token-usage QLabel never leaks into the exported PDF."""
+
+    def test_tokens_label_text_absent_from_pdf(self):
+        from PyQt6.QtGui import QPixmap
+        svc = ChessLogPDFService({})
+        pixmap = QPixmap(100, 100)
+        pixmap.fill()
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            svc.export_charts_report(
+                tmp_path,
+                player_name="Paul",
+                source_label="Test DB",
+                chart_pixmaps=[("CLAMP", pixmap)],
+                narrative_text="Here is the narrative text.",
+                shallow_rows=[],
+            )
+            reader = _pypdf.PdfReader(str(tmp_path))
+            all_text = " ".join(
+                page.extract_text() or "" for page in reader.pages
+            )
+            self.assertNotIn(
+                "Tokens:",
+                all_text,
+                "Token-usage label text must not appear in the PDF",
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()

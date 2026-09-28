@@ -42,7 +42,7 @@ Smooth Catmull-Rom lines via `smooth_polyline_path()` when `series.progression_l
 
 ## Narrative
 
-LLM-gated (same provider config as AI Summary). Prompt assembled from a per-preset glossary block, trend-binned category counts (4 bins via `aggregate()`), why-notes, and whole-game notes. `_parse_response` always returns `(narrative, [])`. LLM-not-configured state shows a rich-text hint label (`_ai_hint`) with a clickable `<a href="ai-model-settings">AI Model Settings</a>` link — clicking it calls `main_window._show_ai_model_settings()` via `_on_ai_hint_link_clicked`. All narrative controls are disabled until AI is configured — no restart needed (AI Model Settings close triggers `set_user_settings`). The AI state is seeded at app startup (not only on dialog close), so the hint correctly reflects the user's saved provider settings from first view. Link color per theme: `ui.panels.detail.chess_log_charts.colors.link`.
+LLM-gated (same provider config as AI Summary). Prompt assembled from a per-preset glossary block, trend-binned category counts (4 bins via `aggregate()`), why-notes, and whole-game notes. `_parse_response` always returns `(narrative, [])`. `generate_narrative()` returns a `NarrativeResult` frozen dataclass: `success: bool`, `text: str`, `shallow_flags: List[str]` (always `[]`), `usage: Optional[TokenUsage]`, `model: str`. LLM-not-configured state shows a rich-text hint label (`_ai_hint`) with a clickable `<a href="ai-model-settings">AI Model Settings</a>` link — clicking it calls `main_window._show_ai_model_settings()` via `_on_ai_hint_link_clicked`. All narrative controls are disabled until AI is configured — no restart needed (AI Model Settings close triggers `set_user_settings`). The AI state is seeded at app startup (not only on dialog close), so the hint correctly reflects the user's saved provider settings from first view. Link color per theme: `ui.panels.detail.chess_log_charts.colors.link`.
 
 ### Narrative prompt structure (assembled in `chess_log_narrative_service.build_prompt`)
 
@@ -62,6 +62,10 @@ Model combo (ephemeral, lists models for the active provider from `ai_models.{pr
 A **"Show Shallow Tags"** button (`_show_shallow_btn`) sits between the model/timeout/tokens row and the generate button — enabled when AI is configured. A single **"Generate Narrative"** button (`_generate_btn`) triggers narrative generation; clicking disables it, sets the edit to "Generating…", then calls `request_narrative()` on the controller. It re-enables when `narrative_ready` or `narrative_failed` fires.
 
 Clicking "Show Shallow Tags" disables the button, starts a `BusySpinner` and shows "Generating Shallow Tags…" to the right, then calls `request_flag_shallow_notes()` on the controller. The spinner and label clear on `shallow_ready` / `shallow_failed`. If the key set is empty, shows "No shallow notes found"; otherwise opens `ShowShallowTagsDialog`.
+
+**Token usage labels.** Two right-aligned `QLabel` instances appear after runs: `_narrative_token_label` (below `_narrative_edit`) and `_shallow_token_label` (below the Show Shallow Notes row). Lifecycle: cleared when a request *starts* and when a request *fails* — never show stale counts. Format when usage is reported: `Tokens: {in:,} in / {out:,} out`; appends ` / {thinking:,} thinking` when `reasoning_tokens > 0`. When usage is absent from the provider response: `Token usage not reported by this provider`. Styled via `ui.panels.detail.chess_log_charts.token_usage_label.{color, font_size}` in all three theme JSONs (registered in `config_loader`; covered by `test_theme_coverage`). Labels are pure view widgets — not passed to `ChessLogPDFService`; a PDF absence test in `tests/services/test_chess_log_pdf_service.py` confirms this.
+
+**Signal arity.** `narrative_ready = pyqtSignal(str, list, object)` carries `(text, shallow_flags, usage: Optional[TokenUsage])`; `shallow_ready = pyqtSignal(object, object)` carries `(shallow_keys, usage: Optional[TokenUsage])`. Both thread classes and the controller class use the widened arities. Every consumer (`_on_narrative_ready`, `_on_shallow_ready`, all test stubs) must accept both arguments.
 
 The controller's `get_available_models()` / `get_default_narrative_model()` / `get_narrative_timeout_seconds()` drive the view; `set_narrative_*()` setters update the in-memory state (timeout also persists).
 
@@ -93,7 +97,7 @@ Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, is
 
 ### `request_flag_shallow_notes()` in `ChessLogChartsController`
 
-Spawns `ChessLogShallowThread`; on completion writes `is_shallow` onto all in-scope entries (via `replace_entries_at_path_for_game`), marks those games dirty, and emits `shallow_ready(Set[Tuple[int,str,str]])`. On error emits `shallow_failed(str)`. Skips entries with `ignore_shallow=True`. Public accessor `get_chess_log_controller()` exposes the underlying `ChessLogController` to the view.
+Spawns `ChessLogShallowThread`; on completion writes `is_shallow` onto all in-scope entries (via `replace_entries_at_path_for_game`), marks those games dirty, and emits `shallow_ready(shallow_keys, usage)` — see Signal arity note above. On error emits `shallow_failed(str)`. Skips entries with `ignore_shallow=True`. Public accessor `get_chess_log_controller()` exposes the underlying `ChessLogController` to the view.
 
 ### `ChessLogShallowService` — classifier service
 

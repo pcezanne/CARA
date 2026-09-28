@@ -27,7 +27,8 @@ from app.services.chess_log_charts_user import (
     chart_cfg_with_chess_log_charts_overrides,
     normalize_chess_log_charts_settings,
 )
-from app.services.chess_log_narrative_service import generate_narrative
+from app.services.ai_service import TokenUsage
+from app.services.chess_log_narrative_service import NarrativeResult, generate_narrative
 from app.services.chess_log_stats_service import (
     ChessLogPresetSeries,
     aggregate,
@@ -149,9 +150,9 @@ class ChessLogAggregationWorker(QThread):
 class ChessLogShallowThread(QThread):
     """Classify why-notes as SHALLOW or DEEP off the UI thread."""
 
-    shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
-    shallow_failed = pyqtSignal(str)     # hard error — no results follow
-    shallow_partial = pyqtSignal(str)    # informational: N notes unparsed, results follow
+    shallow_ready = pyqtSignal(object, object)   # (Set[Tuple[int, str, str]], Optional[TokenUsage])
+    shallow_failed = pyqtSignal(str)             # hard error — no results follow
+    shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
 
     def __init__(
         self,
@@ -208,14 +209,14 @@ class ChessLogShallowThread(QThread):
                 f"— left unchanged. "
                 f"Marked {m} position{'s' if m != 1 else ''} shallow."
             )
-        self.shallow_ready.emit(result.shallow_keys)
+        self.shallow_ready.emit(result.shallow_keys, result.usage)
 
 
 class ChessLogNarrativeThread(QThread):
     """Run chess_log_narrative_service.generate_narrative() off the UI thread."""
 
-    narrative_ready = pyqtSignal(str, list)   # narrative_text, shallow_flags
-    narrative_failed = pyqtSignal(str)        # error message
+    narrative_ready = pyqtSignal(str, list, object)   # narrative_text, shallow_flags, Optional[TokenUsage]
+    narrative_failed = pyqtSignal(str)                # error message
 
     def __init__(
         self,
@@ -252,7 +253,7 @@ class ChessLogNarrativeThread(QThread):
         with QMutexLocker(self._mutex):
             if self._cancelled:
                 return
-        success, text, flags = generate_narrative(
+        narrative_result = generate_narrative(
             games=self._games,
             provider=self._provider,
             model=self._model,
@@ -267,10 +268,12 @@ class ChessLogNarrativeThread(QThread):
         with QMutexLocker(self._mutex):
             if self._cancelled:
                 return
-        if success:
-            self.narrative_ready.emit(text, flags)
+        if narrative_result.success:
+            self.narrative_ready.emit(
+                narrative_result.text, narrative_result.shallow_flags, narrative_result.usage
+            )
         else:
-            self.narrative_failed.emit(text)
+            self.narrative_failed.emit(narrative_result.text)
 
 
 class ChessLogChartsController(QObject):
@@ -281,11 +284,11 @@ class ChessLogChartsController(QObject):
     charts_loading = pyqtSignal()          # aggregation worker about to start; view should clear stale chart
     players_ready = pyqtSignal(list)       # List[Tuple[str, int]]
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
-    narrative_ready = pyqtSignal(str, list)
+    narrative_ready = pyqtSignal(str, list, object)  # narrative_text, shallow_flags, Optional[TokenUsage]
     narrative_failed = pyqtSignal(str)
-    shallow_ready = pyqtSignal(object)   # Set[Tuple[int, str, str]]
-    shallow_failed = pyqtSignal(str)     # hard error — no results follow
-    shallow_partial = pyqtSignal(str)    # informational: N notes unparsed, results follow
+    shallow_ready = pyqtSignal(object, object)   # (Set[Tuple[int, str, str]], Optional[TokenUsage])
+    shallow_failed = pyqtSignal(str)             # hard error — no results follow
+    shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
 
     def __init__(
@@ -641,7 +644,7 @@ class ChessLogChartsController(QObject):
                                 notes.append((len(notes), game.game_number, path_key, preset, why))
 
         if not notes:
-            self.shallow_ready.emit(set())
+            self.shallow_ready.emit(set(), None)
             return
 
         self._cancel_shallow_thread()
@@ -662,7 +665,7 @@ class ChessLogChartsController(QObject):
         self._shallow_thread = thread
         thread.start()
 
-    def _on_shallow_thread_ready(self, shallow_keys: Set[Tuple[int, str, str]]) -> None:
+    def _on_shallow_thread_ready(self, shallow_keys: Set[Tuple[int, str, str]], usage: Optional[TokenUsage]) -> None:
         """Write is_shallow onto every in-scope entry (full sync), then re-emit."""
         games = self._resolve_games()
         for game in games:
@@ -683,7 +686,7 @@ class ChessLogChartsController(QObject):
                         self._chess_log_controller.replace_entries_at_path_for_game(
                             game, path_key, preset, updated
                         )
-        self.shallow_ready.emit(shallow_keys)
+        self.shallow_ready.emit(shallow_keys, usage)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
         self.shallow_failed.emit(message)

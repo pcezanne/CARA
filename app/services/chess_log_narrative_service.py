@@ -17,10 +17,11 @@ always returns an empty flags list for backward compatibility with callers.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from app.models.database_model import GameData
-from app.services.ai_service import AIService
+from app.services.ai_service import AIService, TokenUsage
 from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
@@ -310,6 +311,15 @@ def build_prompt(
     return preamble + _NARRATIVE_STEP
 
 
+@dataclass(frozen=True)
+class NarrativeResult:
+    success: bool
+    text: str
+    shallow_flags: List[str]
+    usage: Optional[TokenUsage]
+    model: str
+
+
 def generate_narrative(
     games: List[GameData],
     provider: str,
@@ -321,7 +331,7 @@ def generate_narrative(
     config: Optional[Dict[str, Any]] = None,
     timeout_seconds: int = 60,
     token_limit: Optional[int] = None,
-) -> Tuple[bool, str, List[str]]:
+) -> NarrativeResult:
     """Generate a narrative summary from the given games.
 
     Args:
@@ -337,9 +347,8 @@ def generate_narrative(
         token_limit:        Max tokens passed to AIService.send_message (None = AIService default).
 
     Returns:
-        (success, narrative_text, shallow_flags)
-        shallow_flags is always [] — shallow-note flagging is handled separately via flag_shallow_notes().
-        On failure: (False, error_message, [])
+        NarrativeResult with success, text, shallow_flags (always []), usage, and model.
+        On failure: success=False, text=error_message.
     """
     player_cf = (player or "").casefold().strip()
     has_data = any(
@@ -348,7 +357,13 @@ def generate_narrative(
         if _game_matches_player_color(g, player_cf, color_filter)
     )
     if not has_data:
-        return False, "No Chess Log data found to summarise.", []
+        return NarrativeResult(
+            success=False,
+            text="No Chess Log data found to summarise.",
+            shallow_flags=[],
+            usage=None,
+            model=model,
+        )
 
     prompt = build_prompt(
         games,
@@ -372,10 +387,22 @@ def generate_narrative(
         thinking=thinking,
     )
     if not result.success:
-        return False, result.error or "Unknown error", []
+        return NarrativeResult(
+            success=False,
+            text=result.error or "Unknown error",
+            shallow_flags=[],
+            usage=result.usage,
+            model=result.model,
+        )
 
     narrative, shallow_flags = _parse_response(result.text)
-    return True, narrative, shallow_flags
+    return NarrativeResult(
+        success=True,
+        text=narrative,
+        shallow_flags=shallow_flags,
+        usage=result.usage,
+        model=result.model,
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -43,9 +43,15 @@ from PyQt6.QtWidgets import QApplication
 _app = QApplication.instance() or QApplication(sys.argv)
 
 from app.controllers.ai_chat_controller import AIChatController
+from app.utils.path_resolver import get_app_resource_path
 
 FIXTURE_DIR = pathlib.Path(__file__).parent.parent / "fixtures" / "ai_chat_prompts"
 BOOTSTRAP = os.getenv("AI_CHAT_PROMPT_BOOTSTRAP") == "1"
+
+import json as _json
+_CONFIG_PATH = get_app_resource_path("app/config/config.json")
+with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
+    _CONFIG = _json.load(_f)
 
 # ---------------------------------------------------------------------------
 # Pinned deterministic inputs
@@ -106,7 +112,7 @@ def _make_controller() -> AIChatController:
     with patch("app.controllers.ai_chat_controller.UserSettingsService") as MockUSS:
         MockUSS.get_instance.return_value = mock_settings
         controller = AIChatController(
-            config={},
+            config=_CONFIG,
             game_controller=None,
             app_controller=MagicMock(),
         )

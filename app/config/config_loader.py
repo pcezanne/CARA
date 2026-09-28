@@ -3177,6 +3177,17 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "user_settings.player_stats_reset.status_success",
     "user_settings.template_filename",
     "version",
+    "prompts.chess_log.narrative_system",
+    "prompts.chess_log.narrative_preamble",
+    "prompts.chess_log.narrative_step",
+    "prompts.chess_log.narrative_glossaries.CLAMP",
+    "prompts.chess_log.narrative_glossaries.CCT",
+    "prompts.chess_log.narrative_glossaries.3x3",
+    "prompts.chess_log.narrative_3x3_structure",
+    "prompts.chess_log.narrative_3x3_moment_framing",
+    "prompts.chess_log.classifier",
+    "prompts.ai_chat.system_preamble",
+    "prompts.ai_chat.formatting_rules",
 )
 # <sync_config_keys:end>
 
@@ -3270,19 +3281,46 @@ class ConfigLoader:
     
     def _validate(self) -> None:
         """Validate that required configuration keys exist.
-        
+
         Raises:
             ValueError: If required keys are missing.
         """
         required_keys = self._get_required_keys()
         missing_keys = []
-        
+
         for key in required_keys:
             if not self._has_key(key):
                 missing_keys.append(key)
-        
+
         if missing_keys:
             self._fail(f"Missing required configuration keys: {', '.join(missing_keys)}")
+
+        self._validate_prompt_placeholders()
+
+    def _validate_prompt_placeholders(self) -> None:
+        """Validate that narrative_preamble contains its four required placeholders.
+
+        Elo estimation uses value_on_error as a graceful fallback, so existence-only
+        validation suffices there.  Prompt strings have no such fallback: a missing
+        placeholder silently drops a section from the assembled prompt, and an unknown
+        one raises KeyError inside a QThread mid-request.  Load-time validation
+        catches both problems with a clear message before anything reaches the user.
+        """
+        import string as _string
+        preamble_key = "prompts.chess_log.narrative_preamble"
+        if not self._has_key(preamble_key):
+            return  # Already caught by existence check above
+        preamble = self.get(preamble_key)
+        if not isinstance(preamble, str):
+            return
+        required = {"glossary_section", "category_counts_block", "why_notes_block", "game_notes_block"}
+        found = {field_name for _, field_name, _, _ in _string.Formatter().parse(preamble) if field_name}
+        missing = required - found
+        if missing:
+            self._fail(
+                f"prompts.chess_log.narrative_preamble is missing required placeholder(s): "
+                + ", ".join(sorted(f"{{{p}}}" for p in missing))
+            )
     
     def _get_required_keys(self) -> list[str]:
         """Get list of required configuration keys.

@@ -511,23 +511,16 @@ Please provide a brief analysis of this position, including:
         self.message_added.emit("user", user_message)  # Emit original message without context for display
         self._last_conversation_ply = ply_index
         
-        # Formatting rules that must be included in every system prompt
-        formatting_rules = """CRITICAL FORMATTING RULES - YOU MUST FOLLOW THESE:
-1. NEVER use numbered lists (1., 2., 3., etc.) - write in paragraph form only
-2. NEVER use bullet points (-, *, •, etc.) - write in paragraph form only
-3. NEVER use headings or section breaks - write in continuous paragraph form only
-4. Keep all responses SHORT - aim for 2-3 sentences maximum
-5. Write in plain, continuous paragraph form with no formatting, lists, or structure
-6. Be direct and to the point - no lengthy explanations unless explicitly requested
-7. Moves that were NOT actually played in the game but you still want to reference must be bolded using double asterisks: **14.Re4**
-8. Moves that WERE actually played in the game must be wrapped exactly as [%14.Re4] for White or [%14...Re4] for Black using the notations provided. Never bold these real moves—only use the [%move] syntax.
-9. Only use the [%move] syntax for moves that exactly match the provided list of actual game moves."""
-        
+        # Read prompts from config
+        ai_chat_prompts = (self.config or {}).get("prompts", {}).get("ai_chat", {})
+        system_preamble = ai_chat_prompts.get("system_preamble", "")
+        formatting_rules = ai_chat_prompts.get("formatting_rules", "")
+
         # Build system prompt - always include formatting rules and PGN context
         if len(self._conversation) == 1:
             # First message: include full initial context
             initial_prompt = self._generate_initial_prompt(fen, pgn, ply_index)
-            system_prompt = f"""You are a chess analysis assistant. Analyze chess positions based on FEN notation and game context.
+            system_prompt = f"""{system_preamble}
 
 {formatting_rules}
 
@@ -538,7 +531,7 @@ Please provide a brief analysis of this position, including:
             # Subsequent messages: regenerate prompt with current FEN but keep the stored PGN
             # This ensures the model always has access to both current position and full game context
             current_prompt = self._generate_initial_prompt(fen, self._stored_pgn, ply_index)
-            system_prompt = f"""You are a chess analysis assistant. Analyze chess positions based on FEN notation and game context.
+            system_prompt = f"""{system_preamble}
 
 {formatting_rules}
 

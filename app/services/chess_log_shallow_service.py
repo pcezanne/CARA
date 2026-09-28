@@ -26,57 +26,6 @@ from typing import FrozenSet, List, Optional, Tuple
 from app.services.ai_service import AIService, TokenUsage
 
 
-# ---------------------------------------------------------------------------
-# Prompt
-# ---------------------------------------------------------------------------
-
-_CLASSIFIER_PROMPT = (
-    "Classify each of these player self-notes as SHALLOW or DEEP.\n\n"
-    "SHALLOW = only reports the outcome, the move played, or what's objectively\n"
-    "wrong with the position — a label or a fact about the board, not an\n"
-    "explanation of the player's own thinking\n"
-    "(e.g. \"I blundered\", \"missed it\", \"this hangs my Rook for a Bishop\",\n"
-    "\"there was a discovered attack on my Queen that I missed\").\n\n"
-    "DEEP = explains why the PLAYER made the move or missed the better one —\n"
-    "what they were thinking, focused on, or misjudging. Naming what's wrong\n"
-    "with the position or the resulting tactic (a fork, a discovered attack, a\n"
-    "weak rank) is NOT enough on its own — the note has to say something about\n"
-    "the player's own reasoning or mental error, even if brief or tentative.\n\n"
-    "A DEEP note doesn't need an explicit causal word like \"because\" — connecting\n"
-    "two facts is enough. \"I saw the free rook\" next to \"missed the mate\" already\n"
-    "explains the distraction that caused the miss.\n\n"
-    "Examples of DEEP:\n"
-    "- \"I went to kick their Knight not seeing my Bishop was hanging.\" (explains\n"
-    "  what distracted them)\n"
-    "- \"This is a calculation error, 2 attackers, one defender.\" (attributes\n"
-    "  the mistake to a specific miscount, not just stating the position)\n"
-    "- \"I think I played a3 to protect it from capture.\" (states own intent,\n"
-    "  even tentatively)\n"
-    "- \"I needed to get on the same file as the Queen to force it away.\"\n"
-    "  (explains the missed plan)\n\n"
-    "Examples of SHALLOW:\n"
-    "- \"This hangs my Rook for a Bishop.\"\n"
-    "- \"There was a discovered attack on my Queen that I missed.\"\n"
-    "- \"I moved my queen into a forking square with my King.\"\n"
-    "- \"This is a passive move, permitting my opponent to play Rc2, putting\n"
-    "  their rook on a very powerful rank.\"\n"
-    "- \"It appears that the engine wants to make sure they don't have a bishop\n"
-    "  pair, but that's a guess.\" (explains the engine's logic, not the\n"
-    "  player's own reasoning)\n\n"
-    "For entries beginning with [3x3], the parts form one connected\n"
-    "self-analysis of a single decision (Why I played it = player's\n"
-    "intent, What was wrong = what was wrong with their move, Why the\n"
-    "better move is better = often the same underlying point restated,\n"
-    "Lesson = the takeaway). 'What was wrong' and 'Why the better move\n"
-    "is better' are board-fact questions by design — a factual answer to\n"
-    "either is NOT shallow. Classify the whole [3x3] entry as DEEP if\n"
-    "'Why I played it' or 'Lesson' contains genuine player-perspective\n"
-    "reasoning: what they were thinking, what they misread, or a specific\n"
-    "lesson that names the pattern (not just 'be more careful'). Classify\n"
-    "as SHALLOW only if all parts are bare board facts or generic filler\n"
-    "with no player angle.\n\n"
-    "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
-)
 
 
 # ---------------------------------------------------------------------------
@@ -163,7 +112,8 @@ def classify_notes(
     """
     thinking = AIService.disable_thinking_for(model)
     notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in notes)
-    prompt = _CLASSIFIER_PROMPT + notes_text
+    classifier_body = (config or {}).get("prompts", {}).get("chess_log", {}).get("classifier", "")
+    prompt = classifier_body + notes_text
 
     service = AIService(config=config)
     result = service.send_message(

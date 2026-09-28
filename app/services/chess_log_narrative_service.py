@@ -25,158 +25,12 @@ from app.services.ai_service import AIService, TokenUsage
 from app.services.chess_log_stats_service import ChessLogPresetSeries, aggregate
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.notes_storage_service import NotesStorageService
-from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
 from app.utils.player_matcher import game_matches_player_color as _game_matches_player_color
 
-_SYSTEM_PROMPT = (
-    "You are a chess coach helping a player reflect on their self-annotated game moments. "
-    "Be specific, encouraging, and concrete. Avoid generic advice. "
-    "Write in second person ('you', 'your'). "
-    "If a category's counts across bins don't show a consistent direction, say so plainly rather than forcing a trend narrative — but still report any genuine qualitative insight from that category's why-notes even when the numeric trend is inconclusive. A small or irregular count doesn't mean there's nothing worth learning from what you actually wrote. "
-    "Write in plain, direct sentences. Never use em-dashes anywhere in your response, for any purpose - including setting off lists of numbers or parenthetical asides. Use commas, periods, or separate sentences instead. Don't lose the underlying connections between categories when the data supports them (e.g. if a hung piece and a dangerous alignment happen on the same tagged moment, say so directly, just without the flourish). "
-    "Refer to time periods using their actual calendar labels (e.g. specific months or date ranges) provided in the data. Never use generic placeholder language like 'periods' or 'bins' when a real time label is available. "
-    "Structure your response as three markdown sections, in this exact order, using exactly these headers:\n\n"
-    "## Patterns & Recurrent Themes\n"
-    "## Tactical Breakdown\n"
-    "## Key Takeaways\n\n"
-    "The Patterns & Recurrent Themes section is a markdown bullet list — emit it as 2 to 4 bullet items (one per theme) using `-` as the bullet marker, with a blank line separating each bullet's body from the next bullet. Each bullet must begin with a bold sentence-fragment lead-in that names the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences of body text (e.g. `- **Rushing calculation in sharp positions.** You repeatedly ...`). The lead-in must stand on its own as a scannable summary of the theme. Do NOT nest bullets; do NOT emit sub-bullets. Focus on the underlying behavioral tendencies (rushing calculation, drifting attention in slow positions, missing prophylaxis, etc.), keep the tone player-focused, and do NOT frame around CLAMP letters or percentages — category-level detail belongs in the Tactical Breakdown section that follows. "
-    "The Tactical Breakdown section MUST be a markdown pipe table with exactly three "
-    "columns and a header row, in this exact format:\n\n"
-    "| Skill | Observed Issue | Strategic Impact |\n"
-    "| --- | --- | --- |\n"
-    "| ... | ... | ... |\n\n"
-    "One row per chess-concept theme that the data supports. In the Skill column, use "
-    "generic chess-concept labels that you synthesize from the underlying moves and "
-    "why-notes — for example: King Safety, Piece Coordination, Pawn Structure, "
-    "Calculation Depth, Time Management, Move Order, Tactical Awareness, Prophylaxis. "
-    "Do NOT use CLAMP letters, CLAMP category names (Checks, Loose Pieces and Squares, "
-    "Alignments, Mobility Restrictions, Passed Pawns), CCT category names (Checks, "
-    "Captures, Threats), or 3x3 Why-question labels in the Skill column — treat those "
-    "as grouping hints only and name the underlying chess concept instead. This is where "
-    "per-concept percentages and pattern-level observations belong — not in Patterns & "
-    "Recurrent Themes. Do not repeat the same content across multiple rows. Do not add "
-    "extra columns. Every row MUST populate all three columns with substantive content "
-    "— never emit a row where Strategic Impact is empty, whitespace, a placeholder like "
-    "— or N/A, or a restatement of the Observed Issue. Strategic Impact must name the "
-    "concrete downstream consequence for the game (material loss, king exposure, "
-    "initiative surrendered, tempo wasted, etc.). If you cannot articulate a distinct "
-    "Strategic Impact for a row, drop the row entirely rather than emit a blank cell. "
-    "Do not emit any prose outside the table in this section. "
-    "The Key Takeaways section is the single most important part of your response and must never be dropped or reduced to a throwaway line. Write it as 1 to 3 short paragraphs of continuous prose, not a numbered or bulleted list. Each paragraph must begin with a bold sentence-fragment lead-in that names the actionable takeaway in 3 to 8 words, followed by a period, then the paragraph body (e.g. `**Slow down in king-attack positions.** When the tagged notes mention...`). Each paragraph must be anchored to a specific quote or short phrase drawn verbatim from the player's own why-notes or whole-game notes, and use that anchor to name a concrete, actionable next step. Do not restate the earlier sections in miniature and do not offer generic coaching advice that isn't tied to the player's own words. If you are running short on space, compress or omit low-signal rows in the Tactical Breakdown table (few tagged moments, no clear trend, such as Mobility or Passed Pawns when sparse) rather than sacrifice anything in Key Takeaways. "
-    "When discussing a category's trend across periods, do not mechanically list every period's name and number in a row more than once. Refer to the overall pattern in plain language (e.g. 'consistently across all four logged periods,' 'in every period without exception') and name specific periods only when calling out a genuine standout (the highest or lowest, or a real change point), not as a rote enumeration. "
-    "When a preset's category letters are not all distinct (as with CCT, where both Checks and Captures start with C), never use a bare letter as shorthand for either one. Always use the full category name (Checks, Captures, Threats) to keep them unambiguous. This does not apply to CLAMP, where each letter maps to exactly one category and bare-letter shorthand (C, L, A, M, P) remains fine. "
-    "For CCT-tagged moments, a tag can describe either side of the board. A Checks, Captures, or Threats tag may mean the player's own candidate move created that problem, or it may mean the opponent's prior move created it and the player failed to respond to it. Read the why-note itself to tell which; do not assume a tag always means 'the player's move was the problem.' "
-    "When you cite a specific move from a game, always give the full move+color pairing: 'move number. move, White vs Black' (for example, '16. b4, NotThePainter vs mattsartin'). Never abbreviate to just 'vs Black' or 'the b4 move' — the reader needs the move number, the SAN, and the player-color pairing every time. "
-    "Cap verbatim quotes from the player's why-notes at 1 to 2 per theme, per table row, and per Key Takeaway paragraph. Do not sprinkle a quote into every sentence — pick the one or two that best carry the point and let them do the work. "
-)
 
-# Registry of per-preset glossary text.
-# Contract: preset name → verbatim glossary text. Only presets with non-empty
-# text get a glossary block emitted. Only presets present in the filtered data
-# get their glossary block included at all.
-#
-# Rule for additions (CCT / 3x3 / Custom): when Paul supplies verbatim glossary
-# text for a preset, drop it in here as-is. Do NOT paraphrase, do NOT invent
-# definitions. If a definition has not been supplied, the entry stays as "" so
-# no glossary block is emitted — an absent glossary is better than a wrong one.
-_PRESET_GLOSSARIES: Dict[str, str] = {
-    "CLAMP": (
-        "- C — Checks: A checking move — either one the opponent's last move enabled that "
-        "wasn't accounted for, or one the player's own candidate move allows in return.\n"
-        "- L — Loose Pieces and Squares: A piece or square left undefended or under-defended "
-        "— the opponent's loose piece going unclaimed, or one of the player's own left hanging "
-        "by their candidate move.\n"
-        "- A — Alignments: A dangerous lineup along a file, rank, diagonal, or knight's reach "
-        "— enabling pins, skewers, forks, or discovered attacks — whether the opponent's last "
-        "move created it unnoticed, or the player's own candidate move creates it against "
-        "themselves.\n"
-        "- M — Mobility Restrictions: A piece left with restricted movement and at risk of "
-        "being trapped — an opponent's piece that could have been cornered, or one of the "
-        "player's own boxed in by their candidate move.\n"
-        "- P — Passed Pawns: A pawn positioned to become unstoppable — the opponent's passed "
-        "pawn not dealt with in time, or the player's own candidate move handing them one."
-    ),
-    "CCT": (
-        "- C — Checks: A checking move — either one the opponent's last move enabled that "
-        "wasn't accounted for, or one the player's own candidate move allows in return.\n"
-        "- C — Captures: A piece or square left undefended or under-defended, the "
-        "opponent's loose piece going unclaimed, or one of the player's own left hanging "
-        "by their candidate move.\n"
-        "- T — Threats: An aggressive move, such as attacking a higher-value piece, "
-        "creating a mating sequence, or setting up a tactical fork, that forces the "
-        "opponent to respond defensively on their very next turn to avoid immediate "
-        "material or positional loss."
-    ),
-    # 3x3 uses a structural Why-questions block rather than a letter glossary — see
-    # _3X3_STRUCTURE_BLOCK and _format_3x3_structure() below.
-    "3x3": "",
-}
 
-# Placeholders in _USER_PREAMBLE (authoritative names — commit-6 ConfigLoader
-# validator must match these exactly):
-#   {glossary_section}       — preset glossary block, empty string for 3x3
-#   {category_counts_block}  — per-preset category-count table
-#   {why_notes_block}        — player's own why-notes, one per line
-#   {game_notes_block}       — whole-game notes, or "(no whole-game notes)"
-_USER_PREAMBLE = """\
-Below is a summary of the moments I have tagged across my recent games in CARA's Chess Log.
-{glossary_section}## Category counts by preset (over time)
 
-(Use the calendar label shown for each time period, e.g. "June-July 2025" — never "Bin N" or "period 3".)
 
-{category_counts_block}
-
-## My own notes on individual moments (why-notes)
-
-{why_notes_block}
-
-Treat whole-game notes as illustrative color only — use them to flavor observations \
-grounded in the category-count and why-note evidence above, never as the primary basis \
-for a conclusion.
-
-## Whole-game notes
-
-{game_notes_block}
-
----
-
-"""
-
-_NARRATIVE_STEP = (
-    "Please write:\n\n"
-    "1. **Patterns & Recurrent Themes** (a bullet list of 2 to 4 bullets, one per "
-    "cross-cutting behavioral theme): emit each theme as a `-` bullet with a blank "
-    "line between bullets. Begin each bullet with a bold sentence-fragment lead-in "
-    "naming the theme in 3 to 8 words, followed by a period, then 2 to 5 sentences "
-    "of body text (e.g. `- **Rushing calculation in sharp positions.** I repeatedly "
-    "...`). Focus on the player-level behavior (how I seem to think, when I rush, "
-    "what I overlook), not on CLAMP letters or category percentages — that granular "
-    "data goes in the Tactical Breakdown table below. Reference at most 1 to 2 "
-    "verbatim quotes from my own why-notes per theme. Do NOT nest bullets.\n\n"
-    "2. **Tactical Breakdown** (a markdown pipe table, not prose): exactly the header "
-    "row `| Skill | Observed Issue | Strategic Impact |` followed by an alignment "
-    "separator row `| --- | --- | --- |` and one row per chess-concept theme supported "
-    "by the data. In the Skill column, use generic chess-concept labels (King Safety, "
-    "Piece Coordination, Pawn Structure, Calculation Depth, Time Management, Move Order, "
-    "etc.) — do NOT use CLAMP letters, CLAMP category names, CCT category names, or 3x3 "
-    "Why-question labels. At most 1 to 2 verbatim quotes per row. No prose outside the "
-    "table in this section. Every row must fill all three columns — if you cannot "
-    "write a substantive Strategic Impact, drop the row rather than leave it blank.\n\n"
-    "3. **Key Takeaways** (1 to 3 short paragraphs of continuous prose, not a "
-    "numbered or bulleted list): begin each paragraph with a bold sentence-fragment "
-    "lead-in naming the actionable takeaway in 3 to 8 words, followed by a period, "
-    "then the paragraph body (e.g. `**Slow down in king-attack positions.** When "
-    "my tagged notes mention...`). Each paragraph anchored to a specific quote or "
-    "short phrase from my own why-notes or whole-game notes, naming a concrete, "
-    "actionable next step. Do not restate the earlier sections in miniature. At "
-    "most 1 to 2 verbatim quotes per paragraph.\n\n"
-    "Format all three as markdown sections with the exact headers "
-    "`## Patterns & Recurrent Themes`, `## Tactical Breakdown`, and "
-    "`## Key Takeaways`, in that order. When citing a specific move from a game, "
-    "use the full move+color pairing (e.g. `16. b4, NotThePainter vs mattsartin`).\n"
-)
-
-_CLOSING = ""
 
 
 def sanitize_narrative_markdown(text: str) -> str:
@@ -228,6 +82,7 @@ def build_prompt(
     games: List[GameData],
     player: str = "",
     color_filter: str = "both",
+    config: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Assemble the LLM prompt from the given games.
 
@@ -235,10 +90,18 @@ def build_prompt(
         games:         Games to draw data from (already filtered to the desired scope).
         player:        Player name for scoping (empty = all players).
         color_filter:  "white" / "black" / "both".
+        config:        App config dict; must contain prompts.chess_log.* keys.
 
     Returns:
         Formatted prompt string ready to send as the user message.
     """
+    # Placeholders in narrative_preamble (authoritative names — ConfigLoader
+    # validator checks these at startup):
+    #   {glossary_section}       — preset glossary block, empty string for 3x3
+    #   {category_counts_block}  — per-preset category-count table
+    #   {why_notes_block}        — player's own why-notes, one per line
+    #   {game_notes_block}       — whole-game notes, or "(no whole-game notes)"
+    cl_prompts = (config or {}).get("prompts", {}).get("chess_log", {})
     player_cf = (player or "").casefold().strip()
 
     preset_names: Set[str] = set()
@@ -284,8 +147,8 @@ def build_prompt(
         chart_cfg={"target_progression_bins": 4, "min_games_per_ordinal_bin": 1},
     )
 
-    glossary_block = _format_glossary(preset_names)
-    threexthree_block = _format_3x3_structure(preset_names)
+    glossary_block = _format_glossary(preset_names, cl_prompts.get("narrative_glossaries", {}))
+    threexthree_block = _format_3x3_structure(preset_names, cl_prompts.get("narrative_3x3_structure", ""))
     combined = "\n\n".join(b for b in (glossary_block, threexthree_block) if b)
     glossary_section = f"\n{combined}\n\n" if combined else "\n"
 
@@ -299,16 +162,16 @@ def build_prompt(
     else:
         category_counts_block = "(no moments tagged)"
 
-    why_notes_block = _format_why_notes(why_notes)
+    why_notes_block = _format_why_notes(why_notes, cl_prompts.get("narrative_3x3_moment_framing", ""))
     game_notes_block = _format_game_notes(game_notes)
 
-    preamble = _USER_PREAMBLE.format(
+    preamble = cl_prompts.get("narrative_preamble", "").format(
         glossary_section=glossary_section,
         category_counts_block=category_counts_block,
         why_notes_block=why_notes_block,
         game_notes_block=game_notes_block,
     )
-    return preamble + _NARRATIVE_STEP
+    return preamble + cl_prompts.get("narrative_step", "")
 
 
 @dataclass(frozen=True)
@@ -369,9 +232,11 @@ def generate_narrative(
         games,
         player=player,
         color_filter=color_filter,
+        config=config,
     )
 
     thinking = AIService.disable_thinking_for(model)
+    system_prompt = (config or {}).get("prompts", {}).get("chess_log", {}).get("narrative_system", "")
 
     service = AIService(config=config)
     messages = [{"role": "user", "content": prompt}]
@@ -380,7 +245,7 @@ def generate_narrative(
         model=model,
         api_key=api_key,
         messages=messages,
-        system_prompt=_SYSTEM_PROMPT,
+        system_prompt=system_prompt,
         base_url_override=base_url_override,
         token_limit=token_limit,
         timeout_seconds=timeout_seconds,
@@ -409,41 +274,19 @@ def generate_narrative(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _format_glossary(preset_names: Set[str]) -> str:
+def _format_glossary(preset_names: Set[str], preset_glossaries: Dict[str, str]) -> str:
     """Emit glossary blocks for presets that appear in the data and have a glossary entry."""
     blocks = []
     for preset in sorted(preset_names):
-        text = _PRESET_GLOSSARIES.get(preset, "")
+        text = preset_glossaries.get(preset, "")
         if text:
             blocks.append(f"## Glossary — {preset}\n\n{text}")
     return "\n\n".join(blocks)
 
 
-_3X3_STRUCTURE_BLOCK = (
-    "## Why-note structure — 3x3\n\n"
-    "Each 3x3-tagged moment may include answers to up to four questions, always "
-    "asked in this order, though the player may skip any of them:\n\n"
-    + "\n".join(
-        f"{i + 1}. {q}"
-        for i, q in enumerate(THREE_BY_THREE_PROMPTS.values())
-    )
-    + "\n\n"
-    "These are the four questions from GM Noel Studer's 3x3 method. Together, the "
-    "four answers form one connected reasoning chain about a single decision: "
-    "Why1 establishes the player's intent, Why2 identifies what was wrong with "
-    "their chosen move, Why3 explains why the better move is better -- this is often "
-    "the same underlying point as Why2 restated from a different angle, not always a "
-    "distinct second step, so don't force them into a strict cause-then-effect "
-    "sequence if the player's own answers don't split that way -- and Why4 names the "
-    "lesson for next time. Either Why2 or Why3, or both, may be blank. Treat a blank "
-    "as simply unanswered, not as a break in the chain. All four always describe the "
-    "player's own chosen move and their own reasoning about it, never the opponent's move."
-)
-
-
-def _format_3x3_structure(preset_names: Set[str]) -> str:
+def _format_3x3_structure(preset_names: Set[str], structure_block: str) -> str:
     """Emit the 3x3 Why-questions block iff 3x3 data is present in the filtered data."""
-    return _3X3_STRUCTURE_BLOCK if "3x3" in preset_names else ""
+    return structure_block if "3x3" in preset_names else ""
 
 
 def _bin_month_label(lab0: str, lab1: str) -> str:
@@ -549,24 +392,15 @@ def _format_category_counts(
 
 _3X3_MOMENT_SENTINEL = "__3x3_moment__"
 
-_3X3_MOMENT_FRAMING = (
-    "[One connected decision follows, in order: "
-    "Why1 = the player's intent, "
-    "Why2 = what was wrong with their move, "
-    "Why3 = why the better move is better (often the same underlying point as Why2, "
-    "restated from a different angle, not always a distinct second step), "
-    "Why4 = the lesson for next time. "
-    "Either Why2 or Why3, or both, may be blank -- treat a blank as simply unanswered, not a gap.]"
-)
 
 
-def _format_why_notes(why_notes: List[Tuple[str, str]]) -> str:
+def _format_why_notes(why_notes: List[Tuple[str, str]], moment_framing: str) -> str:
     if not why_notes:
         return "(no notes written)"
     lines = []
     for label, note in why_notes:
         if label == _3X3_MOMENT_SENTINEL:
-            lines.append(f"\n{_3X3_MOMENT_FRAMING}")
+            lines.append(f"\n{moment_framing}")
         else:
             lines.append(f"- [{label}] {note}")
     return "\n".join(lines)

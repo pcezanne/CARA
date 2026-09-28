@@ -28,24 +28,24 @@ Assembly-method reference (for commit 6 brace-escaping work):
 
 from __future__ import annotations
 
+import json
 import os
 import pathlib
 import unittest
 
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
-from app.services.chess_log_narrative_service import (
-    _3X3_MOMENT_FRAMING,
-    _3X3_STRUCTURE_BLOCK,
-    _NARRATIVE_STEP,
-    _PRESET_GLOSSARIES,
-    _SYSTEM_PROMPT,
-    build_prompt,
-)
+from app.services.chess_log_narrative_service import build_prompt
 from app.services.notes_storage_service import NotesStorageService
+from app.utils.path_resolver import get_app_resource_path
 
 FIXTURE_DIR = pathlib.Path(__file__).parent.parent / "fixtures" / "chess_log_prompts"
 BOOTSTRAP = os.getenv("CHESS_LOG_FIXTURE_BOOTSTRAP") == "1"
+
+# Load the real config once so golden tests can pass it to build_prompt().
+_CONFIG_PATH = get_app_resource_path("app/config/config.json")
+with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
+    _CONFIG = json.load(_f)
 
 
 # ---------------------------------------------------------------------------
@@ -91,60 +91,10 @@ def _threex(key: str, why: str = "") -> dict:
 
 
 def _build_classifier_prompt(notes: list) -> str:
-    """Replicate the classifier prompt assembly from ChessLogShallowThread.run().
-
-    After commit 4 extracts ChessLogShallowService, this helper will be
-    replaced by a direct import from that service.
-    """
+    """Build the classifier prompt using the same assembly path as classify_notes()."""
     notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in notes)
-    return (
-        "Classify each of these player self-notes as SHALLOW or DEEP.\n\n"
-        "SHALLOW = only reports the outcome, the move played, or what's objectively\n"
-        "wrong with the position — a label or a fact about the board, not an\n"
-        "explanation of the player's own thinking\n"
-        "(e.g. \"I blundered\", \"missed it\", \"this hangs my Rook for a Bishop\",\n"
-        "\"there was a discovered attack on my Queen that I missed\").\n\n"
-        "DEEP = explains why the PLAYER made the move or missed the better one —\n"
-        "what they were thinking, focused on, or misjudging. Naming what's wrong\n"
-        "with the position or the resulting tactic (a fork, a discovered attack, a\n"
-        "weak rank) is NOT enough on its own — the note has to say something about\n"
-        "the player's own reasoning or mental error, even if brief or tentative.\n\n"
-        "A DEEP note doesn't need an explicit causal word like \"because\" — connecting\n"
-        "two facts is enough. \"I saw the free rook\" next to \"missed the mate\" already\n"
-        "explains the distraction that caused the miss.\n\n"
-        "Examples of DEEP:\n"
-        "- \"I went to kick their Knight not seeing my Bishop was hanging.\" (explains\n"
-        "  what distracted them)\n"
-        "- \"This is a calculation error, 2 attackers, one defender.\" (attributes\n"
-        "  the mistake to a specific miscount, not just stating the position)\n"
-        "- \"I think I played a3 to protect it from capture.\" (states own intent,\n"
-        "  even tentatively)\n"
-        "- \"I needed to get on the same file as the Queen to force it away.\"\n"
-        "  (explains the missed plan)\n\n"
-        "Examples of SHALLOW:\n"
-        "- \"This hangs my Rook for a Bishop.\"\n"
-        "- \"There was a discovered attack on my Queen that I missed.\"\n"
-        "- \"I moved my queen into a forking square with my King.\"\n"
-        "- \"This is a passive move, permitting my opponent to play Rc2, putting\n"
-        "  their rook on a very powerful rank.\"\n"
-        "- \"It appears that the engine wants to make sure they don't have a bishop\n"
-        "  pair, but that's a guess.\" (explains the engine's logic, not the\n"
-        "  player's own reasoning)\n\n"
-        "For entries beginning with [3x3], the parts form one connected\n"
-        "self-analysis of a single decision (Why I played it = player's\n"
-        "intent, What was wrong = what was wrong with their move, Why the\n"
-        "better move is better = often the same underlying point restated,\n"
-        "Lesson = the takeaway). 'What was wrong' and 'Why the better move\n"
-        "is better' are board-fact questions by design — a factual answer to\n"
-        "either is NOT shallow. Classify the whole [3x3] entry as DEEP if\n"
-        "'Why I played it' or 'Lesson' contains genuine player-perspective\n"
-        "reasoning: what they were thinking, what they misread, or a specific\n"
-        "lesson that names the pattern (not just 'be more careful'). Classify\n"
-        "as SHALLOW only if all parts are bare board facts or generic filler\n"
-        "with no player angle.\n\n"
-        "Return one line per note: <index>: SHALLOW or <index>: DEEP.\n\n"
-        f"{notes_text}"
-    )
+    classifier_body = _CONFIG["prompts"]["chess_log"]["classifier"]
+    return classifier_body + notes_text
 
 
 def _assert_or_write(name: str, actual: str) -> None:
@@ -185,24 +135,28 @@ def _assert_or_write(name: str, actual: str) -> None:
 # ---------------------------------------------------------------------------
 
 class TestConstantFixtures(unittest.TestCase):
+    """Verify config.json prompt values are byte-identical to the pre-move Python constants."""
+
+    def _cl(self):
+        return _CONFIG["prompts"]["chess_log"]
 
     def test_system_prompt(self):
-        _assert_or_write("system_prompt", _SYSTEM_PROMPT)
+        _assert_or_write("system_prompt", self._cl()["narrative_system"])
 
     def test_narrative_step(self):
-        _assert_or_write("narrative_step", _NARRATIVE_STEP)
+        _assert_or_write("narrative_step", self._cl()["narrative_step"])
 
     def test_glossary_clamp(self):
-        _assert_or_write("glossary_clamp", _PRESET_GLOSSARIES["CLAMP"])
+        _assert_or_write("glossary_clamp", self._cl()["narrative_glossaries"]["CLAMP"])
 
     def test_glossary_cct(self):
-        _assert_or_write("glossary_cct", _PRESET_GLOSSARIES["CCT"])
+        _assert_or_write("glossary_cct", self._cl()["narrative_glossaries"]["CCT"])
 
     def test_3x3_structure_block(self):
-        _assert_or_write("3x3_structure_block", _3X3_STRUCTURE_BLOCK)
+        _assert_or_write("3x3_structure_block", self._cl()["narrative_3x3_structure"])
 
     def test_3x3_moment_framing(self):
-        _assert_or_write("3x3_moment_framing", _3X3_MOMENT_FRAMING)
+        _assert_or_write("3x3_moment_framing", self._cl()["narrative_3x3_moment_framing"])
 
 
 # ---------------------------------------------------------------------------
@@ -233,7 +187,7 @@ class TestFullPromptClampOnly(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_clamp_only", prompt)
 
 
@@ -265,7 +219,7 @@ class TestFullPromptCctOnly(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_cct_only", prompt)
 
 
@@ -313,7 +267,7 @@ class TestFullPrompt3x3AllWhys(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_3x3_all_whys", prompt)
 
 
@@ -345,7 +299,7 @@ class TestFullPrompt3x3BlankWhy2Why3(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_3x3_blank_why2_why3", prompt)
 
 
@@ -378,7 +332,7 @@ class TestFullPromptWithGameNotes(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_with_game_notes", prompt)
 
 
@@ -414,7 +368,7 @@ class TestFullPromptMixedPresets(unittest.TestCase):
 
     def test_full_prompt(self):
         games = self._make_games()
-        prompt = build_prompt(games, player="Alice", color_filter="white")
+        prompt = build_prompt(games, player="Alice", color_filter="white", config=_CONFIG)
         _assert_or_write("full_prompt_mixed_presets", prompt)
 
 

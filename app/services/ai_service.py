@@ -335,13 +335,26 @@ class AIService:
                         json.dumps(debug_payload, indent=2))
         self._debug_console(debug_message, "SEND")
         
-        response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=timeout_seconds
-        )
-        
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout_seconds,
+            )
+        except requests.exceptions.Timeout:
+            return AIResult(
+                success=False, text="",
+                error=f"Request timed out after {timeout_seconds}s ({url})",
+                usage=None, model=model,
+            )
+        except requests.exceptions.ConnectionError:
+            return AIResult(
+                success=False, text="",
+                error=f"Connection failed: could not reach {url}",
+                usage=None, model=model,
+            )
+
         # Debug inbound: log response
         try:
             response_data = response.json() if response.content else {}

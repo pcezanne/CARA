@@ -191,6 +191,7 @@ class TestCustomProviderFailures(unittest.TestCase):
         )
         self.assertFalse(result.success)
         self.assertIn("500", result.error)
+        self.assertIn("internal server error", result.error)
 
     @patch("app.services.ai_service.requests.post")
     def test_timeout_returns_failure_naming_timeout(self, mock_post):
@@ -220,7 +221,7 @@ class TestCustomProviderFailures(unittest.TestCase):
             base_url_override=_BASE_URL,
         )
         self.assertFalse(result.success)
-        self.assertIsNotNone(result.error)
+        self.assertIn(_BASE_URL, result.error)
 
     @patch("app.services.ai_service.requests.post")
     def test_empty_choices_returns_failure(self, mock_post):

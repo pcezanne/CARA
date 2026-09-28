@@ -86,7 +86,9 @@ Three files loaded at startup: `app/config/config.json` (UI styling/dimensions/c
 
 Style config files (`style_default.config.json`, `style_light.config.json`, `style_scholar.config.json`) define reusable constants with a `$_` prefix, referenced elsewhere via `{"$ref": "$_CONSTANT_NAME"}`. `config.json`'s `default_style_config` key selects the active style file.
 
-Key sections: `ui.window`, `ui.panels`, `ui.dialogs.*`, `ui.styles`, `ui.colors`, `ui.fonts`, `version`.
+Key sections: `ui.window`, `ui.panels`, `ui.dialogs.*`, `ui.styles`, `ui.colors`, `ui.fonts`, `version`, `prompts`.
+
+**Prompts in config.json**: All LLM prompt strings live under `prompts.chess_log.*` and `prompts.ai_chat.*`. See `doc/chess_log_charts.md` — AI integration section — for the full prompt schema, placeholder contract, and why `_generate_initial_prompt()` stays in Python.
 
 ### Configuration Access
 

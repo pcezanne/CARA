@@ -158,6 +158,83 @@ The tab is non-modal (embedded in the central widget); `MainWindow.apply_theme()
 
 **AI provider config**: `app/utils/ai_provider_config.py` — `is_ai_configured` / `resolve_default_provider` helpers used by both Chess Log Charts and AI Summary.
 
+## AI integration
+
+### Prompt storage in `config.json`
+
+All LLM prompt strings live under a top-level `prompts` section with two siblings:
+
+```
+prompts.chess_log.narrative_system        — system prompt passed to AIService
+prompts.chess_log.narrative_preamble      — user message template (4 placeholders)
+prompts.chess_log.narrative_step          — appended after the preamble
+prompts.chess_log.narrative_glossaries    — dict: {"CLAMP": "…", "CCT": "…", "3x3": ""}
+prompts.chess_log.narrative_3x3_structure — Why-note structure block
+prompts.chess_log.narrative_3x3_moment_framing — per-moment inline framing line
+prompts.chess_log.classifier              — classifier system prompt
+prompts.ai_chat.system_preamble           — AI Chat system prompt preamble
+prompts.ai_chat.formatting_rules          — AI Chat formatting directives
+```
+
+All 11 keys are registered in `ConfigLoader._REQUIRED_CONFIG_KEY_PATHS` — a missing key causes a `ValueError` at startup with a clear message naming the absent path, not a silent KeyError mid-request.
+
+`_generate_initial_prompt()` in `ai_chat_controller.py` stays in Python: it embeds live FEN, PGN, ply index, and optional analysis JSON via f-strings. There is no equivalent for Chess Log's assembly either — `build_prompt()` and `classify_notes()` read prompts from config but all data interpolation happens in Python.
+
+### Placeholder contract
+
+`narrative_preamble` uses Python `.format()` with four named placeholders:
+
+- `{glossary_section}` — preset glossary + 3x3 structure block, or `\n` if none
+- `{category_counts_block}` — 4-bin trend table from `aggregate()`
+- `{why_notes_block}` — player's why-notes, one per line; sentinel separates moments
+- `{game_notes_block}` — whole-game notes, or "(no whole-game notes)"
+
+`ConfigLoader._validate_prompt_placeholders()` checks all four are present using `string.Formatter().parse()` at startup — a load-time error, not a silent mid-run KeyError.
+
+**Why this differs from the Elo validation pattern**: Elo has `value_on_error` as a graceful fallback when a key is missing. Prompts have no equivalent — a missing `{placeholder}` silently drops that section from the assembled prompt with no error; an extra `{placeholder}` (unknown key) raises `KeyError` inside a `QThread` mid-request, leaving the UI blank with no message. The load-time validator makes either failure loud at startup instead of silent at runtime.
+
+### Missing-config guards
+
+`generate_narrative()` checks `(config or {}).get("prompts", {}).get("chess_log")` before calling `build_prompt()`. If the section is absent it returns `NarrativeResult(success=False, text="Chess Log prompts are missing from config.json — reinstall or restore the file.")` without touching the network. `classify_notes()` does the same, returning a `ShallowResult(success=False, …)`. `AIChatController.send_message()` emits `error_occurred` and returns `False` before appending any message to the conversation. The guards fire before state is mutated — they mirror the existing model-config checks at lines 476–484 of `ai_chat_controller.py`.
+
+Tests: `TestNarrativeMissingConfig`, `TestClassifyNotesMissingConfig`, `TestAIChatMissingConfig` in the relevant test files.
+
+### `THREE_BY_THREE_PROMPTS` and config divergence
+
+The four Why-question strings in `app/utils/chess_log_prompts.py` (`THREE_BY_THREE_PROMPTS`) are the live source for the moment dialog, tags dialog, and PDF export. `prompts.chess_log.narrative_3x3_structure` must contain each verbatim — `test_config_3x3_structure_matches_three_by_three_prompts` enforces this at test time. Editing a Why question without updating `config.json` produces a test failure.
+
+### Editing prompts
+
+Multi-line prompt strings are stored as single JSON string values with `\n` escapes (e.g. `"Line one.\nLine two."`). This is JSON's native format — no array-join trick — but it makes hand-editing in a text editor awkward: the entire prompt appears as one long line. To edit, search for a distinctive phrase, make the change, and keep the `\n` separators intact. A JSON formatter (e.g. `python3 -c "import json,sys; print(json.dumps(json.load(sys.stdin), indent=2))" < config.json`) can pretty-print the file temporarily for easier editing, though the committed form stays compact.
+
+## Manual test checklist
+
+### What Paul can test before the PR
+
+1. **Narrative Summary** — run on the logged-game library and compare output quality with the pre-change baseline. The golden fixture tests in `tests/services/test_chess_log_prompts_config_roundtrip.py` prove prompt assembly is byte-identical before and after the config move; the comparison is a spot-check for quality, not a byte diff.
+
+2. **AI Chat** — run a normal analysis session. The golden fixture tests in `tests/services/test_ai_chat_prompts_golden.py` prove system_prompt assembly is byte-identical.
+
+3. **Prompt editing** — open `app/config/config.json`, append a visible marker to `prompts.chess_log.narrative_system` (e.g. `" [TEST]"` at the end). Restart CARA, run Narrative Summary, verify the marker appears in the AI's reply or in the logs. Revert the change. Repeat for `prompts.ai_chat.system_preamble`.
+
+4. **Token labels** — confirm `Tokens: N in / M out` appears below the narrative and near the Show Shallow Notes button after each run. Confirm both labels clear when a new run starts and when a run fails. Export the narrative to PDF and confirm no "Tokens:" text appears in the exported file.
+
+5. **Placeholder validator** — edit `narrative_preamble` in `config.json` to remove one of the four required placeholders (e.g. delete `{glossary_section}`). Restart CARA — it should fail at startup with a clear error naming the missing placeholder. Restore the file.
+
+6. **Failure notice** — close the network connection or use a bad API key; confirm the failure message ("Couldn't reach …" or "API key missing …") appears in the UI rather than a blank panel.
+
+### What's left for Philipp at PR review
+
+1. **Local endpoint (CUSTOM provider)** — test both Narrative Summary and Show Shallow Notes against LM Studio / llama.cpp / Ollama in OpenAI-compatible mode. Paul does not have a local endpoint set up. Automated CUSTOM-path coverage is in `tests/services/test_ai_service_custom_provider.py` but live-endpoint testing is deferred to PR review.
+
+2. **Garbled classifier reply from a small local model** — deliberately point at a tiny model that returns prose instead of `0: SHALLOW` lines. Confirm the UI shows "N notes couldn't be classified — left unchanged" and no notes are marked shallow. Mocked coverage is in `tests/services/test_chess_log_shallow_service.py`; this is the live-endpoint equivalent.
+
+3. **Provider Paul doesn't have a key for** — test any cloud provider Paul doesn't have configured; confirm the error notice appears.
+
+4. **Multi-line prompt editing** — hand-edit a prompt in `config.json`, restart, confirm the edit is picked up. A reformatter (`python3 -m json.tool config.json`) can pretty-print the file to make editing easier.
+
+5. **Placeholder validator message quality** — remove a required placeholder, restart, confirm the error message is clear enough for a non-developer to act on.
+
 ## Key files
 
 - `app/services/chess_log_stats_service.py`

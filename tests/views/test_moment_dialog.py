@@ -224,6 +224,39 @@ class TestMomentDialogConventions(unittest.TestCase):
 
 
 @requires_qt
+class TestScrollbarStyling(unittest.TestCase):
+    """All QTextEdits in MomentDialog must receive scrollbar styling."""
+
+    def test_threexthree_edits_receive_scrollbar_styling(self):
+        from unittest.mock import patch
+        with patch("app.views.dialogs.moment_dialog.StyleManager.style_text_edit_scrollbar") as mock:
+            dlg = _make("3x3")
+        self.assertEqual(mock.call_count, 4)
+        called_widgets = [call.args[0] for call in mock.call_args_list]
+        for _, edit in dlg._threexthree_edits:
+            self.assertIn(edit, called_widgets)
+
+    def test_why_field_receives_scrollbar_styling_clamp(self):
+        from unittest.mock import patch
+        with patch("app.views.dialogs.moment_dialog.StyleManager.style_text_edit_scrollbar") as mock:
+            dlg = _make("CLAMP")
+        self.assertEqual(mock.call_count, 1)
+        self.assertEqual(mock.call_args.args[0], dlg._why_edit)
+
+    def test_why_field_receives_scrollbar_styling_cct(self):
+        from unittest.mock import patch
+        with patch("app.views.dialogs.moment_dialog.StyleManager.style_text_edit_scrollbar") as mock:
+            dlg = _make("CCT")
+        self.assertEqual(mock.call_count, 1)
+        self.assertEqual(mock.call_args.args[0], dlg._why_edit)
+
+    def test_3x3_edit_min_height_from_config(self):
+        dlg = _make("3x3")
+        for _, edit in dlg._threexthree_edits:
+            self.assertEqual(edit.minimumHeight(), dlg._three_by_three_edit_min_height)
+
+
+@requires_qt
 class TestCustomNotOffered(unittest.TestCase):
     """Custom must not appear as an offered preset in MomentDialog."""
 

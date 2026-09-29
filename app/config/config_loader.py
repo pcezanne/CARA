@@ -1349,6 +1349,7 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.dialogs.moment.layout.margins",
     "ui.dialogs.moment.layout.spacing",
     "ui.dialogs.moment.why.minimum_height",
+    "ui.dialogs.moment.three_by_three.edit_minimum_height",
     "ui.dialogs.message_dialog.background_color",
     "ui.dialogs.message_dialog.bottom_button_top_padding",
     "ui.dialogs.message_dialog.buttons.border_color",

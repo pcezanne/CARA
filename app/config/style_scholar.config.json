@@ -4145,6 +4145,9 @@
         "why": {
           "minimum_height": 60
         },
+        "three_by_three": {
+          "edit_minimum_height": 50
+        },
         "background_color": {
           "$ref": "$_COLOR_PAPYRUS_PANEL"
         },

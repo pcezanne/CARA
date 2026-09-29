@@ -106,6 +106,7 @@ class MomentDialog(QDialog):
         self._chip_min_width = dc.get("chips", {}).get("min_width", 36)
         self._chip_min_width_cct = dc.get("chips", {}).get("cct_min_width", 72)
         self._why_min_height = dc.get("why", {}).get("minimum_height", 60)
+        self._three_by_three_edit_min_height = dc.get("three_by_three", {}).get("edit_minimum_height", 50)
 
         try:
             from app.utils.font_utils import resolve_font_family, scale_font_size
@@ -239,10 +240,17 @@ class MomentDialog(QDialog):
             self._label(prompt, layout)
             edit = QTextEdit()
             edit.setAcceptRichText(False)
-            edit.setMinimumHeight(68)
+            edit.setMinimumHeight(self._three_by_three_edit_min_height)
             edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
             edit.setStyleSheet(le_ss)
-            layout.addWidget(edit)
+            StyleManager.style_text_edit_scrollbar(
+                edit,
+                self.config,
+                self._input_bg_rgb,
+                self._input_border_rgb,
+                le_ss,
+            )
+            layout.addWidget(edit, 1)
             self._threexthree_edits.append((key, edit))
 
     def _prefill_existing_entries(self) -> None:
@@ -292,7 +300,15 @@ class MomentDialog(QDialog):
         self._why_edit.setPlaceholderText("Optional — why did this happen?")
         self._why_edit.setMinimumHeight(self._why_min_height)
         self._why_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        self._why_edit.setStyleSheet(self._textedit_stylesheet())
+        why_ss = self._textedit_stylesheet()
+        self._why_edit.setStyleSheet(why_ss)
+        StyleManager.style_text_edit_scrollbar(
+            self._why_edit,
+            self.config,
+            self._input_bg_rgb,
+            self._input_border_rgb,
+            why_ss,
+        )
         layout.addWidget(self._why_edit)
 
     def _textedit_stylesheet(self) -> str:

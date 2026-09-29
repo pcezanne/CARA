@@ -60,6 +60,7 @@ _MOMENT_DIALOG_LAYOUT_KEYS = [
     "ui.dialogs.moment.layout.margins",
     "ui.dialogs.moment.layout.spacing",
     "ui.dialogs.moment.why.minimum_height",
+    "ui.dialogs.moment.three_by_three.edit_minimum_height",
 ]
 
 _ALL_PATHS = (

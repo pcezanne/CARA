@@ -34,6 +34,8 @@ python -m unittest tests.services.test_pgn_service.TestPgnServiceNormalizeMovesF
 
 **Test coverage is part of every item's definition of done — no exceptions for changes that seem purely cosmetic or UI-only.** "Just a label" or "just styling" is not a reason to skip a test; if it's worth shipping, it's worth a test confirming it shows what it's supposed to show. When implementing a batch of multiple fixes or features, treat "add tests" as part of each individual item, not a cleanup pass at the end. The last item in a batch is just as likely to need coverage as the first.
 
+**Before removing a symbol or making a parameter stricter** (e.g. `None` → failure), grep every reference first — including imports inside test helpers and callers passing `None` as a shorthand — or the build breaks in places the editor doesn't highlight.
+
 ## Building
 
 PyInstaller specs exist for macOS, Windows, and Linux (`CARA_macos.spec`, etc. — each requires its target OS to build).
@@ -104,6 +106,7 @@ Dialogs follow a standard constructor pattern: load config → build UI → appl
 
 - **QThread** for I/O-bound engine operations (EvaluationEngineThread, GameAnalysisEngineThread, ManualAnalysisEngineThread) — Qt handles thread safety via signals/slots.
 - **ProcessPoolExecutor** for CPU-bound work (player statistics, PGN parsing, multi-file opening), using `max(1, os.cpu_count() - 2)` workers to keep the UI responsive.
+- **Exception safety**: every `run()` in new or Chess Log QThread subclasses wraps its body in a top-level `try/except Exception` that emits the relevant failure signal — an uncaught exception kills the thread silently and leaves the UI stuck. Don't retrofit existing non-Chess-Log threads.
 
 ## Key Subsystems
 

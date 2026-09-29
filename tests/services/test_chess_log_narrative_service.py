@@ -521,6 +521,7 @@ class TestGenerateNarrative(unittest.TestCase):
             model="llama3",
             api_key="",
             base_url_override="http://localhost:11434",
+            config=_CONFIG,
         )
 
         call_args = mock_service.send_message.call_args
@@ -945,6 +946,17 @@ class Test3x3StructureBlock(unittest.TestCase):
     def test_3x3_block_has_no_source_inconsistency_hedging(self):
         self.assertNotIn("three questions", _3X3_STRUCTURE_BLOCK)
 
+    def test_config_3x3_structure_matches_three_by_three_prompts(self):
+        from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+        structure_block = _CONFIG["prompts"]["chess_log"]["narrative_3x3_structure"]
+        for key, value in THREE_BY_THREE_PROMPTS.items():
+            self.assertIn(
+                value,
+                structure_block,
+                f"THREE_BY_THREE_PROMPTS[{key!r}] not found verbatim in "
+                "prompts.chess_log.narrative_3x3_structure — edit both together",
+            )
+
 
 # ---------------------------------------------------------------------------
 # 3x3 end-to-end prompt-building
@@ -1046,6 +1058,39 @@ class TestBulletAndLeadInDirectives(unittest.TestCase):
         takeaways_pos = sp.find("Key Takeaways section")
         lead_in_pos = sp.find("bold sentence-fragment lead-in", takeaways_pos)
         self.assertGreater(lead_in_pos, -1, "bold lead-in not found after Key Takeaways directive")
+
+
+# ---------------------------------------------------------------------------
+# Missing config — clear failure, not empty request
+# ---------------------------------------------------------------------------
+
+class TestNarrativeMissingConfig(unittest.TestCase):
+
+    def test_generate_narrative_empty_config_returns_failure(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        result = generate_narrative(
+            [game],
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            base_url_override=None,
+            config={},
+        )
+        self.assertFalse(result.success)
+        self.assertIn("config.json", result.text)
+
+    def test_generate_narrative_none_config_returns_failure(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        result = generate_narrative(
+            [game],
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            base_url_override=None,
+            config=None,
+        )
+        self.assertFalse(result.success)
+        self.assertIn("config.json", result.text)
 
 
 # ---------------------------------------------------------------------------

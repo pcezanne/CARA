@@ -17,9 +17,15 @@ Covers:
 
 from __future__ import annotations
 
+import json as _json
 import unittest
 from typing import List, Tuple
 from unittest.mock import MagicMock, patch
+
+from app.utils.path_resolver import get_app_resource_path as _get_resource_path
+
+with open(_get_resource_path("app/config/config.json"), "r", encoding="utf-8") as _f:
+    _CONFIG = _json.load(_f)
 
 
 def _make_notes(
@@ -63,7 +69,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("0: SHALLOW\n1: DEEP\n2: SHALLOW")
         notes = _make_notes(["note A", "note B", "note C"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -80,7 +86,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -92,7 +98,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "```\n0: DEEP\n1: SHALLOW\n```"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -105,7 +111,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: Shallow.\n1: DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -118,7 +124,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: **SHALLOW**\n1: **DEEP**\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -130,7 +136,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: `SHALLOW`\n1: `DEEP`\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -141,7 +147,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: _SHALLOW_\n1: _DEEP_\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -152,7 +158,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: SHALLOW,\n1: DEEP;\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -165,7 +171,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: ** SHALLOW **\n1: ** DEEP **\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -179,7 +185,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0. DEEP\n1. SHALLOW\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -191,7 +197,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0) SHALLOW\n1) DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -203,7 +209,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "- 0: SHALLOW\n- 1: DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -215,7 +221,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "[0] SHALLOW\n[1] DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -230,7 +236,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "Here are 3 classifications:"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (0,))
         self.assertEqual(len(result.shallow_keys), 0)
@@ -241,7 +247,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: shallow\n1: Deep\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -254,7 +260,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: DEEP\n2: SHALLOW\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B", "note C"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (1,))
         # Index 1 is NOT marked shallow despite being absent
@@ -267,7 +273,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: SHALLOW\n99: SHALLOW\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -281,7 +287,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: SHALLOW\n0: DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
@@ -294,7 +300,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         reply = "0: SHALLOW (because it lacks reasoning)\n1: DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         # Index 0 is unparsed (extra text), index 1 is parsed as DEEP
         self.assertIn(0, result.unparsed_indices)
@@ -310,7 +316,7 @@ class TestClassifyNotesEmptyReply(unittest.TestCase):
         # AIService treats empty content as a failure — success=False, all unparsed
         mock_post.return_value = _mock_anthropic_response("")
         notes = _make_notes(["note A", "note B", "note C"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertFalse(result.success)
         self.assertEqual(result.unparsed_indices, (0, 1, 2))
         self.assertEqual(len(result.shallow_keys), 0)
@@ -320,7 +326,7 @@ class TestClassifyNotesEmptyReply(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("   \n\n  \n")
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (0,))
         self.assertEqual(len(result.shallow_keys), 0)
@@ -334,7 +340,7 @@ class TestClassifyNotesApiFailure(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_error(500, "Internal Server Error")
         notes = _make_notes(["note A", "note B"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertFalse(result.success)
         self.assertEqual(len(result.shallow_keys), 0)
         self.assertEqual(result.unparsed_indices, (0, 1))
@@ -346,7 +352,7 @@ class TestClassifyNotesApiFailure(unittest.TestCase):
         import requests as req_lib
         mock_post.side_effect = req_lib.exceptions.ConnectionError("connection refused")
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertFalse(result.success)
         self.assertEqual(result.unparsed_indices, (0,))
         self.assertEqual(len(result.shallow_keys), 0)
@@ -360,7 +366,7 @@ class TestClassifyNotesUsageReporting(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("0: DEEP", include_usage=True)
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertIsNotNone(result.usage)
         self.assertTrue(result.usage.reported)
@@ -372,7 +378,7 @@ class TestClassifyNotesUsageReporting(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("0: SHALLOW", include_usage=False)
         notes = _make_notes(["note A"])
-        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertIsNotNone(result.usage)
         self.assertFalse(result.usage.reported)
@@ -389,7 +395,7 @@ class TestClassifyNotesThinkingDisabled(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("0: DEEP")
         notes = _make_notes(["note A"])
-        classify_notes(notes, "anthropic", "claude-sonnet-5-20251101", "sk-test", None, None, 30)
+        classify_notes(notes, "anthropic", "claude-sonnet-5-20251101", "sk-test", None, _CONFIG, 30)
         _, kwargs = mock_post.call_args
         payload = kwargs.get("json") or {}
         self.assertEqual(payload.get("thinking"), {"type": "disabled"})
@@ -399,10 +405,29 @@ class TestClassifyNotesThinkingDisabled(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("0: DEEP")
         notes = _make_notes(["note A"])
-        classify_notes(notes, "anthropic", "claude-fable-5-1", "sk-test", None, None, 30)
+        classify_notes(notes, "anthropic", "claude-fable-5-1", "sk-test", None, _CONFIG, 30)
         _, kwargs = mock_post.call_args
         payload = kwargs.get("json") or {}
         self.assertNotIn("thinking", payload)
+
+
+class TestClassifyNotesMissingConfig(unittest.TestCase):
+
+    def test_empty_config_returns_failure(self):
+        from app.services.chess_log_shallow_service import classify_notes
+        notes = _make_notes(["note A", "note B"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, {}, 30)
+        self.assertFalse(result.success)
+        self.assertIn("config.json", result.error)
+        self.assertEqual(len(result.shallow_keys), 0)
+
+    def test_none_config_returns_failure(self):
+        from app.services.chess_log_shallow_service import classify_notes
+        notes = _make_notes(["note A"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, None, 30)
+        self.assertFalse(result.success)
+        self.assertIn("config.json", result.error)
+        self.assertEqual(len(result.shallow_keys), 0)
 
 
 if __name__ == "__main__":

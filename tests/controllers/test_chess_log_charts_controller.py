@@ -817,5 +817,62 @@ class TestNotifyChessLogSaved(unittest.TestCase):
         self.assertIs(args[0], sentinel)
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogNarrativeThreadExceptionHandling(unittest.TestCase):
+    """Exception inside run() must emit narrative_failed, not die silently."""
+
+    def test_exception_in_work_emits_narrative_failed(self):
+        game = _make_game(entries_per_path={"0": [_clamp("C")]})
+        thread = ChessLogNarrativeThread(
+            games=[game],
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url_override=None,
+            player="",
+            color_filter="both",
+            config={},   # missing prompts section → KeyError in build_prompt
+        )
+        failed: list = []
+        thread.narrative_failed.connect(failed.append)
+        # run() directly so the test is synchronous
+        with patch(
+            "app.controllers.chess_log_charts_controller.generate_narrative",
+            side_effect=KeyError("narrative_preamble"),
+        ):
+            thread.run()
+        self.assertEqual(len(failed), 1, "narrative_failed must be emitted exactly once")
+        self.assertIn("narrative_preamble", failed[0])
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogShallowThreadExceptionHandling(unittest.TestCase):
+    """Exception inside run() must emit shallow_failed, not die silently."""
+
+    def test_exception_in_work_emits_shallow_failed(self):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        notes = [(0, 1, "path/0", "CLAMP", "I missed a tactic")]
+        thread = ChessLogShallowThread(
+            games=[],
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            base_url_override=None,
+            config={},
+            timeout_seconds=30,
+            notes=notes,
+        )
+        failed: list = []
+        thread.shallow_failed.connect(failed.append)
+        # classify_notes is imported inside run() from the service module
+        with patch(
+            "app.services.chess_log_shallow_service.classify_notes",
+            side_effect=KeyError("classifier"),
+        ):
+            thread.run()
+        self.assertEqual(len(failed), 1, "shallow_failed must be emitted exactly once")
+        self.assertIn("classifier", failed[0])
+
+
 if __name__ == "__main__":
     unittest.main()

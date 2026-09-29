@@ -194,5 +194,39 @@ class TestAIChatPromptsGolden(unittest.TestCase):
         )
 
 
+class TestAIChatMissingConfig(unittest.TestCase):
+    """Missing prompts config emits error_occurred — no request made."""
+
+    def _make_empty_config_controller(self) -> AIChatController:
+        mock_settings = MagicMock()
+        mock_settings.get_settings.return_value = _MOCK_AI_SUMMARY_SETTINGS
+        with patch("app.controllers.ai_chat_controller.UserSettingsService") as MockUSS:
+            MockUSS.get_instance.return_value = mock_settings
+            controller = AIChatController(
+                config={},
+                game_controller=None,
+                app_controller=MagicMock(),
+            )
+        controller.user_settings_service = mock_settings
+        controller._played_move_sequence = []
+        return controller
+
+    def test_empty_config_emits_error_not_request(self):
+        controller = self._make_empty_config_controller()
+        errors: list = []
+        controller.error_occurred.connect(errors.append)
+        with patch("app.controllers.ai_chat_controller.AIRequestThread") as MockThread:
+            controller._get_model_config = MagicMock(
+                return_value=("openai", "gpt-4o", "sk-test", None)
+            )
+            controller._get_position_info = MagicMock(
+                return_value=(_FEN, _PGN_FIRST, _PLY_INDEX)
+            )
+            controller.send_message("analyze this position")
+        self.assertFalse(MockThread.called, "AIRequestThread must not be called when config is empty")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("config.json", errors[0])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -101,7 +101,11 @@ def build_prompt(
     #   {category_counts_block}  — per-preset category-count table
     #   {why_notes_block}        — player's own why-notes, one per line
     #   {game_notes_block}       — whole-game notes, or "(no whole-game notes)"
-    cl_prompts = (config or {}).get("prompts", {}).get("chess_log", {})
+    cl_prompts = (config or {}).get("prompts", {}).get("chess_log") or {}
+    if not cl_prompts:
+        raise ValueError(
+            "Chess Log prompts are missing from config.json — reinstall or restore the file."
+        )
     player_cf = (player or "").casefold().strip()
 
     preset_names: Set[str] = set()
@@ -147,8 +151,8 @@ def build_prompt(
         chart_cfg={"target_progression_bins": 4, "min_games_per_ordinal_bin": 1},
     )
 
-    glossary_block = _format_glossary(preset_names, cl_prompts.get("narrative_glossaries", {}))
-    threexthree_block = _format_3x3_structure(preset_names, cl_prompts.get("narrative_3x3_structure", ""))
+    glossary_block = _format_glossary(preset_names, cl_prompts["narrative_glossaries"])
+    threexthree_block = _format_3x3_structure(preset_names, cl_prompts["narrative_3x3_structure"])
     combined = "\n\n".join(b for b in (glossary_block, threexthree_block) if b)
     glossary_section = f"\n{combined}\n\n" if combined else "\n"
 
@@ -162,16 +166,16 @@ def build_prompt(
     else:
         category_counts_block = "(no moments tagged)"
 
-    why_notes_block = _format_why_notes(why_notes, cl_prompts.get("narrative_3x3_moment_framing", ""))
+    why_notes_block = _format_why_notes(why_notes, cl_prompts["narrative_3x3_moment_framing"])
     game_notes_block = _format_game_notes(game_notes)
 
-    preamble = cl_prompts.get("narrative_preamble", "").format(
+    preamble = cl_prompts["narrative_preamble"].format(
         glossary_section=glossary_section,
         category_counts_block=category_counts_block,
         why_notes_block=why_notes_block,
         game_notes_block=game_notes_block,
     )
-    return preamble + cl_prompts.get("narrative_step", "")
+    return preamble + cl_prompts["narrative_step"]
 
 
 @dataclass(frozen=True)
@@ -228,6 +232,16 @@ def generate_narrative(
             model=model,
         )
 
+    cl_prompts = (config or {}).get("prompts", {}).get("chess_log") or {}
+    if not cl_prompts:
+        return NarrativeResult(
+            success=False,
+            text="Chess Log prompts are missing from config.json — reinstall or restore the file.",
+            shallow_flags=[],
+            usage=None,
+            model=model,
+        )
+
     prompt = build_prompt(
         games,
         player=player,
@@ -236,7 +250,7 @@ def generate_narrative(
     )
 
     thinking = AIService.disable_thinking_for(model)
-    system_prompt = (config or {}).get("prompts", {}).get("chess_log", {}).get("narrative_system", "")
+    system_prompt = cl_prompts["narrative_system"]
 
     service = AIService(config=config)
     messages = [{"role": "user", "content": prompt}]

@@ -482,7 +482,15 @@ Please provide a brief analysis of this position, including:
         if provider == AIProvider.CUSTOM and not base_url_override:
             self.error_occurred.emit("Please configure a custom endpoint base URL in AI Model Settings.")
             return False
-        
+        ai_chat_prompts = (self.config or {}).get("prompts", {}).get("ai_chat", {})
+        system_preamble = ai_chat_prompts.get("system_preamble")
+        formatting_rules = ai_chat_prompts.get("formatting_rules")
+        if not system_preamble or not formatting_rules:
+            self.error_occurred.emit(
+                "AI Chat prompts are missing from config.json — reinstall or restore the file."
+            )
+            return False
+
         # Get position info first (before adding message)
         fen, pgn, ply_index = self._get_position_info()
         
@@ -511,11 +519,6 @@ Please provide a brief analysis of this position, including:
         self.message_added.emit("user", user_message)  # Emit original message without context for display
         self._last_conversation_ply = ply_index
         
-        # Read prompts from config
-        ai_chat_prompts = (self.config or {}).get("prompts", {}).get("ai_chat", {})
-        system_preamble = ai_chat_prompts.get("system_preamble", "")
-        formatting_rules = ai_chat_prompts.get("formatting_rules", "")
-
         # Build system prompt - always include formatting rules and PGN context
         if len(self._conversation) == 1:
             # First message: include full initial context

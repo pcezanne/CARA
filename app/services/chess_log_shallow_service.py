@@ -112,7 +112,16 @@ def classify_notes(
     """
     thinking = AIService.disable_thinking_for(model)
     notes_text = "\n".join(f"{i}: {why}" for (i, _gn, _pk, _pr, why) in notes)
-    classifier_body = (config or {}).get("prompts", {}).get("chess_log", {}).get("classifier", "")
+    classifier_body = (config or {}).get("prompts", {}).get("chess_log", {}).get("classifier")
+    if not classifier_body:
+        return ShallowResult(
+            success=False,
+            shallow_keys=frozenset(),
+            error="Chess Log prompts are missing from config.json — reinstall or restore the file.",
+            usage=None,
+            model=model,
+            unparsed_indices=tuple(i for i, *_ in notes),
+        )
     prompt = classifier_body + notes_text
 
     service = AIService(config=config)

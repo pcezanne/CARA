@@ -182,34 +182,37 @@ class ChessLogShallowThread(QThread):
             self._cancelled = True
 
     def run(self) -> None:
-        with QMutexLocker(self._mutex):
-            if self._cancelled:
-                return
-        from app.services.chess_log_shallow_service import classify_notes
-        result = classify_notes(
-            notes=self._notes,
-            provider=self._provider,
-            model=self._model,
-            api_key=self._api_key,
-            base_url_override=self._base_url_override,
-            config=self._config,
-            timeout_seconds=self._timeout_seconds,
-        )
-        with QMutexLocker(self._mutex):
-            if self._cancelled:
-                return
-        if not result.success:
-            self.shallow_failed.emit(result.error or "Classification failed.")
-            return
-        if result.unparsed_indices:
-            n = len(result.unparsed_indices)
-            m = len(result.shallow_keys)
-            self.shallow_partial.emit(
-                f"{n} note{'s' if n != 1 else ''} couldn't be classified "
-                f"— left unchanged. "
-                f"Marked {m} position{'s' if m != 1 else ''} shallow."
+        try:
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            from app.services.chess_log_shallow_service import classify_notes
+            result = classify_notes(
+                notes=self._notes,
+                provider=self._provider,
+                model=self._model,
+                api_key=self._api_key,
+                base_url_override=self._base_url_override,
+                config=self._config,
+                timeout_seconds=self._timeout_seconds,
             )
-        self.shallow_ready.emit(result.shallow_keys, result.usage)
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            if not result.success:
+                self.shallow_failed.emit(result.error or "Classification failed.")
+                return
+            if result.unparsed_indices:
+                n = len(result.unparsed_indices)
+                m = len(result.shallow_keys)
+                self.shallow_partial.emit(
+                    f"{n} note{'s' if n != 1 else ''} couldn't be classified "
+                    f"— left unchanged. "
+                    f"Marked {m} position{'s' if m != 1 else ''} shallow."
+                )
+            self.shallow_ready.emit(result.shallow_keys, result.usage)
+        except Exception as exc:
+            self.shallow_failed.emit(f"Unexpected error: {exc}")
 
 
 class ChessLogNarrativeThread(QThread):
@@ -250,30 +253,33 @@ class ChessLogNarrativeThread(QThread):
             self._cancelled = True
 
     def run(self) -> None:
-        with QMutexLocker(self._mutex):
-            if self._cancelled:
-                return
-        narrative_result = generate_narrative(
-            games=self._games,
-            provider=self._provider,
-            model=self._model,
-            api_key=self._api_key,
-            base_url_override=self._base_url_override,
-            player=self._player,
-            color_filter=self._color_filter,
-            config=self._config,
-            timeout_seconds=self._timeout_seconds,
-            token_limit=self._token_limit,
-        )
-        with QMutexLocker(self._mutex):
-            if self._cancelled:
-                return
-        if narrative_result.success:
-            self.narrative_ready.emit(
-                narrative_result.text, narrative_result.shallow_flags, narrative_result.usage
+        try:
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            narrative_result = generate_narrative(
+                games=self._games,
+                provider=self._provider,
+                model=self._model,
+                api_key=self._api_key,
+                base_url_override=self._base_url_override,
+                player=self._player,
+                color_filter=self._color_filter,
+                config=self._config,
+                timeout_seconds=self._timeout_seconds,
+                token_limit=self._token_limit,
             )
-        else:
-            self.narrative_failed.emit(narrative_result.text)
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            if narrative_result.success:
+                self.narrative_ready.emit(
+                    narrative_result.text, narrative_result.shallow_flags, narrative_result.usage
+                )
+            else:
+                self.narrative_failed.emit(narrative_result.text)
+        except Exception as exc:
+            self.narrative_failed.emit(f"Unexpected error: {exc}")
 
 
 class ChessLogChartsController(QObject):

@@ -189,6 +189,41 @@ class TestThreeByThreePreset(unittest.TestCase):
 
 
 @requires_qt
+class TestMomentDialogConventions(unittest.TestCase):
+    """CARA dialog conventions: resize grip, no fixed heights, config-driven spacing."""
+
+    def test_resize_grip_installed_clamp(self):
+        dlg = _make("CLAMP")
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+    def test_resize_grip_installed_cct(self):
+        dlg = _make("CCT")
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+    def test_resize_grip_installed_3x3(self):
+        dlg = _make("3x3")
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+    def test_dialog_height_not_fixed(self):
+        dlg = _make("CLAMP")
+        self.assertEqual(dlg.maximumHeight(), 16777215)
+
+    def test_clamp_chips_no_fixed_height(self):
+        dlg = _make("CLAMP")
+        for _, btn in dlg._chip_buttons:
+            self.assertEqual(btn.maximumHeight(), 16777215)
+
+    def test_cct_chips_no_fixed_height(self):
+        dlg = _make("CCT")
+        for _, btn in dlg._chip_buttons:
+            self.assertEqual(btn.maximumHeight(), 16777215)
+
+    def test_why_min_height_from_config(self):
+        dlg = _make("CLAMP")
+        self.assertEqual(dlg._why_edit.minimumHeight(), dlg._why_min_height)
+
+
+@requires_qt
 class TestCustomNotOffered(unittest.TestCase):
     """Custom must not appear as an offered preset in MomentDialog."""
 

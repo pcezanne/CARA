@@ -24,6 +24,7 @@ from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS_DICT
 from app.views.style import StyleManager
 from app.views.style.line_edit import generate_line_edit_stylesheet
+from app.views.widgets.themed_dialog_size_grip import install_themed_dialog_resize_grip
 
 
 _VALID_PRESETS = frozenset({"CLAMP", "CCT", "3x3"})
@@ -79,6 +80,7 @@ class MomentDialog(QDialog):
         self._apply_styling()
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         self._apply_size()
+        install_themed_dialog_resize_grip(self, self.config)
 
         color_str = "White" if is_white else "Black"
         move_label = (
@@ -93,11 +95,17 @@ class MomentDialog(QDialog):
     def _load_config(self) -> None:
         dc = self.config.get("ui", {}).get("dialogs", {}).get("moment", {})
         self._dialog_width = dc.get("width", 500)
-        self._dialog_height = dc.get("height", 320)
         self._dialog_bg_rgb = dc.get("background_color", [40, 40, 45])
         self._dialog_border_rgb = dc.get("border_color", [60, 60, 65])
         self._button_width = dc.get("button_width", 100)
         self._button_height = dc.get("button_height", 28)
+        self._bottom_button_top_padding = dc.get("bottom_button_top_padding", 25)
+        self._button_spacing = dc.get("buttons", {}).get("spacing", 10)
+        self._layout_margins = dc.get("layout", {}).get("margins", [18, 16, 18, 16])
+        self._layout_spacing = dc.get("layout", {}).get("spacing", 10)
+        self._chip_min_width = dc.get("chips", {}).get("min_width", 36)
+        self._chip_min_width_cct = dc.get("chips", {}).get("cct_min_width", 72)
+        self._why_min_height = dc.get("why", {}).get("minimum_height", 60)
 
         try:
             from app.utils.font_utils import resolve_font_family, scale_font_size
@@ -143,8 +151,8 @@ class MomentDialog(QDialog):
 
     def _setup_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(18, 16, 18, 16)
-        root.setSpacing(10)
+        root.setContentsMargins(*self._layout_margins)
+        root.setSpacing(self._layout_spacing)
 
         # Per-preset content
         self._chip_buttons: List[tuple[str, QPushButton]] = []  # (cat_value, btn)
@@ -176,8 +184,9 @@ class MomentDialog(QDialog):
         self._ok_btn.setAutoDefault(True)
         self._ok_btn.clicked.connect(self._on_ok)
         btn_row.addWidget(self._cancel_btn)
-        btn_row.addSpacing(8)
+        btn_row.addSpacing(self._button_spacing)
         btn_row.addWidget(self._ok_btn)
+        root.addSpacing(self._bottom_button_top_padding)
         root.addLayout(btn_row)
 
     def _label(self, text: str, parent_layout: QVBoxLayout) -> QLabel:
@@ -198,7 +207,7 @@ class MomentDialog(QDialog):
             btn = QPushButton(display)
             btn.setCheckable(True)
             btn.setToolTip(tooltip)
-            btn.setFixedSize(36, 32)
+            btn.setMinimumWidth(self._chip_min_width)
             self._chip_buttons.append((cat_value, btn))
             chip_row.addWidget(btn)
         chip_row.addStretch(1)
@@ -217,8 +226,7 @@ class MomentDialog(QDialog):
             btn = QPushButton(cat_value)
             btn.setCheckable(True)
             btn.setToolTip(tooltip)
-            btn.setMinimumWidth(72)
-            btn.setFixedHeight(32)
+            btn.setMinimumWidth(self._chip_min_width_cct)
             self._chip_buttons.append((cat_value, btn))
             chip_row.addWidget(btn)
         chip_row.addStretch(1)
@@ -282,7 +290,7 @@ class MomentDialog(QDialog):
         self._why_edit = QTextEdit()
         self._why_edit.setAcceptRichText(False)
         self._why_edit.setPlaceholderText("Optional — why did this happen?")
-        self._why_edit.setMinimumHeight(72)
+        self._why_edit.setMinimumHeight(self._why_min_height)
         self._why_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self._why_edit.setStyleSheet(self._textedit_stylesheet())
         layout.addWidget(self._why_edit)
@@ -338,7 +346,6 @@ class MomentDialog(QDialog):
 
     def _apply_size(self) -> None:
         self.setMinimumWidth(int(self._dialog_width))
-        self.resize(int(self._dialog_width), int(self._dialog_height))
 
     # ------------------------------------------------------------------
     # Result

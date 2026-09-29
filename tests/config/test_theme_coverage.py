@@ -52,12 +52,23 @@ _DATABASE_COLUMN_WIDTH_KEYS = [
     "ui.panels.database.table.column_widths.col_log",
 ]
 
+_MOMENT_DIALOG_LAYOUT_KEYS = [
+    "ui.dialogs.moment.bottom_button_top_padding",
+    "ui.dialogs.moment.buttons.spacing",
+    "ui.dialogs.moment.chips.cct_min_width",
+    "ui.dialogs.moment.chips.min_width",
+    "ui.dialogs.moment.layout.margins",
+    "ui.dialogs.moment.layout.spacing",
+    "ui.dialogs.moment.why.minimum_height",
+]
+
 _ALL_PATHS = (
     _CHESS_LOG_CHARTS_COLOR_KEYS
     + _CHESS_LOG_CHARTS_PDF_KEYS
     + _CHESS_LOG_CHARTS_CHART_KEYS
     + _CHESS_LOG_CHARTS_TOKEN_LABEL_KEYS
     + _DATABASE_COLUMN_WIDTH_KEYS
+    + _MOMENT_DIALOG_LAYOUT_KEYS
 )
 
 
@@ -108,6 +119,10 @@ class TestChessLogThemeCoverage(unittest.TestCase):
 
     def test_database_column_width_keys_present(self):
         for path in _DATABASE_COLUMN_WIDTH_KEYS:
+            self._check_path(path)
+
+    def test_moment_dialog_layout_keys_present(self):
+        for path in _MOMENT_DIALOG_LAYOUT_KEYS:
             self._check_path(path)
 
 

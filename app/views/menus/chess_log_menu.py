@@ -46,7 +46,7 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
 
     chess_log_menu.addSeparator()
 
-    mw.highlight_chess_log_moves_action = QAction("Highlight tagged moves in moves list", mw)
+    mw.highlight_chess_log_moves_action = QAction("Highlight Logged Moments in Moves List", mw)
     mw.highlight_chess_log_moves_action.setCheckable(True)
     mw.highlight_chess_log_moves_action.setChecked(False)
     mw.highlight_chess_log_moves_action.triggered.connect(mw._on_highlight_chess_log_moves_toggled)

@@ -1513,7 +1513,7 @@ class MainWindow(QMainWindow):
             self.controller.get_chess_log_charts_controller().notify_chess_log_saved()
 
     def _on_highlight_chess_log_moves_toggled(self, checked: bool) -> None:
-        """Handle 'Highlight tagged moves in moves list' toggle."""
+        """Handle 'Highlight Logged Moments in Moves List' toggle."""
         if not hasattr(self, '_settings_service') or self._settings_service is None:
             return
         self._settings_service.update_chess_log_settings({"highlight_chess_log_moves_in_list": checked})

@@ -104,6 +104,10 @@ Every color used in these dialogs' `setStyleSheet` calls must be read from confi
 
 All four dialogs are opened via `.exec()` (modal), so "repaint on next open" matches `BulkOperationsDialog`'s behavior; no theme-changed signal infrastructure is needed.
 
+### MomentDialog layout
+
+`MomentDialog` (used by all three presets — CLAMP, CCT, 3x3) is user-resizable via CARA's standard themed resize grip (`install_themed_dialog_resize_grip`). Dialog height is layout-driven; there is no fixed height. Spacing, margins, chip minimum widths, and text-field minimum heights are all theme-driven config under `ui.dialogs.moment` — specifically `layout.margins`, `layout.spacing`, `bottom_button_top_padding`, `buttons.spacing`, `chips.min_width`, `chips.cct_min_width`, `why.minimum_height`, and `three_by_three.edit_minimum_height`. All new sizing keys are registered in `_REQUIRED_CONFIG_KEY_PATHS` and present in all three theme files. 3x3 answer fields use equal stretch factors so they share vertical space when the dialog is enlarged.
+
 ## Controller API
 
 ### ChessLogController helpers
@@ -114,7 +118,7 @@ All four dialogs are opened via `.exec()` (modal), so "repaint on next open" mat
 
 ## Unbuilt
 
-"Highlight logged moves" toggle — not yet implemented.
+"Highlight Logged Moments in Moves List" toggle — not yet implemented.
 
 ## Key files
 

@@ -96,6 +96,10 @@ Rows whose entries carry `is_shallow=True` render a **⚠️ + Ignore** group ri
 
 Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one logged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.
 
+### Moves List highlight
+
+Chess Log menu → "Highlight Logged Moments in Moves List" (checkable toggle): when on, moves that have at least one logged entry in the current game's in-memory cache receive a `⚑` suffix in the Moves List. The state is persisted to `user_settings.json` under `chess_log_settings.highlight_chess_log_moves_in_list` and restored on startup. The highlight is applied by `MovesListModel.set_highlight_chess_log_moves` and refreshed automatically via `notify_chess_log_changed` whenever Chess Log entries are added, saved, or cleared.
+
 ## Dialog theming
 
 `MomentDialog`, `ShowTagsDialog`, and `ShowShallowTagsDialog` all share the `ui.dialogs.moment` config namespace; `ChessLogSettingsDialog` uses `ui.dialogs.chess_log_settings`. Both blocks exist in all three theme JSON files (`style_default`, `style_light`, `style_scholar`) with theme-appropriate `$_ref` tokens, so the dialogs repaint correctly when CARA's theme is changed.
@@ -115,10 +119,6 @@ All four dialogs are opened via `.exec()` (modal), so "repaint on next open" mat
 - `game_has_any_tags() -> bool` — True iff `_cached_paths_data` has any non-empty entry list.
 - `replace_entries_at_path(path_key, preset, entries, view=None)` — replaces entries for the given preset at that path; preserves other presets. In-memory only.
 - `replace_entries_at_path_for_game(game, path_key, preset, entries)` — same but takes a `GameData` object; correctly routes to either the active single-game cache or the multi-game cache depending on which game is active. Used by both `ShowTagsDialog` (on OK) and `ShowShallowTagsDialog` (live edit). **This is the only method that explicitly marks a game dirty.**
-
-## Unbuilt
-
-"Highlight Logged Moments in Moves List" toggle — not yet implemented.
 
 ## Key files
 

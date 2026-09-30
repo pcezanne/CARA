@@ -122,10 +122,10 @@ Both dialogs render rows through the shared `_TagRowWidget`, which reads its fon
 | `label_font_size` | `11` | Row header font size (scaled via `scale_font_size`) |
 | `inputs.font_family` | `"Helvetica Neue"` | `QPlainTextEdit` (why + 3x3 answers) |
 | `inputs.font_size` | `11` | Text-edit font size (scaled) |
-| `why_minimum_height` | `80` | CLAMP/CCT single why-field min height |
-| `three_by_three_edit_minimum_height` | `50` | Each 3x3 answer field min height |
+| `why_minimum_lines` | `3` | CLAMP/CCT single why-field min visible lines |
+| `three_by_three_edit_minimum_lines` | `3` | Each 3x3 answer field min visible lines |
 
-Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correctly on HiDPI displays. Both dialogs are user-resizable via `install_themed_dialog_resize_grip`. All six keys are registered in `_REQUIRED_CONFIG_KEY_PATHS` and verified in `tests/config/test_theme_coverage.py` (`_SHOW_TAGS_DIALOG_KEYS`). Fonts must not be read from the `moment` namespace — keep the two namespaces independent so tuning one dialog doesn't silently affect the other.
+Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correctly on HiDPI displays. Min heights for text-edit fields are computed at widget construction time via `_plain_text_edit_min_height_for_lines()` — reads `fontMetrics().lineSpacing()` from the styled widget after `ensurePolished()`, so the pixel height is always correct for the actual rendered font regardless of DPI. Both dialogs are user-resizable via `install_themed_dialog_resize_grip`. All six keys are registered in `_REQUIRED_CONFIG_KEY_PATHS` and verified in `tests/config/test_theme_coverage.py` (`_SHOW_TAGS_DIALOG_KEYS`). Fonts must not be read from the `moment` namespace — keep the two namespaces independent so tuning one dialog doesn't silently affect the other.
 
 ## Controller API
 

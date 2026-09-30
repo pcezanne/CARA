@@ -277,16 +277,22 @@ class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
         row = dlg._row_widgets[0]
         self.assertEqual(row._input_font_size, 14)
 
-    def test_why_minimum_height_from_config(self):
-        dlg = self._make_shallow_dialog({"why_minimum_height": 90})
-        row = dlg._row_widgets[0]
-        self.assertEqual(row._why_min_height, 90)
+    def test_why_minimum_lines_from_config(self):
+        dlg_small = self._make_shallow_dialog({"why_minimum_lines": 3})
+        dlg_large = self._make_shallow_dialog({"why_minimum_lines": 6})
+        te_small = dlg_small._row_widgets[0]._why_texts.get("why")
+        te_large = dlg_large._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(te_small)
+        self.assertIsNotNone(te_large)
+        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
 
     def test_defaults_when_config_empty(self):
         dlg = self._make_shallow_dialog({})
         row = dlg._row_widgets[0]
         self.assertEqual(row._input_font_size, 11)
-        self.assertEqual(row._why_min_height, 80)
+        te = row._why_texts.get("why")
+        self.assertIsNotNone(te)
+        self.assertGreater(te.minimumHeight(), 0)
 
 
 # ---------------------------------------------------------------------------

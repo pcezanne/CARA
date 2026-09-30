@@ -718,13 +718,21 @@ class TestShowTagsFontAndHeightWiring(unittest.TestCase):
         row = self._make_row({"inputs": {"font_family": "Monaco"}})
         self.assertIn("Monaco", row._input_font_family)
 
-    def test_why_minimum_height_from_config(self):
-        row = self._make_row({"why_minimum_height": 95})
-        self.assertEqual(row._why_min_height, 95)
+    def test_why_minimum_lines_from_config(self):
+        row_small = self._make_row({"why_minimum_lines": 3})
+        row_large = self._make_row({"why_minimum_lines": 6})
+        te_small = row_small._why_texts.get("why")
+        te_large = row_large._why_texts.get("why")
+        self.assertIsNotNone(te_small)
+        self.assertIsNotNone(te_large)
+        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
 
-    def test_three_by_three_edit_minimum_height_from_config(self):
-        row = self._make_row({"three_by_three_edit_minimum_height": 70}, preset="3x3")
-        self.assertEqual(row._3x3_min_height, 70)
+    def test_three_by_three_edit_minimum_lines_from_config(self):
+        row_small = self._make_row({"three_by_three_edit_minimum_lines": 3}, preset="3x3")
+        row_large = self._make_row({"three_by_three_edit_minimum_lines": 6}, preset="3x3")
+        te_small = list(row_small._why_texts.values())[0]
+        te_large = list(row_large._why_texts.values())[0]
+        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
 
     def test_why_text_edit_has_font_applied(self):
         row = self._make_row({"inputs": {"font_size": 13}})
@@ -741,8 +749,13 @@ class TestShowTagsFontAndHeightWiring(unittest.TestCase):
         row = self._make_row({})
         self.assertEqual(row._label_font_size, 11)
         self.assertEqual(row._input_font_size, 11)
-        self.assertEqual(row._why_min_height, 80)
-        self.assertEqual(row._3x3_min_height, 50)
+        te_why = row._why_texts.get("why")
+        self.assertIsNotNone(te_why)
+        self.assertGreater(te_why.minimumHeight(), 0)
+        row3 = self._make_row({}, preset="3x3")
+        te_3x3 = list(row3._why_texts.values())[0]
+        # Both default to 3 lines; same font gives same height
+        self.assertEqual(te_why.minimumHeight(), te_3x3.minimumHeight())
 
     def test_moment_namespace_not_read_for_fonts(self):
         """A moment config with different font sizes must NOT affect _TagRowWidget."""

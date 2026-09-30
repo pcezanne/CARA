@@ -4324,8 +4324,8 @@
             "$ref": "$_FONT_SIZE_BASE_MEDIUM"
           }
         },
-        "why_minimum_height": 80,
-        "three_by_three_edit_minimum_height": 50
+        "why_minimum_lines": 3,
+        "three_by_three_edit_minimum_lines": 3
       },
       "chess_log_settings": {
         "background_color": {

@@ -118,8 +118,8 @@ class _TagRowWidget(QFrame):
         st_inp = st.get("inputs", {})
         self._input_font_family = resolve_font_family(st_inp.get("font_family", "Helvetica Neue"))
         self._input_font_size = int(scale_font_size(st_inp.get("font_size", 11)))
-        self._why_min_height = int(st.get("why_minimum_height", 80))
-        self._3x3_min_height = int(st.get("three_by_three_edit_minimum_height", 50))
+        self._why_min_lines = int(st.get("why_minimum_lines", 3))
+        self._3x3_min_lines = int(st.get("three_by_three_edit_minimum_lines", 3))
 
     def _setup(self, move_label: str, fen: Optional[str], played_move: Optional[chess.Move]) -> None:
         br, bg, bb = self._bg_rgb
@@ -210,9 +210,9 @@ class _TagRowWidget(QFrame):
                 txt_col.addWidget(prompt_lbl)
                 te = QPlainTextEdit(why_map.get(key, ""))
                 te.setFont(QFont(self._input_font_family, self._input_font_size))
-                te.setMinimumHeight(self._3x3_min_height)
-                te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 self._style_text_widget(te)
+                te.setMinimumHeight(self._plain_text_edit_min_height_for_lines(te, self._3x3_min_lines))
+                te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 te.textChanged.connect(self._schedule_edited)
                 txt_col.addWidget(te)
                 self._why_texts[key] = te
@@ -220,13 +220,21 @@ class _TagRowWidget(QFrame):
             why_text = self._entries[0].get("why", "") if self._entries else ""
             te = QPlainTextEdit(why_text)
             te.setFont(QFont(self._input_font_family, self._input_font_size))
-            te.setMinimumHeight(self._why_min_height)
-            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._style_text_widget(te)
+            te.setMinimumHeight(self._plain_text_edit_min_height_for_lines(te, self._why_min_lines))
+            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             te.textChanged.connect(self._schedule_edited)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
         cols.addLayout(txt_col, 1)
+
+    @staticmethod
+    def _plain_text_edit_min_height_for_lines(te: QPlainTextEdit, lines: int) -> int:
+        te.ensurePolished()
+        fm = te.fontMetrics()
+        doc_margin = int(te.document().documentMargin())
+        frame = te.frameWidth()
+        return fm.lineSpacing() * lines + doc_margin * 2 + frame * 2
 
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any input change."""

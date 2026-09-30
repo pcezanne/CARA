@@ -86,7 +86,7 @@ class MomentDialog(QDialog):
         move_label = (
             f"{move_number}. {san}" if is_white else f"{move_number}… {san}"
         )
-        self.setWindowTitle(f"Log this moment — {move_label} ({color_str})")
+        self.setWindowTitle(f"{self._dialog_title_prefix} — {move_label} ({color_str})")
 
     # ------------------------------------------------------------------
     # Config
@@ -95,6 +95,8 @@ class MomentDialog(QDialog):
     def _load_config(self) -> None:
         dc = self.config.get("ui", {}).get("dialogs", {}).get("moment", {})
         self._dialog_width = dc.get("width", 500)
+        self._dialog_title_prefix = dc.get("title", "Log this moment")
+        self._why_placeholder = dc.get("why_placeholder", "Optional — why did this happen?")
         self._dialog_bg_rgb = dc.get("background_color", [40, 40, 45])
         self._dialog_border_rgb = dc.get("border_color", [60, 60, 65])
         self._button_width = dc.get("button_width", 100)
@@ -297,7 +299,7 @@ class MomentDialog(QDialog):
         layout.addWidget(why_label)
         self._why_edit = QTextEdit()
         self._why_edit.setAcceptRichText(False)
-        self._why_edit.setPlaceholderText("Optional — why did this happen?")
+        self._why_edit.setPlaceholderText(self._why_placeholder)
         self._why_edit.setMinimumHeight(self._why_min_height)
         self._why_edit.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         why_ss = self._textedit_stylesheet()

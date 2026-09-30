@@ -307,6 +307,14 @@ class TestMomentDialogThemeColors(unittest.TestCase):
         dlg = _make()
         self.assertEqual(dlg._muted_rgb, [130, 145, 165])
 
+    def test_window_title_prefix_from_config(self):
+        dlg = self._make_themed({"title": "My custom prefix"})
+        self.assertIn("My custom prefix", dlg.windowTitle())
+
+    def test_why_placeholder_from_config(self):
+        dlg = self._make_themed({"why_placeholder": "My custom placeholder"})
+        self.assertEqual(dlg._why_edit.placeholderText(), "My custom placeholder")
+
 
 @requires_qt
 class TestOnOkBehavior(unittest.TestCase):

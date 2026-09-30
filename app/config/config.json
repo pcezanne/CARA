@@ -727,8 +727,8 @@
         ]
       },
       "moment": {
-        "title": "Tag this moment",
-        "why_placeholder": "Optional — why did this matter?",
+        "title": "Log this moment",
+        "why_placeholder": "Optional — why did this happen?",
         "width": 500
       },
       "chess_log_settings": {

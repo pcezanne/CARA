@@ -9,6 +9,7 @@ import chess
 import chess.pgn
 
 from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -106,7 +107,19 @@ class _TagRowWidget(QFrame):
         self._edit_debounce.setInterval(300)
         self._edit_debounce.timeout.connect(self.edited.emit)
 
+        self._load_font_config(config)
         self._setup(move_label, fen, played_move)
+
+    def _load_font_config(self, config: Dict[str, Any]) -> None:
+        from app.utils.font_utils import resolve_font_family, scale_font_size
+        st = config.get("ui", {}).get("dialogs", {}).get("show_tags", {})
+        self._label_font_family = resolve_font_family(st.get("label_font_family", "Helvetica Neue"))
+        self._label_font_size = int(scale_font_size(st.get("label_font_size", 11)))
+        st_inp = st.get("inputs", {})
+        self._input_font_family = resolve_font_family(st_inp.get("font_family", "Helvetica Neue"))
+        self._input_font_size = int(scale_font_size(st_inp.get("font_size", 11)))
+        self._why_min_height = int(st.get("why_minimum_height", 80))
+        self._3x3_min_height = int(st.get("three_by_three_edit_minimum_height", 50))
 
     def _setup(self, move_label: str, fen: Optional[str], played_move: Optional[chess.Move]) -> None:
         br, bg, bb = self._bg_rgb
@@ -124,9 +137,8 @@ class _TagRowWidget(QFrame):
         header_row = QHBoxLayout()
         header_row.setSpacing(8)
         header = QLabel(move_label)
-        header.setStyleSheet(
-            f"color: rgb({tr},{tg},{tb}); font-weight: bold; font-size: 11px;"
-        )
+        header.setFont(QFont(self._label_font_family, self._label_font_size))
+        header.setStyleSheet(f"color: rgb({tr},{tg},{tb}); font-weight: bold;")
         header_row.addWidget(header, 1)
         self._header_label = header
 
@@ -193,12 +205,12 @@ class _TagRowWidget(QFrame):
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
             for key in _3X3_KEYS:
                 prompt_lbl = QLabel(_3X3_PROMPTS[key])
-                prompt_lbl.setStyleSheet(
-                    f"color: rgb({tr},{tg},{tb}); font-size: 10px; font-style: italic;"
-                )
+                prompt_lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
+                prompt_lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); font-style: italic;")
                 txt_col.addWidget(prompt_lbl)
                 te = QPlainTextEdit(why_map.get(key, ""))
-                te.setMinimumHeight(50)
+                te.setFont(QFont(self._input_font_family, self._input_font_size))
+                te.setMinimumHeight(self._3x3_min_height)
                 te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
                 self._style_text_widget(te)
                 te.textChanged.connect(self._schedule_edited)
@@ -207,7 +219,8 @@ class _TagRowWidget(QFrame):
         else:
             why_text = self._entries[0].get("why", "") if self._entries else ""
             te = QPlainTextEdit(why_text)
-            te.setMinimumHeight(50)
+            te.setFont(QFont(self._input_font_family, self._input_font_size))
+            te.setMinimumHeight(self._why_min_height)
             te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             self._style_text_widget(te)
             te.textChanged.connect(self._schedule_edited)

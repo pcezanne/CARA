@@ -4310,6 +4310,24 @@
           }
         }
       },
+      "show_tags": {
+        "label_font_family": {
+          "$ref": "$_FONT_FAMILY_PRIMARY"
+        },
+        "label_font_size": {
+          "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+        },
+        "inputs": {
+          "font_family": {
+            "$ref": "$_FONT_FAMILY_PRIMARY"
+          },
+          "font_size": {
+            "$ref": "$_FONT_SIZE_BASE_MEDIUM"
+          }
+        },
+        "why_minimum_height": 80,
+        "three_by_three_edit_minimum_height": 50
+      },
       "chess_log_settings": {
         "background_color": {
           "$ref": "$_COLOR_BACKGROUND_PRIMARY"

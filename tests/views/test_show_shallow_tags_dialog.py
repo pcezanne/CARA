@@ -249,5 +249,45 @@ class TestMiniBoardOrientationMoverAtPly(unittest.TestCase):
         self.assertTrue(dlg._row_widgets[0].snapshot().is_flipped)
 
 
+# ---------------------------------------------------------------------------
+# Font and height wiring — shared _TagRowWidget reads from ui.dialogs.show_tags.*
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
+    """ShowShallowTagsDialog rows inherit font/height config from the shared
+    _TagRowWidget, which must read from ui.dialogs.show_tags.*, not moment."""
+
+    def _make_shallow_dialog(self, show_tags_cfg: dict):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        config = {"ui": {"dialogs": {"show_tags": show_tags_cfg}}}
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
+        shallow_keys = {(1, "0", "CLAMP")}
+        ctrl = _make_controller({1: tags})
+        return ShowShallowTagsDialog(
+            config=config,
+            games=[game],
+            controller=ctrl,
+            shallow_keys=shallow_keys,
+        )
+
+    def test_input_font_size_from_config(self):
+        dlg = self._make_shallow_dialog({"inputs": {"font_size": 14}})
+        row = dlg._row_widgets[0]
+        self.assertEqual(row._input_font_size, 14)
+
+    def test_why_minimum_height_from_config(self):
+        dlg = self._make_shallow_dialog({"why_minimum_height": 90})
+        row = dlg._row_widgets[0]
+        self.assertEqual(row._why_min_height, 90)
+
+    def test_defaults_when_config_empty(self):
+        dlg = self._make_shallow_dialog({})
+        row = dlg._row_widgets[0]
+        self.assertEqual(row._input_font_size, 11)
+        self.assertEqual(row._why_min_height, 80)
+
+
 if __name__ == "__main__":
     unittest.main()

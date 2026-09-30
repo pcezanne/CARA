@@ -678,5 +678,97 @@ class TestMiniBoardOrientationMoverAtPly(unittest.TestCase):
         self.assertFalse(dlg._row_widgets[0].snapshot().is_flipped)
 
 
+# ---------------------------------------------------------------------------
+# Font and height wiring — reads from ui.dialogs.show_tags.*
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestShowTagsFontAndHeightWiring(unittest.TestCase):
+    """_TagRowWidget reads font family/size and text-edit heights from the
+    ui.dialogs.show_tags namespace, never from ui.dialogs.moment."""
+
+    def _make_row(self, show_tags_cfg: dict, preset: str = "CLAMP"):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        config = {"ui": {"dialogs": {"show_tags": show_tags_cfg}}}
+        entry = _make_entry(preset, "C" if preset != "3x3" else "Why1", "note")
+        return _TagRowWidget(
+            config=config,
+            preset=preset,
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+
+    def test_label_font_size_from_config(self):
+        row = self._make_row({"label_font_size": 14})
+        self.assertEqual(row._label_font_size, 14)
+
+    def test_label_font_family_from_config(self):
+        row = self._make_row({"label_font_family": "Courier New"})
+        self.assertIn("Courier New", row._label_font_family)
+
+    def test_input_font_size_from_config(self):
+        row = self._make_row({"inputs": {"font_size": 13}})
+        self.assertEqual(row._input_font_size, 13)
+
+    def test_input_font_family_from_config(self):
+        row = self._make_row({"inputs": {"font_family": "Monaco"}})
+        self.assertIn("Monaco", row._input_font_family)
+
+    def test_why_minimum_height_from_config(self):
+        row = self._make_row({"why_minimum_height": 95})
+        self.assertEqual(row._why_min_height, 95)
+
+    def test_three_by_three_edit_minimum_height_from_config(self):
+        row = self._make_row({"three_by_three_edit_minimum_height": 70}, preset="3x3")
+        self.assertEqual(row._3x3_min_height, 70)
+
+    def test_why_text_edit_has_font_applied(self):
+        row = self._make_row({"inputs": {"font_size": 13}})
+        te = row._why_texts.get("why")
+        self.assertIsNotNone(te)
+        self.assertEqual(te.font().pointSize(), 13)
+
+    def test_3x3_text_edit_has_font_applied(self):
+        row = self._make_row({"inputs": {"font_size": 12}}, preset="3x3")
+        for te in row._why_texts.values():
+            self.assertEqual(te.font().pointSize(), 12)
+
+    def test_defaults_used_when_config_empty(self):
+        row = self._make_row({})
+        self.assertEqual(row._label_font_size, 11)
+        self.assertEqual(row._input_font_size, 11)
+        self.assertEqual(row._why_min_height, 80)
+        self.assertEqual(row._3x3_min_height, 50)
+
+    def test_moment_namespace_not_read_for_fonts(self):
+        """A moment config with different font sizes must NOT affect _TagRowWidget."""
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        config = {
+            "ui": {
+                "dialogs": {
+                    "moment": {"label_font_size": 99, "inputs": {"font_size": 88}},
+                    "show_tags": {"label_font_size": 11, "inputs": {"font_size": 11}},
+                }
+            }
+        }
+        entry = _make_entry("CLAMP", "C", "note")
+        row = _TagRowWidget(
+            config=config,
+            preset="CLAMP",
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+        self.assertEqual(row._label_font_size, 11)
+        self.assertEqual(row._input_font_size, 11)
+
+
 if __name__ == "__main__":
     unittest.main()

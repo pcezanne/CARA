@@ -63,6 +63,15 @@ _MOMENT_DIALOG_LAYOUT_KEYS = [
     "ui.dialogs.moment.three_by_three.edit_minimum_height",
 ]
 
+_SHOW_TAGS_DIALOG_KEYS = [
+    "ui.dialogs.show_tags.label_font_family",
+    "ui.dialogs.show_tags.label_font_size",
+    "ui.dialogs.show_tags.inputs.font_family",
+    "ui.dialogs.show_tags.inputs.font_size",
+    "ui.dialogs.show_tags.why_minimum_height",
+    "ui.dialogs.show_tags.three_by_three_edit_minimum_height",
+]
+
 _ALL_PATHS = (
     _CHESS_LOG_CHARTS_COLOR_KEYS
     + _CHESS_LOG_CHARTS_PDF_KEYS
@@ -70,6 +79,7 @@ _ALL_PATHS = (
     + _CHESS_LOG_CHARTS_TOKEN_LABEL_KEYS
     + _DATABASE_COLUMN_WIDTH_KEYS
     + _MOMENT_DIALOG_LAYOUT_KEYS
+    + _SHOW_TAGS_DIALOG_KEYS
 )
 
 
@@ -124,6 +134,10 @@ class TestChessLogThemeCoverage(unittest.TestCase):
 
     def test_moment_dialog_layout_keys_present(self):
         for path in _MOMENT_DIALOG_LAYOUT_KEYS:
+            self._check_path(path)
+
+    def test_show_tags_dialog_keys_present(self):
+        for path in _SHOW_TAGS_DIALOG_KEYS:
             self._check_path(path)
 
 

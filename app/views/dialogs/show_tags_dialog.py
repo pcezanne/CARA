@@ -234,7 +234,7 @@ class _TagRowWidget(QFrame):
         fm = te.fontMetrics()
         doc_margin = int(te.document().documentMargin())
         frame = te.frameWidth()
-        return fm.lineSpacing() * lines + doc_margin * 2 + frame * 2
+        return fm.lineSpacing() * lines + doc_margin * 2 + frame * 2 + 2
 
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any input change."""

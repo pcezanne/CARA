@@ -289,5 +289,24 @@ class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
         self.assertEqual(row._why_min_height, 80)
 
 
+# ---------------------------------------------------------------------------
+# Resize grip
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestShallowTagsDialogResizeGrip(unittest.TestCase):
+    def test_resize_grip_installed(self):
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP")})
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+    def test_resize_grip_installed_empty_dialog(self):
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "not shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, set())
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+
 if __name__ == "__main__":
     unittest.main()

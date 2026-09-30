@@ -553,6 +553,8 @@ class ShowTagsDialog(QDialog):
         )
 
         self.setMinimumWidth(800)
+        from app.views.widgets.themed_dialog_size_grip import install_themed_dialog_resize_grip
+        install_themed_dialog_resize_grip(self, self.config)
 
     # ------------------------------------------------------------------
     # Button handlers

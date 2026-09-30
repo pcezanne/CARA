@@ -269,6 +269,8 @@ class ShowShallowTagsDialog(QDialog):
         )
 
         self.setMinimumWidth(800)
+        from app.views.widgets.themed_dialog_size_grip import install_themed_dialog_resize_grip
+        install_themed_dialog_resize_grip(self, self._config)
 
     def _on_export_pdf(self) -> None:
         from pathlib import Path

@@ -770,5 +770,20 @@ class TestShowTagsFontAndHeightWiring(unittest.TestCase):
         self.assertEqual(row._input_font_size, 11)
 
 
+# ---------------------------------------------------------------------------
+# Resize grip
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestShowTagsDialogResizeGrip(unittest.TestCase):
+    def test_resize_grip_installed(self):
+        dlg, _ = _make_dialog({"0": [_make_entry("CLAMP", "C")]})
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+    def test_resize_grip_installed_empty_dialog(self):
+        dlg, _ = _make_dialog({})
+        self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
+
+
 if __name__ == "__main__":
     unittest.main()

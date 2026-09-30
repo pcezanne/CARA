@@ -102,7 +102,7 @@ Chess Log menu → "Highlight Logged Moments in Moves List" (checkable toggle): 
 
 ## Dialog theming
 
-`MomentDialog`, `ShowTagsDialog`, and `ShowShallowTagsDialog` all share the `ui.dialogs.moment` config namespace; `ChessLogSettingsDialog` uses `ui.dialogs.chess_log_settings`. Both blocks exist in all three theme JSON files (`style_default`, `style_light`, `style_scholar`) with theme-appropriate `$_ref` tokens, so the dialogs repaint correctly when CARA's theme is changed.
+`MomentDialog`, `ShowTagsDialog`, and `ShowShallowTagsDialog` use separate config namespaces. `MomentDialog` uses `ui.dialogs.moment`; `ShowTagsDialog` and `ShowShallowTagsDialog` use `ui.dialogs.show_tags` for font family/size and text-edit heights, and continue to use `ui.dialogs.moment` for colors (background, text, border, separator, inputs.background/border). `ChessLogSettingsDialog` uses `ui.dialogs.chess_log_settings`. All blocks exist in all three theme JSON files (`style_default`, `style_light`, `style_scholar`) with theme-appropriate `$_ref` tokens, so the dialogs repaint correctly when CARA's theme is changed.
 
 Every color used in these dialogs' `setStyleSheet` calls must be read from config (via `dc.get(...)`) — **no hardcoded `rgb(…)` literals are permitted**.
 
@@ -111,6 +111,21 @@ All four dialogs are opened via `.exec()` (modal), so "repaint on next open" mat
 ### MomentDialog layout
 
 `MomentDialog` (used by all three presets — CLAMP, CCT, 3x3) is user-resizable via CARA's standard themed resize grip (`install_themed_dialog_resize_grip`). Dialog height is layout-driven; there is no fixed height. Spacing, margins, chip minimum widths, and text-field minimum heights are all theme-driven config under `ui.dialogs.moment` — specifically `layout.margins`, `layout.spacing`, `bottom_button_top_padding`, `buttons.spacing`, `chips.min_width`, `chips.cct_min_width`, `why.minimum_height`, and `three_by_three.edit_minimum_height`. All new sizing keys are registered in `_REQUIRED_CONFIG_KEY_PATHS` and present in all three theme files. 3x3 answer fields use equal stretch factors so they share vertical space when the dialog is enlarged.
+
+### ShowTagsDialog / ShowShallowTagsDialog layout
+
+Both dialogs render rows through the shared `_TagRowWidget`, which reads its font and height config from `ui.dialogs.show_tags.*`:
+
+| Key | Default | Purpose |
+| --- | --- | --- |
+| `label_font_family` | `"Helvetica Neue"` | Row header + 3x3 prompt labels |
+| `label_font_size` | `11` | Row header font size (scaled via `scale_font_size`) |
+| `inputs.font_family` | `"Helvetica Neue"` | `QPlainTextEdit` (why + 3x3 answers) |
+| `inputs.font_size` | `11` | Text-edit font size (scaled) |
+| `why_minimum_height` | `80` | CLAMP/CCT single why-field min height |
+| `three_by_three_edit_minimum_height` | `50` | Each 3x3 answer field min height |
+
+Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correctly on HiDPI displays. Both dialogs are user-resizable via `install_themed_dialog_resize_grip`. All six keys are registered in `_REQUIRED_CONFIG_KEY_PATHS` and verified in `tests/config/test_theme_coverage.py` (`_SHOW_TAGS_DIALOG_KEYS`). Fonts must not be read from the `moment` namespace — keep the two namespaces independent so tuning one dialog doesn't silently affect the other.
 
 ## Controller API
 

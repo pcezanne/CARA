@@ -98,7 +98,9 @@ Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDial
 
 ### Moves List highlight
 
-Chess Log menu → "Highlight Logged Moments in Moves List" (checkable toggle): when on, moves that have at least one logged entry in the current game's in-memory cache receive a `⚑` suffix in the Moves List. The state is persisted to `user_settings.json` under `chess_log_settings.highlight_chess_log_moves_in_list` and restored on startup. The highlight is applied by `MovesListModel.set_highlight_chess_log_moves` and refreshed automatically via `notify_chess_log_changed` whenever Chess Log entries are added, saved, or cleared.
+Chess Log menu → "Highlight Logged Moments in Moves List" (checkable toggle): when on, moves that have at least one logged entry in the current game's in-memory cache render a themed "logged moment" icon (`app/resources/icons/chess_log_moment.svg`) to the **left** of the move text in the Moves List. Returned via `Qt.DecorationRole` on `COL_WHITE` / `COL_BLACK`; Qt's default delegate handles the left-of-text placement — no custom delegate. Tinting follows the Moves List's own theme colors (normal move-text color on regular rows; `active_move.text_color` on the current-move row; `selection_text_color` via the icon's `QIcon.Mode.Selected` pixmap when a row is selected), rebuilt from `ChessLogMomentIconProvider` on each theme change. The state is persisted to `user_settings.json` under `chess_log_settings.highlight_chess_log_moves_in_list` and restored on startup. The highlight is applied by `MovesListModel.set_highlight_chess_log_moves` and refreshed automatically via `notify_chess_log_changed` whenever Chess Log entries are added, saved, or cleared.
+
+**No emoji on Chess Log surfaces.** All Chess Log indicators that would otherwise be pictographic characters ship as themed SVGs loaded through `app/utils/themed_icon.py`, so they recolor with the active theme and render identically across platforms.
 
 ## Dialog theming
 

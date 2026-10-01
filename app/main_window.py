@@ -4324,6 +4324,11 @@ class MainWindow(QMainWindow):
             chess_log_ctrl = self.controller.get_chess_log_controller() if self.controller else None
             if chess_log_ctrl:
                 moveslist_model.set_chess_log_controller(chess_log_ctrl)
+            try:
+                from app.utils.chess_log_moment_icon import ChessLogMomentIconProvider
+                moveslist_model.set_chess_log_icon_provider(ChessLogMomentIconProvider(self.config))
+            except Exception:
+                pass
             moveslist_model.set_highlight_chess_log_moves(highlight_chess_log_moves)
         if hasattr(self, 'highlight_chess_log_moves_action'):
             self.highlight_chess_log_moves_action.setChecked(highlight_chess_log_moves)

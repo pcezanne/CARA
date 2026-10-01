@@ -1,8 +1,14 @@
-"""Tests for the Chess Log tag indicator in MovesListModel.
+"""Tests for the Chess Log 'logged moment' indicator in MovesListModel.
+
+The indicator used to be a `🏷` text suffix on DisplayRole. It is now a
+themed SVG icon returned via `Qt.DecorationRole`, placed to the LEFT of
+the move text by Qt's default delegate, and tinted per Moves List row
+state (normal / selected / current-move). These tests cover the model
+contract only — behavior, not pixels or color values.
 
 Qt-guarded (skipped if Qt platform plugin unavailable, same pattern as
-test_moment_dialog.py).  The persistence test (toggle state round-trip
-through UserSettingsService) runs without Qt.
+test_moment_dialog.py). The persistence tests (toggle state round-trip
+through UserSettingsService) run without Qt.
 """
 
 from __future__ import annotations
@@ -41,6 +47,11 @@ if _QT_OK:
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
 
 
+# Any text/caption character the Chess Log layer is explicitly not allowed to
+# emit for its logged-moment marker — enforces "icon, never emoji."
+_FORBIDDEN_CHARS = ("🏷", "⚑")
+
+
 def _make_model():
     from app.models.moveslist_model import MovesListModel, MoveData
     model = MovesListModel()
@@ -61,58 +72,202 @@ def _make_chess_log_ctrl(tagged_path_keys=()):
     return ctrl
 
 
+def _dark_config():
+    """Minimal config with the three Moves List tint keys the provider reads."""
+    return {
+        "ui": {
+            "panels": {
+                "detail": {
+                    "tabs": {"colors": {"normal": {"text": [200, 200, 200]}}},
+                    "moveslist": {"table": {
+                        "selection_text_color": [240, 240, 240],
+                        "active_move": {"text_color": [255, 255, 255]},
+                    }},
+                }
+            }
+        }
+    }
+
+
+def _light_config():
+    """A second config with different color values, used to verify the cache
+    rebuilds when a fresh provider is installed on theme change."""
+    return {
+        "ui": {
+            "panels": {
+                "detail": {
+                    "tabs": {"colors": {"normal": {"text": [60, 60, 60]}}},
+                    "moveslist": {"table": {
+                        "selection_text_color": [20, 20, 20],
+                        "active_move": {"text_color": [0, 0, 0]},
+                    }},
+                }
+            }
+        }
+    }
+
+
 @requires_qt
-class TestTagIndicatorAppearsWhenEnabled(unittest.TestCase):
-    def test_tagged_white_move_gets_indicator_when_on(self):
+class TestDisplayRoleHasNoEmoji(unittest.TestCase):
+    """DisplayRole must be plain move text in every toggle state."""
+
+    def test_display_role_is_plain_text_when_toggle_on_and_ply_tagged(self):
         from app.models.moveslist_model import MovesListModel
         from app.utils.pgn_variation_path import encode_path, mainline_path_for_ply
         model = _make_model()
-        # Ply 1 = white's first move (e4)
         path_key = encode_path(mainline_path_for_ply(1))
         ctrl = _make_chess_log_ctrl(tagged_path_keys=[path_key])
         model.set_chess_log_controller(ctrl)
         model.set_highlight_chess_log_moves(True)
         text = model.data(model.index(0, MovesListModel.COL_WHITE))
-        self.assertIn("🏷", text)
-        self.assertTrue(text.startswith("e4"))
+        self.assertEqual(text, "e4")
+        for ch in _FORBIDDEN_CHARS:
+            self.assertNotIn(ch, text or "")
 
-    def test_tagged_black_move_gets_indicator_when_on(self):
-        from app.models.moveslist_model import MovesListModel
-        from app.utils.pgn_variation_path import encode_path, mainline_path_for_ply
-        model = _make_model()
-        # Ply 2 = black's first move (e5)
-        path_key = encode_path(mainline_path_for_ply(2))
-        ctrl = _make_chess_log_ctrl(tagged_path_keys=[path_key])
-        model.set_chess_log_controller(ctrl)
-        model.set_highlight_chess_log_moves(True)
-        text = model.data(model.index(0, MovesListModel.COL_BLACK))
-        self.assertIn("🏷", text)
-        self.assertTrue(text.startswith("e5"))
-
-
-@requires_qt
-class TestTagIndicatorAbsentWhenDisabled(unittest.TestCase):
-    def test_no_indicator_when_toggle_off(self):
+    def test_display_role_is_plain_text_when_toggle_off(self):
         from app.models.moveslist_model import MovesListModel
         from app.utils.pgn_variation_path import encode_path, mainline_path_for_ply
         model = _make_model()
         path_key = encode_path(mainline_path_for_ply(1))
         ctrl = _make_chess_log_ctrl(tagged_path_keys=[path_key])
         model.set_chess_log_controller(ctrl)
-        model.set_highlight_chess_log_moves(False)  # off
+        model.set_highlight_chess_log_moves(False)
         text = model.data(model.index(0, MovesListModel.COL_WHITE))
         self.assertEqual(text, "e4")
-        self.assertNotIn("🏷", text or "")
+        for ch in _FORBIDDEN_CHARS:
+            self.assertNotIn(ch, text or "")
 
-    def test_no_indicator_for_untagged_move(self):
+    def test_display_role_is_plain_text_for_untagged_ply(self):
         from app.models.moveslist_model import MovesListModel
         model = _make_model()
-        ctrl = _make_chess_log_ctrl(tagged_path_keys=[])  # nothing tagged
+        ctrl = _make_chess_log_ctrl(tagged_path_keys=[])
         model.set_chess_log_controller(ctrl)
         model.set_highlight_chess_log_moves(True)
         text = model.data(model.index(0, MovesListModel.COL_WHITE))
         self.assertEqual(text, "e4")
-        self.assertNotIn("🏷", text or "")
+        for ch in _FORBIDDEN_CHARS:
+            self.assertNotIn(ch, text or "")
+
+
+@requires_qt
+class TestDecorationRoleIcon(unittest.TestCase):
+    """The icon surfaces via Qt.DecorationRole only, and only when expected."""
+
+    def _tagged_white_model(self):
+        from app.models.moveslist_model import MovesListModel
+        from app.utils.chess_log_moment_icon import ChessLogMomentIconProvider
+        from app.utils.pgn_variation_path import encode_path, mainline_path_for_ply
+        model = _make_model()
+        path_key = encode_path(mainline_path_for_ply(1))
+        ctrl = _make_chess_log_ctrl(tagged_path_keys=[path_key])
+        model.set_chess_log_controller(ctrl)
+        model.set_chess_log_icon_provider(ChessLogMomentIconProvider(_dark_config()))
+        return model
+
+    def test_tagged_ply_returns_non_null_icon_when_on(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QIcon
+        from app.models.moveslist_model import MovesListModel
+        model = self._tagged_white_model()
+        model.set_highlight_chess_log_moves(True)
+        icon = model.data(
+            model.index(0, MovesListModel.COL_WHITE),
+            Qt.ItemDataRole.DecorationRole,
+        )
+        self.assertIsNotNone(icon)
+        self.assertIsInstance(icon, QIcon)
+        self.assertFalse(icon.isNull())
+
+    def test_untagged_ply_returns_no_icon(self):
+        from PyQt6.QtCore import Qt
+        from app.models.moveslist_model import MovesListModel
+        from app.utils.chess_log_moment_icon import ChessLogMomentIconProvider
+        model = _make_model()
+        ctrl = _make_chess_log_ctrl(tagged_path_keys=[])
+        model.set_chess_log_controller(ctrl)
+        model.set_chess_log_icon_provider(ChessLogMomentIconProvider(_dark_config()))
+        model.set_highlight_chess_log_moves(True)
+        icon = model.data(
+            model.index(0, MovesListModel.COL_WHITE),
+            Qt.ItemDataRole.DecorationRole,
+        )
+        self.assertIsNone(icon)
+
+    def test_toggle_off_suppresses_icon_on_tagged_ply(self):
+        from PyQt6.QtCore import Qt
+        from app.models.moveslist_model import MovesListModel
+        model = self._tagged_white_model()
+        model.set_highlight_chess_log_moves(False)
+        for col in (MovesListModel.COL_WHITE, MovesListModel.COL_BLACK):
+            icon = model.data(
+                model.index(0, col),
+                Qt.ItemDataRole.DecorationRole,
+            )
+            self.assertIsNone(icon)
+
+    def test_icon_has_selected_mode_pixmap(self):
+        from PyQt6.QtCore import Qt
+        from PyQt6.QtGui import QIcon
+        from app.models.moveslist_model import MovesListModel
+        model = self._tagged_white_model()
+        model.set_highlight_chess_log_moves(True)
+        icon = model.data(
+            model.index(0, MovesListModel.COL_WHITE),
+            Qt.ItemDataRole.DecorationRole,
+        )
+        self.assertIsNotNone(icon)
+        pm = icon.pixmap(16, 16, QIcon.Mode.Selected, QIcon.State.Off)
+        self.assertFalse(pm.isNull())
+
+
+class TestIconProviderRebuildsOnThemeChange(unittest.TestCase):
+    """A fresh provider installed with a new config replaces the cached icons.
+
+    This mirrors what happens during MainWindow.apply_theme: _setup_ui
+    rebuilds the DetailPanel (fresh MovesListModel), and _load_user_settings
+    installs a fresh ChessLogMomentIconProvider built from the new config.
+    """
+
+    @unittest.skipUnless(_QT_OK, "Qt platform plugin unavailable in this environment")
+    def test_installing_new_provider_replaces_old_icon(self):
+        from PyQt6.QtCore import Qt
+        from app.models.moveslist_model import MovesListModel
+        from app.utils.chess_log_moment_icon import ChessLogMomentIconProvider
+        from app.utils.pgn_variation_path import encode_path, mainline_path_for_ply
+        model = _make_model()
+        path_key = encode_path(mainline_path_for_ply(1))
+        model.set_chess_log_controller(_make_chess_log_ctrl(tagged_path_keys=[path_key]))
+        model.set_highlight_chess_log_moves(True)
+
+        dark_provider = ChessLogMomentIconProvider(_dark_config())
+        model.set_chess_log_icon_provider(dark_provider)
+        icon_before = model.data(
+            model.index(0, MovesListModel.COL_WHITE),
+            Qt.ItemDataRole.DecorationRole,
+        )
+
+        light_provider = ChessLogMomentIconProvider(_light_config())
+        model.set_chess_log_icon_provider(light_provider)
+        icon_after = model.data(
+            model.index(0, MovesListModel.COL_WHITE),
+            Qt.ItemDataRole.DecorationRole,
+        )
+
+        # Provider identity swapped, so the icon returned must come from the
+        # new provider (not the stale one).
+        self.assertIs(icon_before, dark_provider.icon_for_row(is_current_move_row=False))
+        self.assertIs(icon_after, light_provider.icon_for_row(is_current_move_row=False))
+        self.assertIsNot(icon_before, icon_after)
+
+    @unittest.skipUnless(_QT_OK, "Qt platform plugin unavailable in this environment")
+    def test_provider_resolves_distinct_normal_and_active_colors(self):
+        from app.utils.chess_log_moment_icon import ChessLogMomentIconProvider
+        provider = ChessLogMomentIconProvider(_dark_config())
+        colors = provider.colors()
+        self.assertIn("normal", colors)
+        self.assertIn("selected", colors)
+        self.assertIn("active", colors)
+        self.assertNotEqual(colors["normal"], colors["active"])
 
 
 class TestTogglePersistence(unittest.TestCase):

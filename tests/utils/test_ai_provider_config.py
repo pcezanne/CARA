@@ -16,7 +16,12 @@ Exhaustive truth table across provider configurations:
 import unittest
 
 from app.services.ai_service import AIProvider
-from app.utils.ai_provider_config import is_ai_configured, resolve_default_provider
+from app.utils.ai_provider_config import (
+    get_active_provider_label,
+    get_available_models,
+    is_ai_configured,
+    resolve_default_provider,
+)
 
 
 def _settings(**ai_models_overrides):
@@ -160,6 +165,130 @@ class TestResolveDefaultProvider(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result[0], AIProvider.OPENAI)
         self.assertEqual(result[2], "sk-openai")
+
+
+class TestGetAvailableModels(unittest.TestCase):
+    """Tests for get_available_models() — the shared plain-model-ID helper.
+
+    Resolves #5 instance 6: extracts the provider-selection + model-list
+    logic shared by ChessLogChartsController and AIChatController.
+    """
+
+    def test_openai_active_returns_models_list(self):
+        s = _settings(openai={"api_key": "sk-abc", "models": ["gpt-4o", "gpt-4-turbo"]})
+        self.assertEqual(get_available_models(s), ["gpt-4o", "gpt-4-turbo"])
+
+    def test_anthropic_active_returns_models_list(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": True, "use_custom_models": False},
+            anthropic={"api_key": "ant-key", "models": ["claude-opus-4-7"]},
+        )
+        self.assertEqual(get_available_models(s), ["claude-opus-4-7"])
+
+    def test_custom_active_returns_models_list(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": True},
+            custom={"enabled": True, "base_url": "http://localhost:11434", "models": ["llama3", "mistral"], "api_key": ""},
+        )
+        self.assertEqual(get_available_models(s), ["llama3", "mistral"])
+
+    def test_no_toggles_falls_back_to_openai(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": False},
+            openai={"api_key": "sk-abc", "models": ["gpt-4o"]},
+        )
+        self.assertEqual(get_available_models(s), ["gpt-4o"])
+
+    def test_multiple_toggles_falls_back_to_openai(self):
+        s = _settings_with_summary(
+            {"use_openai_models": True, "use_anthropic_models": True, "use_custom_models": False},
+            openai={"api_key": "sk-abc", "models": ["gpt-4o"]},
+        )
+        self.assertEqual(get_available_models(s), ["gpt-4o"])
+
+    def test_openai_no_api_key_returns_empty(self):
+        s = _settings(openai={"api_key": "", "models": ["gpt-4o"]})
+        self.assertEqual(get_available_models(s), [])
+
+    def test_openai_empty_models_returns_empty(self):
+        s = _settings(openai={"api_key": "sk-abc", "models": []})
+        self.assertEqual(get_available_models(s), [])
+
+    def test_custom_disabled_returns_empty(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": True},
+            custom={"enabled": False, "base_url": "http://localhost", "models": ["llama3"], "api_key": ""},
+        )
+        self.assertEqual(get_available_models(s), [])
+
+    def test_custom_no_base_url_returns_empty(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": True},
+            custom={"enabled": True, "base_url": "", "models": ["llama3"], "api_key": ""},
+        )
+        self.assertEqual(get_available_models(s), [])
+
+    def test_empty_settings_returns_empty(self):
+        self.assertEqual(get_available_models({}), [])
+
+    def test_returns_a_copy_not_the_stored_list(self):
+        s = _settings(openai={"api_key": "sk-abc", "models": ["gpt-4o"]})
+        result = get_available_models(s)
+        result.append("injected")
+        self.assertEqual(s["ai_models"]["openai"]["models"], ["gpt-4o"])
+
+
+class TestGetActiveProviderLabel(unittest.TestCase):
+    """Tests for get_active_provider_label() — returns the display label for the active provider."""
+
+    def test_openai_active_with_key_returns_openai(self):
+        s = _settings(openai={"api_key": "sk-abc"})
+        self.assertEqual(get_active_provider_label(s), "OpenAI")
+
+    def test_anthropic_active_with_key_returns_anthropic(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": True, "use_custom_models": False},
+            anthropic={"api_key": "ant-key"},
+        )
+        self.assertEqual(get_active_provider_label(s), "Anthropic")
+
+    def test_custom_active_enabled_with_base_url_returns_custom(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": True},
+            custom={"enabled": True, "base_url": "http://localhost:11434", "api_key": ""},
+        )
+        self.assertEqual(get_active_provider_label(s), "Custom")
+
+    def test_openai_no_api_key_returns_none(self):
+        s = _settings(openai={"api_key": ""})
+        self.assertIsNone(get_active_provider_label(s))
+
+    def test_custom_disabled_returns_none(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": True},
+            custom={"enabled": False, "base_url": "http://localhost", "api_key": ""},
+        )
+        self.assertIsNone(get_active_provider_label(s))
+
+    def test_empty_settings_returns_none(self):
+        # Fallback to OpenAI, no api_key → None
+        self.assertIsNone(get_active_provider_label({}))
+
+    def test_label_non_none_when_models_non_empty(self):
+        # Invariant: get_active_provider_label returns non-None whenever
+        # get_available_models returns non-empty for the same settings.
+        s = _settings(openai={"api_key": "sk-abc", "models": ["gpt-4o"]})
+        models = get_available_models(s)
+        label = get_active_provider_label(s)
+        self.assertTrue(len(models) > 0)
+        self.assertIsNotNone(label)
+
+    def test_no_toggles_falls_back_to_openai_label(self):
+        s = _settings_with_summary(
+            {"use_openai_models": False, "use_anthropic_models": False, "use_custom_models": False},
+            openai={"api_key": "sk-abc"},
+        )
+        self.assertEqual(get_active_provider_label(s), "OpenAI")
 
 
 if __name__ == "__main__":

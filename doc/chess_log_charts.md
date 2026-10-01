@@ -156,7 +156,7 @@ The tab is non-modal (embedded in the central widget); `MainWindow.apply_theme()
 
 **BusySpinner**: `app/views/widgets/busy_spinner.py` is the single canonical spinner widget used throughout Chess Log (Charts tab, dialogs) and by `BulkOperationsDialog`.
 
-**AI provider config**: `app/utils/ai_provider_config.py` — `is_ai_configured` / `resolve_default_provider` helpers used by both Chess Log Charts and AI Summary.
+**AI provider config**: `app/utils/ai_provider_config.py` — shared helpers used by both Chess Log Charts and AI Summary: `is_ai_configured`, `resolve_default_provider`, `get_available_models` (plain model-ID list for the active provider), and `get_active_provider_label` (display label "OpenAI" / "Anthropic" / "Custom"). Model-selection logic lives here, not in the controllers.
 
 ## AI integration
 

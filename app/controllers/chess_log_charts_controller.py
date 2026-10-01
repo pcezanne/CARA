@@ -36,7 +36,10 @@ from app.services.chess_log_stats_service import (
     has_any_moments,
 )
 from app.services.user_settings_service import UserSettingsService
-from app.utils.ai_provider_config import resolve_default_provider
+from app.utils.ai_provider_config import (
+    get_available_models as _get_available_models,
+    resolve_default_provider,
+)
 
 _3X3_SHORT_LABELS: Dict[str, str] = {
     "Why1": "Why I played it",
@@ -438,28 +441,8 @@ class ChessLogChartsController(QObject):
         self._narrative_model_override = model or None
 
     def get_available_models(self) -> List[str]:
-        """Return model IDs available for the active provider (same filtering as AI Summary)."""
-        ai_settings = self._user_settings.get("ai_models", {})
-        ai_summary = self._user_settings.get("ai_summary", {})
-        use_openai = bool(ai_summary.get("use_openai_models", True))
-        use_anthropic = bool(ai_summary.get("use_anthropic_models", False))
-        use_custom = bool(ai_summary.get("use_custom_models", False))
-        if sum([use_openai, use_anthropic, use_custom]) != 1:
-            use_openai, use_anthropic, use_custom = True, False, False
-
-        if use_openai:
-            s = ai_settings.get("openai", {})
-            if s.get("api_key"):
-                return list(s.get("models", []) or [])
-        if use_anthropic:
-            s = ai_settings.get("anthropic", {})
-            if s.get("api_key"):
-                return list(s.get("models", []) or [])
-        if use_custom:
-            s = ai_settings.get("custom", {})
-            if s.get("enabled", False) and (s.get("base_url") or "").strip():
-                return list(s.get("models", []) or [])
-        return []
+        """Return model IDs available for the active provider."""
+        return _get_available_models(self._user_settings)
 
     def get_default_narrative_model(self) -> Optional[str]:
         """Return the default model ID for the active provider, or None if unconfigured."""

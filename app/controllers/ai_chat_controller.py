@@ -10,7 +10,11 @@ from app.services.ai_service import AIService, AIProvider
 from app.services.user_settings_service import UserSettingsService
 from app.services.pgn_formatter_service import PgnFormatterService
 from app.services.logging_service import LoggingService
-from app.utils.ai_provider_config import resolve_default_provider
+from app.utils.ai_provider_config import (
+    get_active_provider_label as _get_active_provider_label,
+    get_available_models as _get_available_models,
+    resolve_default_provider,
+)
 
 
 class AIRequestThread(QThread):
@@ -279,42 +283,18 @@ Please provide a brief analysis of this position, including:
     
     def get_available_models(self) -> List[str]:
         """Get list of available models with provider prefixes.
-        
-        Returns:
-            List of model strings in format "Provider: model" (e.g., ["OpenAI: gpt-4", "Anthropic: claude-3-5-sonnet"]).
+
+        Returns model strings in format ``"Provider: model"``
+        (e.g., ``["OpenAI: gpt-4", "Anthropic: claude-3-5-sonnet"]``).
         """
-        models: List[str] = []
-        ai_settings = self.user_settings_service.get_settings().get("ai_models", {})
-        use_openai, use_anthropic, use_custom = self._get_provider_preferences()
-        
-        if use_openai:
-            openai_settings = ai_settings.get("openai", {})
-            openai_api_key = openai_settings.get("api_key", "")
-            openai_models = openai_settings.get("models", []) or []
-            if openai_api_key:
-                for model in openai_models:
-                    models.append(f"OpenAI: {model}")
-        
-        if use_anthropic:
-            anthropic_settings = ai_settings.get("anthropic", {})
-            anthropic_api_key = anthropic_settings.get("api_key", "")
-            anthropic_models = anthropic_settings.get("models", []) or []
-            if anthropic_api_key:
-                for model in anthropic_models:
-                    models.append(f"Anthropic: {model}")
-        
-        if use_custom:
-            custom_settings = ai_settings.get("custom", {})
-            if not custom_settings.get("enabled", False):
-                pass
-            else:
-                custom_base_url = (custom_settings.get("base_url") or "").strip()
-                custom_models = custom_settings.get("models", []) or []
-                if custom_base_url and custom_models:
-                    for model in custom_models:
-                        models.append(f"Custom: {model}")
-        
-        return models
+        settings = self.user_settings_service.get_settings()
+        model_ids = _get_available_models(settings)
+        if not model_ids:
+            return []
+        label = _get_active_provider_label(settings)
+        if not label:
+            return []
+        return [f"{label}: {m}" for m in model_ids]
     
     def get_default_model(self) -> Optional[str]:
         """Get the default model from settings.
@@ -393,27 +373,6 @@ Please provide a brief analysis of this position, including:
                 return AIProvider.CUSTOM, model, api_key, base_url
         
         return None, None, None, None
-    
-    def _get_provider_preferences(self) -> tuple[bool, bool, bool]:
-        """Get provider toggle states from user settings.
-        
-        Returns:
-            Tuple of (use_openai_models, use_anthropic_models, use_custom_models) with enforced exclusivity.
-        """
-        settings = self.user_settings_service.get_settings()
-        ai_summary = settings.get("ai_summary", {})
-        use_openai = ai_summary.get("use_openai_models", True)
-        use_anthropic = ai_summary.get("use_anthropic_models", False)
-        use_custom = ai_summary.get("use_custom_models", False)
-        
-        # Enforce exactly one provider: if multiple or none True, default to OpenAI
-        count = sum([use_openai, use_anthropic, use_custom])
-        if count != 1:
-            use_openai = True
-            use_anthropic = False
-            use_custom = False
-        
-        return use_openai, use_anthropic, use_custom
     
     def _build_move_label_cache(self, game) -> None:
         """Build cache mapping ply indices to move labels for the active game."""

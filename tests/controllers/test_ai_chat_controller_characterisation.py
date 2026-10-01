@@ -225,3 +225,139 @@ class TestAIRequestThreadResponseSemantics(unittest.TestCase):
         self.assertEqual(len(received), 1)
         _success, response = received[0]
         self.assertEqual(response, "")
+
+
+class TestAIChatControllerGetAvailableModels(unittest.TestCase):
+    """Characterisation tests for AIChatController.get_available_models().
+
+    Returns "Provider: model" prefixed strings — same provider-selection logic
+    as ChessLogChartsController.get_available_models() but with a label prefix.
+    """
+
+    def _make_controller(self, settings: dict) -> "AIChatController":
+        from app.controllers.ai_chat_controller import AIChatController
+        from unittest.mock import MagicMock, patch
+
+        game_model = MagicMock()
+        game_model.active_game = None  # prevents _build_move_label_cache from parsing PGN
+        game_model.get_active_move_ply.return_value = -1
+        game_ctrl = MagicMock()
+        game_ctrl.get_game_model.return_value = game_model
+
+        settings_svc = MagicMock()
+        settings_svc.get_settings.return_value = settings
+
+        with patch(
+            "app.controllers.ai_chat_controller.UserSettingsService"
+        ) as mock_uss:
+            mock_uss.get_instance.return_value = settings_svc
+            with patch("app.controllers.ai_chat_controller.AIService"):
+                ctrl = AIChatController(
+                    config={},
+                    game_controller=game_ctrl,
+                    app_controller=MagicMock(),
+                )
+        ctrl.user_settings_service = settings_svc
+        return ctrl
+
+    # --- settings helpers (parallel to the Chess Log test helpers) ---
+
+    @staticmethod
+    def _s_openai(api_key="sk-abc", models=None):
+        models = models if models is not None else ["gpt-4o", "gpt-4-turbo"]
+        return {"ai_models": {"openai": {"api_key": api_key, "models": models}}}
+
+    @staticmethod
+    def _s_anthropic(api_key="ant-key", models=None):
+        models = models if models is not None else ["claude-opus-4-7"]
+        return {
+            "ai_models": {"anthropic": {"api_key": api_key, "models": models}},
+            "ai_summary": {
+                "use_openai_models": False,
+                "use_anthropic_models": True,
+                "use_custom_models": False,
+            },
+        }
+
+    @staticmethod
+    def _s_custom(enabled=True, base_url="http://localhost:11434", models=None):
+        models = models if models is not None else ["llama3", "mistral"]
+        return {
+            "ai_models": {
+                "custom": {
+                    "enabled": enabled,
+                    "base_url": base_url,
+                    "models": models,
+                    "api_key": "",
+                }
+            },
+            "ai_summary": {
+                "use_openai_models": False,
+                "use_anthropic_models": False,
+                "use_custom_models": True,
+            },
+        }
+
+    # --- test cases ---
+
+    def test_openai_active_returns_prefixed_model_strings(self):
+        ctrl = self._make_controller(self._s_openai())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["OpenAI: gpt-4o", "OpenAI: gpt-4-turbo"])
+
+    def test_anthropic_active_returns_prefixed_model_strings(self):
+        ctrl = self._make_controller(self._s_anthropic())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["Anthropic: claude-opus-4-7"])
+
+    def test_custom_active_returns_prefixed_model_strings(self):
+        ctrl = self._make_controller(self._s_custom())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["Custom: llama3", "Custom: mistral"])
+
+    def test_no_toggles_falls_back_to_openai(self):
+        s = self._s_openai()
+        s["ai_summary"] = {
+            "use_openai_models": False,
+            "use_anthropic_models": False,
+            "use_custom_models": False,
+        }
+        ctrl = self._make_controller(s)
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["OpenAI: gpt-4o", "OpenAI: gpt-4-turbo"])
+
+    def test_multiple_toggles_falls_back_to_openai(self):
+        s = self._s_openai()
+        s["ai_summary"] = {
+            "use_openai_models": True,
+            "use_anthropic_models": True,
+            "use_custom_models": False,
+        }
+        ctrl = self._make_controller(s)
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["OpenAI: gpt-4o", "OpenAI: gpt-4-turbo"])
+
+    def test_openai_no_api_key_returns_empty(self):
+        ctrl = self._make_controller(self._s_openai(api_key=""))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_openai_empty_models_list_returns_empty(self):
+        ctrl = self._make_controller(self._s_openai(models=[]))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_custom_disabled_returns_empty(self):
+        ctrl = self._make_controller(self._s_custom(enabled=False))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_custom_no_base_url_returns_empty(self):
+        ctrl = self._make_controller(self._s_custom(base_url=""))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_empty_settings_returns_empty(self):
+        ctrl = self._make_controller({})
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])

@@ -874,5 +874,140 @@ class TestChessLogShallowThreadExceptionHandling(unittest.TestCase):
         self.assertIn("classifier", failed[0])
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogChartsControllerGetAvailableModels(unittest.TestCase):
+    """Characterisation tests for get_available_models() — pin behaviour before extraction.
+
+    get_available_models() returns plain model IDs (no provider prefix) for the
+    active provider, applying the same exclusivity rule as resolve_default_provider.
+    """
+
+    def _make_controller(self) -> "ChessLogChartsController":
+        db_ctrl = _make_db_controller([])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        return ctrl
+
+    def _with_settings(self, settings: dict) -> "ChessLogChartsController":
+        ctrl = self._make_controller()
+        ctrl._user_settings = settings
+        return ctrl
+
+    # --- helpers for building settings dicts ---
+
+    @staticmethod
+    def _s_openai(api_key="sk-abc", models=None):
+        models = models if models is not None else ["gpt-4o", "gpt-4-turbo"]
+        return {"ai_models": {"openai": {"api_key": api_key, "models": models}}}
+
+    @staticmethod
+    def _s_anthropic(api_key="ant-key", models=None):
+        models = models if models is not None else ["claude-opus-4-7"]
+        return {
+            "ai_models": {"anthropic": {"api_key": api_key, "models": models}},
+            "ai_summary": {
+                "use_openai_models": False,
+                "use_anthropic_models": True,
+                "use_custom_models": False,
+            },
+        }
+
+    @staticmethod
+    def _s_custom(enabled=True, base_url="http://localhost:11434", models=None):
+        models = models if models is not None else ["llama3", "mistral"]
+        return {
+            "ai_models": {
+                "custom": {
+                    "enabled": enabled,
+                    "base_url": base_url,
+                    "models": models,
+                    "api_key": "",
+                }
+            },
+            "ai_summary": {
+                "use_openai_models": False,
+                "use_anthropic_models": False,
+                "use_custom_models": True,
+            },
+        }
+
+    # --- test cases ---
+
+    def test_openai_active_returns_plain_model_ids(self):
+        ctrl = self._with_settings(self._s_openai())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["gpt-4o", "gpt-4-turbo"])
+
+    def test_anthropic_active_returns_plain_model_ids(self):
+        ctrl = self._with_settings(self._s_anthropic())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["claude-opus-4-7"])
+
+    def test_custom_active_returns_plain_model_ids(self):
+        ctrl = self._with_settings(self._s_custom())
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["llama3", "mistral"])
+
+    def test_no_toggles_falls_back_to_openai(self):
+        # All toggles False → exclusivity fallback picks OpenAI
+        s = self._s_openai()
+        s["ai_summary"] = {
+            "use_openai_models": False,
+            "use_anthropic_models": False,
+            "use_custom_models": False,
+        }
+        ctrl = self._with_settings(s)
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["gpt-4o", "gpt-4-turbo"])
+
+    def test_multiple_toggles_falls_back_to_openai(self):
+        # Two toggles True → exclusivity fallback picks OpenAI
+        s = self._s_openai()
+        s["ai_summary"] = {
+            "use_openai_models": True,
+            "use_anthropic_models": True,
+            "use_custom_models": False,
+        }
+        ctrl = self._with_settings(s)
+        result = ctrl.get_available_models()
+        self.assertEqual(result, ["gpt-4o", "gpt-4-turbo"])
+
+    def test_openai_no_api_key_returns_empty(self):
+        ctrl = self._with_settings(self._s_openai(api_key=""))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_openai_empty_models_list_returns_empty(self):
+        ctrl = self._with_settings(self._s_openai(models=[]))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_custom_disabled_returns_empty(self):
+        ctrl = self._with_settings(self._s_custom(enabled=False))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_custom_no_base_url_returns_empty(self):
+        ctrl = self._with_settings(self._s_custom(base_url=""))
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_empty_settings_returns_empty(self):
+        # Fallback to OpenAI, but no api_key → empty
+        ctrl = self._with_settings({})
+        result = ctrl.get_available_models()
+        self.assertEqual(result, [])
+
+    def test_result_is_a_copy_not_a_reference(self):
+        # Mutating the return value must not affect the settings dict
+        ctrl = self._with_settings(self._s_openai())
+        result = ctrl.get_available_models()
+        original_models = list(ctrl._user_settings["ai_models"]["openai"]["models"])
+        result.append("injected")
+        self.assertEqual(
+            ctrl._user_settings["ai_models"]["openai"]["models"],
+            original_models,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -93,11 +93,14 @@ class AIService:
     # This is a class-level cache so it persists across all instances
     _models_not_supporting_temperature: set = set()
 
-    # Cache for Anthropic models that reject thinking.type.disabled (e.g. Opus 5.5, Fable 5,
-    # Mythos 5) and require thinking.type.adaptive + output_config.effort instead.
-    # Populated on the first 400 with the "thinking.type.disabled is not supported" message;
-    # subsequent calls for that model skip directly to the adaptive payload.
-    _models_requiring_adaptive_thinking: set = set()
+    # Cache for Anthropic models that reject thinking.type.disabled.  Maps model_id →
+    # the thinking-override dict to substitute on future calls:
+    #   Opus 5.5 / Fable 5 / Mythos 5:  {"thinking": {"type": "adaptive"},
+    #                                      "output_config": {"effort": "low"}}
+    #   Sonnet 5.5:                       {"thinking": {"type": "between_tools"}}
+    # Populated on the first 400 with a recognized "disabled not supported" message;
+    # subsequent calls for that model skip straight to the replacement payload.
+    _models_thinking_override: dict = {}
     
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the AI service.
@@ -645,10 +648,11 @@ class AIService:
             payload["thinking"] = thinking
 
         # If this model already rejected thinking.type.disabled in a prior call this session,
-        # substitute adaptive thinking immediately — skip the failed first attempt.
-        if thinking == {"type": "disabled"} and model in self._models_requiring_adaptive_thinking:
-            payload["thinking"] = {"type": "adaptive"}
-            payload["output_config"] = {"effort": "low"}
+        # substitute the cached override immediately — skip the failed first attempt.
+        if thinking == {"type": "disabled"} and model in self._models_thinking_override:
+            for key in ("thinking", "output_config"):
+                payload.pop(key, None)
+            payload.update(self._models_thinking_override[model])
 
         # Debug outbound: log request payload (hide API key)
         debug_payload = payload.copy()
@@ -687,19 +691,29 @@ class AIService:
             error_data = response.json() if response.content else {}
             error_message = error_data.get("error", {}).get("message", f"API error: {response.status_code}")
 
-            # Retry once when the model rejects thinking.type.disabled.  Only fires when
-            # (a) we actually sent disabled, (b) the model hasn't been cached yet (so this
-            # is a genuine first-time rejection, not a stale retry), and (c) the 400 message
-            # explicitly names "thinking.type.disabled" as unsupported.
-            if (thinking == {"type": "disabled"}
-                    and model not in self._models_requiring_adaptive_thinking
-                    and "thinking.type.disabled" in error_message
-                    and "not supported" in error_message.lower()):
-                self._models_requiring_adaptive_thinking.add(model)
+            # Retry once when the model rejects thinking.type.disabled with a recognized message.
+            # Two distinct triggers, each narrow enough to avoid false matches:
+            #   1. "thinking.type.disabled … not supported" → adaptive + effort:low
+            #   2. "between_tools … instead of" → between_tools, no output_config
+            #      (Sonnet 5.5 only; Anthropic docs: "'effort: high' matches the API default",
+            #       which is within between_tools' allowed range, so no output_config needed)
+            # Only fires when (a) we actually sent disabled and (b) this model hasn't been
+            # cached yet — prevents a stale retry if pre-substitution somehow didn't apply.
+            thinking_override = None
+            if thinking == {"type": "disabled"} and model not in self._models_thinking_override:
+                if ("thinking.type.disabled" in error_message
+                        and "not supported" in error_message.lower()):
+                    thinking_override = {"thinking": {"type": "adaptive"},
+                                         "output_config": {"effort": "low"}}
+                elif ("between_tools" in error_message
+                        and "instead of" in error_message.lower()):
+                    thinking_override = {"thinking": {"type": "between_tools"}}
+
+            if thinking_override is not None:
+                self._models_thinking_override[model] = thinking_override
                 payload_retry = {k: v for k, v in payload.items()
                                  if k not in ("thinking", "output_config")}
-                payload_retry["thinking"] = {"type": "adaptive"}
-                payload_retry["output_config"] = {"effort": "low"}
+                payload_retry.update(thinking_override)
                 self._debug_console(
                     "POST (RETRY) " + str(self.ANTHROPIC_MESSAGES_URL) + "\nPayload: " +
                     json.dumps(payload_retry, indent=2), "SEND")

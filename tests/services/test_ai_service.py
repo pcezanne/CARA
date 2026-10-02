@@ -108,15 +108,21 @@ _THINKING_DISABLED_400_MESSAGE = (
     'Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.'
 )
 
+_BETWEEN_TOOLS_400_MESSAGE = (
+    'To turn thinking off on this model, send "thinking": {"type": "between_tools"} '
+    'instead of {"type": "disabled"}. The model does not think before responding. '
+    'The short updates it writes between tool calls come back as thinking blocks.'
+)
+
 
 class TestAdaptiveThinkingFallback(unittest.TestCase):
-    """When a model rejects thinking.type.disabled, retry once with adaptive + effort:low."""
+    """When a model rejects thinking.type.disabled, retry once with the right replacement."""
 
     def setUp(self):
-        AIService._models_requiring_adaptive_thinking.clear()
+        AIService._models_thinking_override.clear()
 
     def tearDown(self):
-        AIService._models_requiring_adaptive_thinking.clear()
+        AIService._models_thinking_override.clear()
 
     @patch("app.services.ai_service.requests.post")
     def test_model_accepting_disabled_no_retry(self, mock_post):
@@ -165,7 +171,9 @@ class TestAdaptiveThinkingFallback(unittest.TestCase):
     def test_session_cache_skips_disabled_attempt(self, mock_post):
         """After a successful retry, subsequent calls go straight to adaptive (one request, no 400)."""
         # Seed the cache as if a prior call already discovered this model.
-        AIService._models_requiring_adaptive_thinking.add("claude-opus-5-5-20251101")
+        AIService._models_thinking_override["claude-opus-5-5-20251101"] = {
+            "thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}
+        }
         mock_post.return_value = _make_anthropic_response("cached path answer")
         result = AIService().send_message(
             provider="anthropic",
@@ -183,7 +191,9 @@ class TestAdaptiveThinkingFallback(unittest.TestCase):
     @patch("app.services.ai_service.requests.post")
     def test_cache_is_per_model_id(self, mock_post):
         """Caching opus-5-5 does not affect the unversioned opus-5 model."""
-        AIService._models_requiring_adaptive_thinking.add("claude-opus-5-5-20251101")
+        AIService._models_thinking_override["claude-opus-5-5-20251101"] = {
+            "thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}
+        }
         mock_post.return_value = _make_anthropic_response()
         AIService().send_message(
             provider="anthropic",
@@ -294,6 +304,110 @@ class TestAdaptiveThinkingFallback(unittest.TestCase):
         payload = _captured_payload(mock_post)
         self.assertNotIn("thinking", payload)
         self.assertNotIn("output_config", payload)
+
+    # ------------------------------------------------------------------
+    # Sonnet 5.5 — between_tools trigger
+    # ------------------------------------------------------------------
+
+    @patch("app.services.ai_service.requests.post")
+    def test_sonnet_5_5_retries_with_between_tools(self, mock_post):
+        """Sonnet 5.5: 400 with between_tools message → retry with between_tools, no output_config."""
+        mock_post.side_effect = [
+            _make_anthropic_400(_BETWEEN_TOOLS_400_MESSAGE),
+            _make_anthropic_response("sonnet answer"),
+        ]
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 2)
+        first_payload = mock_post.call_args_list[0][1].get("json") or mock_post.call_args_list[0][0][1]
+        self.assertEqual(first_payload.get("thinking"), {"type": "disabled"})
+        self.assertNotIn("output_config", first_payload)
+        retry_payload = mock_post.call_args_list[1][1].get("json") or mock_post.call_args_list[1][0][1]
+        self.assertEqual(retry_payload.get("thinking"), {"type": "between_tools"})
+        # API default effort is "high" which is within the allowed range; no output_config needed.
+        self.assertNotIn("output_config", retry_payload)
+        self.assertTrue(result.success)
+        self.assertEqual(result.text, "sonnet answer")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_sonnet_5_5_session_memory_skips_disabled(self, mock_post):
+        """After caching Sonnet 5.5, subsequent call goes straight to between_tools."""
+        AIService._models_thinking_override["claude-sonnet-5-5-20251101"] = {
+            "thinking": {"type": "between_tools"}
+        }
+        mock_post.return_value = _make_anthropic_response("fast path")
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 1)
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "between_tools"})
+        self.assertNotIn("output_config", payload)
+        self.assertTrue(result.success)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_sonnet_5_5_cache_independent_of_sonnet_5(self, mock_post):
+        """Caching Sonnet 5.5 (between_tools) does not affect plain Sonnet 5 (stays disabled)."""
+        AIService._models_thinking_override["claude-sonnet-5-5-20251101"] = {
+            "thinking": {"type": "between_tools"}
+        }
+        mock_post.return_value = _make_anthropic_response()
+        AIService().send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "disabled"})
+        self.assertNotIn("output_config", payload)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_sonnet_5_5_cache_independent_of_opus_5_5(self, mock_post):
+        """Caching Sonnet 5.5 (between_tools) does not affect Opus 5.5 (still adaptive+low)."""
+        AIService._models_thinking_override["claude-sonnet-5-5-20251101"] = {
+            "thinking": {"type": "between_tools"}
+        }
+        AIService._models_thinking_override["claude-opus-5-5-20251101"] = {
+            "thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}
+        }
+        mock_post.return_value = _make_anthropic_response()
+        AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "adaptive"})
+        self.assertEqual(payload.get("output_config"), {"effort": "low"})
+
+    @patch("app.services.ai_service.requests.post")
+    def test_between_tools_in_message_without_instead_of_not_retried(self, mock_post):
+        """A 400 mentioning between_tools but not 'instead of' is not retried."""
+        mock_post.return_value = _make_anthropic_400(
+            "between_tools is only supported on Claude Sonnet 5.5"
+        )
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertFalse(result.success)
 
 
 class TestDisableThinkingFor(unittest.TestCase):

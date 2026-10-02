@@ -84,14 +84,20 @@ class AIProvider(str, Enum):
 
 class AIService:
     """Service for making API calls to AI providers."""
-    
+
     # Cache for models that require max_completion_tokens instead of max_tokens
     # This is a class-level cache so it persists across all instances
     _models_requiring_max_completion_tokens: set = set()
-    
+
     # Cache for models that don't support temperature parameter (or only support default)
     # This is a class-level cache so it persists across all instances
     _models_not_supporting_temperature: set = set()
+
+    # Cache for Anthropic models that reject thinking.type.disabled (e.g. Opus 5.5, Fable 5,
+    # Mythos 5) and require thinking.type.adaptive + output_config.effort instead.
+    # Populated on the first 400 with the "thinking.type.disabled is not supported" message;
+    # subsequent calls for that model skip directly to the adaptive payload.
+    _models_requiring_adaptive_thinking: set = set()
     
     def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
         """Initialize the AI service.
@@ -637,7 +643,13 @@ class AIService:
 
         if thinking is not None:
             payload["thinking"] = thinking
-        
+
+        # If this model already rejected thinking.type.disabled in a prior call this session,
+        # substitute adaptive thinking immediately — skip the failed first attempt.
+        if thinking == {"type": "disabled"} and model in self._models_requiring_adaptive_thinking:
+            payload["thinking"] = {"type": "adaptive"}
+            payload["output_config"] = {"effort": "low"}
+
         # Debug outbound: log request payload (hide API key)
         debug_payload = payload.copy()
         debug_headers = {k: ("***" if k == "x-api-key" else v) for k, v in headers.items()}
@@ -674,7 +686,52 @@ class AIService:
         if response.status_code != 200:
             error_data = response.json() if response.content else {}
             error_message = error_data.get("error", {}).get("message", f"API error: {response.status_code}")
-            return AIResult(success=False, text="", error=error_message, usage=None, model=model)
+
+            # Retry once when the model rejects thinking.type.disabled.  Only fires when
+            # (a) we actually sent disabled, (b) the model hasn't been cached yet (so this
+            # is a genuine first-time rejection, not a stale retry), and (c) the 400 message
+            # explicitly names "thinking.type.disabled" as unsupported.
+            if (thinking == {"type": "disabled"}
+                    and model not in self._models_requiring_adaptive_thinking
+                    and "thinking.type.disabled" in error_message
+                    and "not supported" in error_message.lower()):
+                self._models_requiring_adaptive_thinking.add(model)
+                payload_retry = {k: v for k, v in payload.items()
+                                 if k not in ("thinking", "output_config")}
+                payload_retry["thinking"] = {"type": "adaptive"}
+                payload_retry["output_config"] = {"effort": "low"}
+                self._debug_console(
+                    "POST (RETRY) " + str(self.ANTHROPIC_MESSAGES_URL) + "\nPayload: " +
+                    json.dumps(payload_retry, indent=2), "SEND")
+                response = requests.post(
+                    self.ANTHROPIC_MESSAGES_URL,
+                    headers=headers,
+                    json=payload_retry,
+                    timeout=timeout_seconds,
+                )
+                try:
+                    response_data_retry = response.json() if response.content else {}
+                    debug_response_retry = response_data_retry.copy()
+                    if "content" in debug_response_retry:
+                        for item in debug_response_retry.get("content", []):
+                            if isinstance(item, dict) and "text" in item and len(item["text"]) > 200:
+                                item["text"] = item["text"][:200] + "... (truncated)"
+                    self._debug_console(
+                        "Status (RETRY): " + str(response.status_code) + "\nResponse: " +
+                        json.dumps(debug_response_retry, indent=2), "RECV")
+                except Exception:
+                    self._debug_console(
+                        "Status (RETRY): " + str(response.status_code) +
+                        "\nResponse: (non-JSON or error)", "RECV")
+                if response.status_code != 200:
+                    error_data_retry = response.json() if response.content else {}
+                    error_message_retry = error_data_retry.get("error", {}).get(
+                        "message", f"API error: {response.status_code}")
+                    return AIResult(success=False, text="", error=error_message_retry,
+                                    usage=None, model=model)
+                # Retry succeeded — fall through to response parsing below.
+            else:
+                return AIResult(success=False, text="", error=error_message, usage=None, model=model)
         
         data = response.json()
         content_blocks = data.get("content", [])

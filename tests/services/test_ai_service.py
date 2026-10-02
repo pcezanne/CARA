@@ -95,6 +95,207 @@ class TestSendAnthropicMessageThinking(unittest.TestCase):
         self.assertNotIn("thinking", _captured_payload(mock_post))
 
 
+def _make_anthropic_400(message: str) -> MagicMock:
+    mock = MagicMock()
+    mock.status_code = 400
+    mock.content = b"x"
+    mock.json.return_value = {"error": {"message": message}}
+    return mock
+
+
+_THINKING_DISABLED_400_MESSAGE = (
+    '"thinking.type.disabled" is not supported for this model. '
+    'Use "thinking.type.adaptive" and "output_config.effort" to control thinking behavior.'
+)
+
+
+class TestAdaptiveThinkingFallback(unittest.TestCase):
+    """When a model rejects thinking.type.disabled, retry once with adaptive + effort:low."""
+
+    def setUp(self):
+        AIService._models_requiring_adaptive_thinking.clear()
+
+    def tearDown(self):
+        AIService._models_requiring_adaptive_thinking.clear()
+
+    @patch("app.services.ai_service.requests.post")
+    def test_model_accepting_disabled_no_retry(self, mock_post):
+        """Sonnet 5 / Opus 5: 200 on first try, no retry, payload keeps disabled."""
+        mock_post.return_value = _make_anthropic_response()
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 1)
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "disabled"})
+        self.assertNotIn("output_config", payload)
+        self.assertTrue(result.success)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_model_rejecting_disabled_retries_with_adaptive(self, mock_post):
+        """Opus 5.5: 400 on first try → retry with adaptive + low effort → success."""
+        mock_post.side_effect = [
+            _make_anthropic_400(_THINKING_DISABLED_400_MESSAGE),
+            _make_anthropic_response("great answer"),
+        ]
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 2)
+        # First attempt sent disabled
+        first_payload = mock_post.call_args_list[0][1].get("json") or mock_post.call_args_list[0][0][1]
+        self.assertEqual(first_payload.get("thinking"), {"type": "disabled"})
+        self.assertNotIn("output_config", first_payload)
+        # Retry sent adaptive + effort:low
+        retry_payload = mock_post.call_args_list[1][1].get("json") or mock_post.call_args_list[1][0][1]
+        self.assertEqual(retry_payload.get("thinking"), {"type": "adaptive"})
+        self.assertEqual(retry_payload.get("output_config"), {"effort": "low"})
+        self.assertTrue(result.success)
+        self.assertEqual(result.text, "great answer")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_session_cache_skips_disabled_attempt(self, mock_post):
+        """After a successful retry, subsequent calls go straight to adaptive (one request, no 400)."""
+        # Seed the cache as if a prior call already discovered this model.
+        AIService._models_requiring_adaptive_thinking.add("claude-opus-5-5-20251101")
+        mock_post.return_value = _make_anthropic_response("cached path answer")
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 1)
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "adaptive"})
+        self.assertEqual(payload.get("output_config"), {"effort": "low"})
+        self.assertTrue(result.success)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_cache_is_per_model_id(self, mock_post):
+        """Caching opus-5-5 does not affect the unversioned opus-5 model."""
+        AIService._models_requiring_adaptive_thinking.add("claude-opus-5-5-20251101")
+        mock_post.return_value = _make_anthropic_response()
+        AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        payload = _captured_payload(mock_post)
+        self.assertEqual(payload.get("thinking"), {"type": "disabled"})
+        self.assertNotIn("output_config", payload)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_other_400_not_retried(self, mock_post):
+        """An unrelated 400 error is returned immediately with no retry."""
+        mock_post.return_value = _make_anthropic_400("max_tokens exceeded")
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 1)
+        self.assertFalse(result.success)
+        self.assertIn("max_tokens exceeded", result.error)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_retry_failure_propagates_api_message(self, mock_post):
+        """When the retry also fails, the retry's API message is returned intact."""
+        mock_post.side_effect = [
+            _make_anthropic_400(_THINKING_DISABLED_400_MESSAGE),
+            _make_anthropic_400("some other server error on retry"),
+        ]
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 2)
+        self.assertFalse(result.success)
+        self.assertIn("some other server error on retry", result.error)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_thinking_blocks_before_text_block_ignored(self, mock_post):
+        """Response with a thinking block before the text block returns only the text."""
+        mock = MagicMock()
+        mock.status_code = 200
+        mock.content = b"x"
+        mock.json.return_value = {
+            "content": [
+                {"type": "thinking", "thinking": "internal reasoning here"},
+                {"type": "text", "text": "final answer"},
+            ],
+            "stop_reason": "end_turn",
+        }
+        mock_post.return_value = mock
+        result = AIService().send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+        )
+        self.assertTrue(result.success)
+        self.assertEqual(result.text, "final answer")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_openai_path_no_thinking_or_output_config(self, mock_post):
+        """OpenAI path never sends thinking or output_config, even when thinking kwarg is passed."""
+        mock_openai = MagicMock()
+        mock_openai.status_code = 200
+        mock_openai.content = b"x"
+        mock_openai.json.return_value = {
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]
+        }
+        mock_post.return_value = mock_openai
+        AIService().send_message(
+            provider="openai",
+            model="gpt-4",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            thinking={"type": "disabled"},
+        )
+        payload = _captured_payload(mock_post)
+        self.assertNotIn("thinking", payload)
+        self.assertNotIn("output_config", payload)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_custom_path_no_thinking_or_output_config(self, mock_post):
+        """CUSTOM path (OpenAI-compatible) never sends thinking or output_config."""
+        mock_custom = MagicMock()
+        mock_custom.status_code = 200
+        mock_custom.content = b"x"
+        mock_custom.json.return_value = {
+            "choices": [{"message": {"content": "ok"}, "finish_reason": "stop"}]
+        }
+        mock_post.return_value = mock_custom
+        AIService().send_message(
+            provider="custom",
+            model="llama3",
+            api_key="",
+            messages=[{"role": "user", "content": "hi"}],
+            base_url_override="http://localhost:11434/v1",
+            thinking={"type": "disabled"},
+        )
+        payload = _captured_payload(mock_post)
+        self.assertNotIn("thinking", payload)
+        self.assertNotIn("output_config", payload)
+
+
 class TestDisableThinkingFor(unittest.TestCase):
     """disable_thinking_for — per-family probe results (2026-09-27).
 

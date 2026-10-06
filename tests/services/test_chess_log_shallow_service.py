@@ -22,6 +22,7 @@ import unittest
 from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
+from app.services.chess_log_shallow_service import classify_notes
 from app.utils.path_resolver import get_app_resource_path as _get_resource_path
 
 with open(_get_resource_path("app/config/config.json"), "r", encoding="utf-8") as _f:
@@ -429,6 +430,202 @@ class TestClassifyNotesMissingConfig(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("config.json", result.error)
         self.assertEqual(len(result.shallow_keys), 0)
+
+
+class TestClassifyNotesParserRobustness(unittest.TestCase):
+    """Hardened parser handles glued blocks, markdown tables, prose rejection."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_handles_text_blocks_glued_without_separator(self, mock_post):
+        """Simulated ''.join of two text blocks produces no missing indices."""
+        # "0: SHALLOW\n1: DEEP2: SHALLOW\n3: DEEP" — blocks glued at idx 2
+        reply = "0: SHALLOW\n1: DEEP2: SHALLOW\n3: DEEP"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b", "c", "d"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        shallow_idxs = {n[1] for n in result.shallow_keys}
+        self.assertIn("path/0", shallow_idxs)
+        self.assertNotIn("path/1", shallow_idxs)
+        self.assertIn("path/2", shallow_idxs)
+        self.assertNotIn("path/3", shallow_idxs)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_tolerates_cut_off_trailer(self, mock_post):
+        """The 'Response was cut off' trailer appended by ai_service doesn't create spurious indices."""
+        trailer = "\n\n[Response was cut off — the model reached the output token limit. Try increasing the Tokens limit in the narrative controls.]"
+        reply = "0: SHALLOW\n1: DEEP\n2: SHALLOW" + trailer
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b", "c"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_markdown_table_reply(self, mock_post):
+        """Markdown-table verdicts (| 0 | SHALLOW |) parse correctly."""
+        reply = "| 0 | SHALLOW |\n| 1 | DEEP |"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn("path/0", {n[1] for n in result.shallow_keys})
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_rejects_prose_with_matching_digit(self, mock_post):
+        """Prose containing a digit and a separator but no SHALLOW/DEEP stays unparsed."""
+        reply = "Here are 3 classifications:"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["note A"])
+        # Note: index 3 is not in range anyway, but the key check is that the
+        # SHALLOW/DEEP gate blocks the match.
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+        self.assertEqual(len(result.shallow_keys), 0)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_rejects_verdict_mention_in_prose_sentence(self, mock_post):
+        """A verdict embedded in mid-sentence prose is not guessed as an index verdict."""
+        # "13. Re1: DEEP would have been better" — starts with digit+sep but
+        # "Re1:" interrupts before SHALLOW/DEEP in the new anchored regex.
+        # The real list at the bottom must win and index 13 must stay unparsed.
+        reply = (
+            "Looking at move 13. Re1: DEEP would have been better in this position.\n"
+            "Here are the classifications:\n\n"
+            "0: SHALLOW\n"
+            "1: DEEP\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a"] * 20)
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertNotIn(0, result.unparsed_indices)
+        self.assertNotIn(1, result.unparsed_indices)
+        self.assertIn(13, result.unparsed_indices)
+        self.assertIn("path/0", {n[1] for n in result.shallow_keys})
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_handles_markdown_decoration_around_verdict(self, mock_post):
+        reply = "0: **SHALLOW**\n1: `DEEP`\n"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_last_occurrence_wins_on_duplicate_index(self, mock_post):
+        """When an index appears twice, the last verdict wins (model reconsidered)."""
+        reply = "0: SHALLOW\n0: DEEP\n"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_parse_rejects_trailing_prose_after_verdict(self, mock_post):
+        """Verdict followed by prose (not just decoration) stays unparsed."""
+        reply = "0: DEEP play by White\n1: SHALLOW\n"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertIn(0, result.unparsed_indices)
+        self.assertNotIn(1, result.unparsed_indices)
+
+
+class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
+    """Warning/debug logging fires on parse failure with full metadata."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_all_fail_logs_warning_with_full_metadata(self, mock_post):
+        """All notes unparsed → LoggingService.warning called with reply, model, stop_reason,
+        block_count, block_types, usage."""
+        from app.services.chess_log_shallow_service import classify_notes
+        mock_post.return_value = _mock_anthropic_response("no verdicts here at all")
+        notes = _make_notes(["a", "b"])
+        mock_logger = MagicMock()
+        with patch(
+            "app.services.chess_log_shallow_service.LoggingService.get_instance",
+            return_value=mock_logger,
+        ):
+            result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertEqual(len(result.unparsed_indices), 2)
+        mock_logger.warning.assert_called_once()
+        log_msg = mock_logger.warning.call_args.args[0]
+        self.assertIn("no verdicts here at all", log_msg)
+        self.assertIn("claude-sonnet-4-6", log_msg)
+        self.assertIn("stop_reason", log_msg)
+        self.assertIn("block_count", log_msg)
+        self.assertIn("block_types", log_msg)
+        self.assertIn("usage", log_msg)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_log_message_contains_no_api_key_substring(self, mock_post):
+        """The API key must never appear in the log message."""
+        from app.services.chess_log_shallow_service import classify_notes
+        sentinel_key = "sk-TESTKEY-SHOULDNOTAPPEAR"
+        mock_post.return_value = _mock_anthropic_response("no verdicts here")
+        notes = _make_notes(["a"])
+        mock_logger = MagicMock()
+        with patch(
+            "app.services.chess_log_shallow_service.LoggingService.get_instance",
+            return_value=mock_logger,
+        ):
+            classify_notes(notes, "anthropic", "claude-sonnet-4-6", sentinel_key, None, _CONFIG, 30)
+        mock_logger.warning.assert_called_once()
+        log_msg = mock_logger.warning.call_args.args[0]
+        self.assertNotIn(sentinel_key, log_msg)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_partial_fail_logs_debug_not_warning(self, mock_post):
+        """Partial failure (some parsed) → .debug called, not .warning."""
+        from app.services.chess_log_shallow_service import classify_notes
+        # Index 0 parses, index 1 doesn't
+        reply = "0: SHALLOW\n"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["a", "b"])
+        mock_logger = MagicMock()
+        with patch(
+            "app.services.chess_log_shallow_service.LoggingService.get_instance",
+            return_value=mock_logger,
+        ):
+            result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertEqual(result.unparsed_indices, (1,))
+        mock_logger.debug.assert_called_once()
+        mock_logger.warning.assert_not_called()
+
+
+class TestClassifyNotesTokenBudget(unittest.TestCase):
+    """classify_notes passes a sized token_limit proportional to note count."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_classify_notes_sends_sized_token_limit(self, mock_post):
+        """50 notes → token_limit = max(2000, 50*60+500) = 3500."""
+        from app.services.chess_log_shallow_service import classify_notes
+        replies = "\n".join(f"{i}: DEEP" for i in range(50))
+        mock_post.return_value = _mock_anthropic_response(replies)
+        notes = _make_notes(["note"] * 50)
+        classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("max_tokens"), 3500)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_small_library_respects_floor(self, mock_post):
+        """1 note → token_limit = max(2000, 1*60+500) = 2000 (floor)."""
+        from app.services.chess_log_shallow_service import classify_notes
+        mock_post.return_value = _mock_anthropic_response("0: DEEP")
+        notes = _make_notes(["note"])
+        classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("max_tokens"), 2000)
 
 
 if __name__ == "__main__":

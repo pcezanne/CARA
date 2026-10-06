@@ -24,8 +24,7 @@ from dataclasses import dataclass
 from typing import FrozenSet, List, Optional, Tuple
 
 from app.services.ai_service import AIService, TokenUsage
-
-
+from app.services.logging_service import LoggingService
 
 
 # ---------------------------------------------------------------------------
@@ -48,34 +47,62 @@ class ShallowResult:
 
 
 # ---------------------------------------------------------------------------
-# Verdict normalisation
+# Verdict parsing
 # ---------------------------------------------------------------------------
 
-# Regex that extracts (index, raw_verdict) from a classifier reply line.
-# Tolerates decoration around the index and multiple separator styles:
-#   0: SHALLOW          — standard colon
-#   0. SHALLOW          — period (numbered-list style)
-#   0) SHALLOW          — paren
-#   - 0: SHALLOW        — leading bullet dash
-#   [0] SHALLOW         — bracket-wrapped index (] is the separator)
-#   Note 0: SHALLOW     — leading word
-# The SHALLOW/DEEP equality check after normalisation is the true gate —
-# prose lines that happen to contain a digit (e.g. "Here are 3 notes:") do
-# not produce a valid verdict and stay unparsed.
-_LINE_RE = re.compile(r'^\s*[^\d]*?(\d+)\s*[-\]:.)]\s*(.+?)\s*$')
-
-# Characters stripped from both ends of the raw verdict token before the
-# SHALLOW/DEEP equality check.  Covers trailing punctuation that prose-heavy
-# local models append (e.g. "Shallow.") and markdown decoration that some
-# models wrap around their answer (e.g. "**SHALLOW**", "`DEEP`", "_SHALLOW_").
-# The final .strip() handles space-padded decoration: "** SHALLOW **" →
-# strip(*) → " SHALLOW " → strip() → "SHALLOW".
-# Trailing prose ("SHALLOW (because…)") is NOT stripped — it stays unparsed.
-_VERDICT_STRIP_CHARS = '.,!;*_`'
+# Matches a verdict line anchored to the start of the line (MULTILINE).
+# Leading decoration: whitespace, markdown bullets/pipes/angles/brackets.
+# Separators: the classic set plus `|` for markdown-table replies.
+# Trailing content must be whitespace/decoration/end-of-line — anything else
+# (e.g. "0: DEEP because of …") rejects the line so the parser never guesses.
+_LINE_RE = re.compile(
+    r'^[\s|*>_\-\[]*'      # leading markdown/bullet/bracket decoration
+    r'(\d+)\s*'             # the index
+    r'[-\]:.)|]\s*'         # separator — adds `|` for markdown-table shape
+    r'[*_`]*\s*'            # optional bold/italic/code decoration
+    r'(SHALLOW|DEEP)'       # the verdict — gated so prose can't sneak in
+    r'\s*[*_`|.,!;]*\s*$',  # trailing decoration (incl. punct) + end-of-line
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
-def _normalize_verdict(raw: str) -> str:
-    return raw.strip().strip(_VERDICT_STRIP_CHARS).strip().upper()
+def _parse_verdicts(reply_text: str, note_count: int) -> dict:
+    """Return {idx: verdict_upper} from the model reply.
+
+    Preprocessing step: insert a newline between SHALLOW/DEEP and a following
+    digit so that adjacent text blocks joined without a separator
+    (e.g. "0: SHALLOW1: DEEP") are split before the line regex runs.
+
+    Last occurrence wins for any duplicate index (model may reconsider).
+    """
+    text = re.sub(r'\b(SHALLOW|DEEP)(\d)', r'\1\n\2', reply_text, flags=re.IGNORECASE)
+    parsed: dict = {}
+    for m in _LINE_RE.finditer(text):
+        try:
+            idx = int(m.group(1))
+        except ValueError:
+            continue
+        verdict = m.group(2).upper()
+        if verdict not in ("SHALLOW", "DEEP"):
+            continue
+        if 0 <= idx < note_count:
+            parsed[idx] = verdict
+    return parsed
+
+
+# ---------------------------------------------------------------------------
+# Token budget
+# ---------------------------------------------------------------------------
+
+def _classifier_token_limit(note_count: int) -> int:
+    """Conservative output-token budget for the classifier.
+
+    Measured at ~31 tokens/note on a 62-note CLAMP library.  Using 60/note
+    (~2× observed) plus 500 for preamble avoids truncation before the verdict
+    list on large libraries.  Floor of 2000 matches the former default so no
+    small-library regression.
+    """
+    return max(2000, note_count * 60 + 500)
 
 
 # ---------------------------------------------------------------------------
@@ -133,6 +160,7 @@ def classify_notes(
         base_url_override=base_url_override,
         timeout_seconds=timeout_seconds,
         thinking=thinking,
+        token_limit=_classifier_token_limit(len(notes)),
     )
 
     if not result.success:
@@ -145,18 +173,7 @@ def classify_notes(
             unparsed_indices=tuple(range(len(notes))),
         )
 
-    parsed: dict[int, str] = {}
-    for line in result.text.splitlines():
-        m = _LINE_RE.match(line)
-        if not m:
-            continue
-        try:
-            idx = int(m.group(1))
-        except ValueError:
-            continue
-        verdict = _normalize_verdict(m.group(2))
-        if verdict in ("SHALLOW", "DEEP") and 0 <= idx < len(notes):
-            parsed[idx] = verdict
+    parsed = _parse_verdicts(result.text, len(notes))
 
     shallow_keys: FrozenSet[Tuple[int, str, str]] = frozenset(
         (notes[i][1], notes[i][2], notes[i][3])
@@ -164,6 +181,22 @@ def classify_notes(
         if verdict == "SHALLOW"
     )
     unparsed = tuple(i for i in range(len(notes)) if i not in parsed)
+
+    if unparsed:
+        all_failed = len(parsed) == 0 and len(notes) > 0
+        logger = LoggingService.get_instance()
+        log = logger.warning if all_failed else logger.debug
+        log(
+            "chess_log classifier parsed %d of %d notes "
+            "(model=%s, stop_reason=%r, block_count=%s, block_types=%s, "
+            "usage=%s, reply_text=%r)"
+            % (
+                len(parsed), len(notes), result.model,
+                result.stop_reason, result.content_block_count,
+                result.content_block_types, result.usage,
+                result.text[:4000],
+            )
+        )
 
     return ShallowResult(
         success=True,

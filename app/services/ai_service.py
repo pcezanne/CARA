@@ -73,6 +73,10 @@ class AIResult:
     error: Optional[str]        # error message on failure; None on success
     usage: Optional[TokenUsage]
     model: str
+    # Anthropic-only diagnostics; None for OpenAI / custom / error paths.
+    stop_reason: Optional[str] = None
+    content_block_count: Optional[int] = None
+    content_block_types: Optional[Tuple[str, ...]] = None
 
 
 class AIProvider(str, Enum):
@@ -752,6 +756,9 @@ class AIService:
         content = self.anthropic_message_text(data)
 
         stop_reason = data.get("stop_reason", "")
+        block_types = tuple(
+            b.get("type", "") for b in content_blocks if isinstance(b, dict)
+        )
 
         # Extract token usage
         usage_data = data.get("usage")
@@ -774,12 +781,17 @@ class AIService:
                         "Try increasing the Tokens limit in the narrative controls."
                     ),
                     usage=usage, model=model,
+                    stop_reason=stop_reason,
+                    content_block_count=len(content_blocks),
+                    content_block_types=block_types,
                 )
-            block_types = [b.get("type") for b in content_blocks]
             return AIResult(
                 success=False, text="",
-                error=f"Empty response from API (stop_reason: {stop_reason!r}, block types: {block_types})",
+                error=f"Empty response from API (stop_reason: {stop_reason!r}, block types: {list(block_types)})",
                 usage=usage, model=model,
+                stop_reason=stop_reason,
+                content_block_count=len(content_blocks),
+                content_block_types=block_types,
             )
 
         if stop_reason == "max_tokens":
@@ -788,7 +800,12 @@ class AIService:
                 "Try increasing the Tokens limit in the narrative controls.]"
             )
 
-        return AIResult(success=True, text=content, error=None, usage=usage, model=model)
+        return AIResult(
+            success=True, text=content, error=None, usage=usage, model=model,
+            stop_reason=stop_reason,
+            content_block_count=len(content_blocks),
+            content_block_types=block_types,
+        )
     
     @staticmethod
     def anthropic_message_text(data: Dict[str, Any]) -> str:

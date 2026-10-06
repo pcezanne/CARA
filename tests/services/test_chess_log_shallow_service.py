@@ -324,10 +324,11 @@ class TestClassifyNotesEmptyReply(unittest.TestCase):
     @patch("app.services.ai_service.requests.post")
     def test_whitespace_only_reply_all_unparsed(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes
+        # anthropic_message_text strips whitespace-only to "" — treated as empty, same as test_empty_reply
         mock_post.return_value = _mock_anthropic_response("   \n\n  \n")
         notes = _make_notes(["note A"])
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
-        self.assertTrue(result.success)
+        self.assertFalse(result.success)
         self.assertEqual(result.unparsed_indices, (0,))
         self.assertEqual(len(result.shallow_keys), 0)
 

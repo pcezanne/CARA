@@ -57,15 +57,15 @@ class TestDatabaseModelLogColumn(unittest.TestCase):
 
     def test_col_log_constant_value(self):
         from app.models.database_model import DatabaseModel
-        self.assertEqual(DatabaseModel.COL_LOG, 18)
+        self.assertEqual(DatabaseModel.COL_LOG, 22)
 
-    def test_col_source_db_bumped(self):
+    def test_col_source_db_value(self):
         from app.models.database_model import DatabaseModel
-        self.assertEqual(DatabaseModel.COL_SOURCE_DB, 19)
+        self.assertEqual(DatabaseModel.COL_SOURCE_DB, 18)
 
-    def test_col_pgn_bumped(self):
+    def test_col_pgn_value(self):
         from app.models.database_model import DatabaseModel
-        self.assertEqual(DatabaseModel.COL_PGN, 22)
+        self.assertEqual(DatabaseModel.COL_PGN, 21)
 
     # -- data() --
 

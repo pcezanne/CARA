@@ -749,10 +749,7 @@ class AIService:
         
         data = response.json()
         content_blocks = data.get("content", [])
-        content = next(
-            (block.get("text", "") for block in content_blocks if block.get("type") == "text"),
-            ""
-        )
+        content = self.anthropic_message_text(data)
 
         stop_reason = data.get("stop_reason", "")
 
@@ -793,6 +790,16 @@ class AIService:
 
         return AIResult(success=True, text=content, error=None, usage=usage, model=model)
     
+    @staticmethod
+    def anthropic_message_text(data: Dict[str, Any]) -> str:
+        """Visible reply text, skipping thinking blocks that precede it on newer models."""
+        parts = [
+            block.get("text", "")
+            for block in data.get("content", [])
+            if isinstance(block, dict) and block.get("type") == "text"
+        ]
+        return "".join(parts).strip()
+
     @staticmethod
     def parse_model_string(model_string: str) -> Tuple[str, str]:
         """Parse a model string with provider prefix.

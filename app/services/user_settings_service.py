@@ -389,6 +389,14 @@ class UserSettingsService:
                     model.set_profile_order(template_value)
                 elif key == "board_visibility":
                     model.set_board_visibility(template_value)
+                elif key == "detail_panel_visibility":
+                    model.set_detail_panel_visibility(template_value)
+                elif key == "database_table_columns":
+                    model.set_database_table_columns(template_value)
+                elif key == "database_table_columns_by_path":
+                    model.set_database_table_columns_by_path(
+                        template_value if isinstance(template_value, dict) else {}
+                    )
                 elif key == "pgn_visibility":
                     model.set_pgn_visibility(template_value)
                 elif key == "game_analysis":
@@ -397,6 +405,14 @@ class UserSettingsService:
                     model.set_game_analysis_settings(template_value)
                 elif key == "manual_analysis":
                     model.set_manual_analysis(template_value)
+                elif key == "miniature_boards":
+                    model.set_miniature_boards(
+                        template_value if isinstance(template_value, dict) else {}
+                    )
+                elif key == "miniature_board_arrows":
+                    model.set_miniature_board_arrows(
+                        template_value if isinstance(template_value, dict) else {}
+                    )
                 elif key == "annotations":
                     model.set_annotations(template_value)
                 elif key == "engines":
@@ -430,6 +446,12 @@ class UserSettingsService:
                         model.set_moves_list_profiles(section_dict)
                     elif key == "board_visibility":
                         model.set_board_visibility(section_dict)
+                    elif key == "detail_panel_visibility":
+                        model.set_detail_panel_visibility(section_dict)
+                    elif key == "database_table_columns":
+                        model.set_database_table_columns(section_dict)
+                    elif key == "database_table_columns_by_path":
+                        model.set_database_table_columns_by_path(section_dict)
                     elif key == "pgn_visibility":
                         model.set_pgn_visibility(section_dict)
                     elif key == "pgn_notation":
@@ -440,6 +462,10 @@ class UserSettingsService:
                         model.set_game_analysis_settings(section_dict)
                     elif key == "manual_analysis":
                         model.set_manual_analysis(section_dict)
+                    elif key == "miniature_boards":
+                        model.set_miniature_boards(section_dict)
+                    elif key == "miniature_board_arrows":
+                        model.set_miniature_board_arrows(section_dict)
                     elif key == "annotations":
                         model.set_annotations(section_dict)
                     elif key == "engine_assignments":
@@ -774,6 +800,66 @@ class UserSettingsService:
         current = model.get_board_visibility()
         current.update(visibility)
         model.set_board_visibility(current)
+
+    def update_detail_panel_visibility(self, unit_id: str, visible: bool) -> None:
+        """Update one detail-panel tab/menu visibility flag (write-on-exit)."""
+        self.get_model().update_detail_panel_visibility(str(unit_id), bool(visible))
+
+    def get_database_table_columns(self) -> Dict[str, Any]:
+        """Return the global database-table column layout."""
+        return self.get_model().get_database_table_columns()
+
+    def set_database_table_columns(self, layout: Dict[str, Any]) -> None:
+        """Replace the global database-table column layout (write-on-exit)."""
+        self.get_model().set_database_table_columns(layout)
+
+    def get_database_table_columns_for_identifier(
+        self, identifier: Optional[str]
+    ) -> Dict[str, Any]:
+        """Effective layout for a tab: per-path override if present, else global."""
+        from app.services.database_table_columns import (
+            lookup_database_table_columns_for_path,
+        )
+
+        model = self.get_model()
+        path = str(identifier or "").strip()
+        if path and path not in ("clipboard", "search_results"):
+            layout = lookup_database_table_columns_for_path(
+                model.get_database_table_columns_by_path(), path
+            )
+            if layout is not None:
+                return layout
+        return model.get_database_table_columns()
+
+    def has_database_table_columns_for_path(self, file_path: Optional[str]) -> bool:
+        """True if a per-file column layout override exists."""
+        from app.services.database_table_columns import (
+            lookup_database_table_columns_for_path,
+        )
+
+        path = str(file_path or "").strip()
+        if not path or path in ("clipboard", "search_results"):
+            return False
+        return (
+            lookup_database_table_columns_for_path(
+                self.get_model().get_database_table_columns_by_path(), path
+            )
+            is not None
+        )
+
+    def set_database_table_columns_for_path(
+        self, file_path: str, layout: Dict[str, Any]
+    ) -> None:
+        """Save a per-file column layout override (write-on-exit)."""
+        self.get_model().set_database_table_columns_for_path(file_path, layout)
+
+    def remove_database_table_columns_for_path(self, file_path: str) -> bool:
+        """Remove a per-file column layout override (write-on-exit)."""
+        return self.get_model().remove_database_table_columns_for_path(file_path)
+
+    def remap_database_table_columns_path(self, old_path: str, new_path: str) -> None:
+        """Rename a per-file column layout key after Save As / path change."""
+        self.get_model().remap_database_table_columns_path(old_path, new_path)
     
     def update_pgn_visibility(self, visibility: Dict[str, bool]) -> None:
         """Update PGN visibility settings.
@@ -829,7 +915,7 @@ class UserSettingsService:
     
     def update_manual_analysis(self, settings: Dict[str, Any]) -> None:
         """Update manual analysis settings.
-        
+
         Args:
             settings: Dictionary with manual analysis settings.
         """
@@ -837,10 +923,34 @@ class UserSettingsService:
         current = model.get_manual_analysis()
         current.update(settings)
         model.set_manual_analysis(current)
-    
+
+    def get_miniature_boards(self) -> Dict[str, float]:
+        """Return per-surface miniature board scale factors."""
+        return self.get_model().get_miniature_boards()
+
+    def update_miniature_board_scale(self, key: str, scale: float) -> None:
+        """Update one miniature board surface scale (write-on-exit)."""
+        self.get_model().update_miniature_board_scale(str(key), float(scale))
+
+    def set_miniature_boards(self, scales: Dict[str, Any]) -> None:
+        """Replace miniature board scale factors (write-on-exit)."""
+        self.get_model().set_miniature_boards(scales)
+
+    def get_miniature_board_arrows(self) -> Dict[str, bool]:
+        """Return miniature-board arrow visibility flags."""
+        return self.get_model().get_miniature_board_arrows()
+
+    def update_miniature_board_arrow(self, key: str, enabled: bool) -> None:
+        """Update one miniature-board arrow visibility flag (write-on-exit)."""
+        self.get_model().update_miniature_board_arrow(str(key), bool(enabled))
+
+    def set_miniature_board_arrows(self, arrows: Dict[str, Any]) -> None:
+        """Replace miniature-board arrow visibility flags (write-on-exit)."""
+        self.get_model().set_miniature_board_arrows(arrows)
+
     def update_annotations(self, settings: Dict[str, Any]) -> None:
         """Update annotation preferences.
-        
+
         Args:
             settings: Dictionary with annotation settings (preset_colors, text_font_family, text_font_size).
         """

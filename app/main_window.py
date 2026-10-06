@@ -293,6 +293,17 @@ class MainWindow(QMainWindow):
         try:
             old = self.takeCentralWidget()
             if old is not None:
+                # DatabaseModels outlive the panel; disconnect bridges before
+                # deleteLater so Linux/PyQt cannot deliver column signals mid-teardown.
+                try:
+                    from app.views.database_panel import DatabasePanel as _DatabasePanel
+
+                    for panel in old.findChildren(_DatabasePanel):
+                        panel.detach_from_persistent_models()
+                    if isinstance(old, _DatabasePanel):
+                        old.detach_from_persistent_models()
+                except Exception:
+                    pass
                 old.deleteLater()
         except Exception:
             pass
@@ -330,6 +341,7 @@ class MainWindow(QMainWindow):
         try:
             if detail_tab >= 0 and hasattr(self, "detail_panel") and hasattr(self.detail_panel, "tab_widget"):
                 self.detail_panel.tab_widget.setCurrentIndex(detail_tab)
+            self._ensure_visible_detail_tab()
         except Exception:
             pass
 
@@ -3428,16 +3440,11 @@ class MainWindow(QMainWindow):
             MessageDialog.show_warning(self.config, title, message, self)
             return
 
-        # Switch to Manual Analysis tab FIRST for immediate visual feedback
-        if hasattr(self, "detail_panel") and hasattr(self.detail_panel, "tab_widget"):
-            tab_widget = self.detail_panel.tab_widget
-            for i in range(tab_widget.count()):
-                if tab_widget.tabText(i) == "Manual Analysis":
-                    tab_widget.setCurrentIndex(i)
-                    from PyQt6.QtWidgets import QApplication
+        # Switch to Manual Analysis tab FIRST for immediate visual feedback (no-op if hidden)
+        if self._switch_detail_tab_by_id("manual_analysis"):
+            from PyQt6.QtWidgets import QApplication
 
-                    QApplication.processEvents()
-                    break
+            QApplication.processEvents()
 
         manual_analysis_controller.start_analysis()
     
@@ -3477,6 +3484,19 @@ class MainWindow(QMainWindow):
             if manual_analysis_model:
                 manual_analysis_model.enable_miniature_preview = enabled
 
+    def _on_miniature_preview_move_arrow_toggled(self, checked: bool = False) -> None:
+        """Handle Manual Analysis miniature Show Move Arrow toggle."""
+        action = getattr(self, "miniature_preview_move_arrow_action", None)
+        enabled = bool(action.isChecked()) if action is not None else bool(checked)
+        self._update_manual_analysis_setting(
+            "miniature_preview_show_move_arrow", enabled
+        )
+        manual_analysis_controller = self.controller.get_manual_analysis_controller()
+        if manual_analysis_controller:
+            manual_analysis_model = manual_analysis_controller.get_analysis_model()
+            if manual_analysis_model:
+                manual_analysis_model.miniature_preview_show_move_arrow = enabled
+
     def _on_show_wdl_probabilities_toggled(self) -> None:
         """Handle Show W/D/L probabilities toggle from menu."""
         enabled = self.show_wdl_probabilities_action.isChecked()
@@ -3487,23 +3507,130 @@ class MainWindow(QMainWindow):
             if manual_analysis_model:
                 manual_analysis_model.show_wdl_probabilities = enabled
     
-    def _on_miniature_preview_scale_factor_selected(self, scale_factor: float) -> None:
-        """Handle miniature preview scale factor selection from menu.
-        
-        Args:
-            scale_factor: Selected scale factor (1.0, 1.25, 1.5, 1.75, or 2.0).
-        """
-        # Uncheck all other scale factor actions
-        for scale, action in self.miniature_preview_scale_actions.items():
-            action.setChecked(scale == scale_factor)
-        
-        self._update_manual_analysis_setting("miniature_preview_scale_factor", scale_factor)
-        # Update model
-        manual_analysis_controller = self.controller.get_manual_analysis_controller()
-        if manual_analysis_controller:
-            manual_analysis_model = manual_analysis_controller.get_analysis_model()
-            if manual_analysis_model:
-                manual_analysis_model.miniature_preview_scale_factor = scale_factor
+    def _on_miniature_board_scale_selected(self, surface_key: str, scale_factor: float) -> None:
+        """Handle View → Miniature Boards scale selection for one surface."""
+        from app.utils.miniature_board_scales import MANUAL_ANALYSIS
+        from app.services.user_settings_service import UserSettingsService
+
+        actions_map = getattr(self, "miniature_board_scale_actions", {}).get(surface_key, {})
+        for scale, action in actions_map.items():
+            action.setChecked(abs(float(scale) - float(scale_factor)) < 0.01)
+
+        UserSettingsService.get_instance().update_miniature_board_scale(
+            surface_key, float(scale_factor)
+        )
+        if surface_key == MANUAL_ANALYSIS:
+            manual_analysis_controller = self.controller.get_manual_analysis_controller()
+            if manual_analysis_controller:
+                manual_analysis_model = manual_analysis_controller.get_analysis_model()
+                if manual_analysis_model:
+                    manual_analysis_model.miniature_preview_scale_factor = float(scale_factor)
+
+        self._apply_miniature_board_scale(surface_key, float(scale_factor))
+
+    def _on_miniature_board_arrow_toggled(self, arrow_key: str, checked: bool) -> None:
+        """Handle View → Miniature Boards arrow visibility toggles."""
+        from app.services.user_settings_service import UserSettingsService
+
+        UserSettingsService.get_instance().update_miniature_board_arrow(
+            arrow_key, bool(checked)
+        )
+        actions = getattr(self, "miniature_board_arrow_actions", {})
+        action = actions.get(arrow_key)
+        if action is not None:
+            action.setChecked(bool(checked))
+        self._apply_miniature_board_arrow(arrow_key, bool(checked))
+
+    def _sync_miniature_board_arrow_menu(self, arrows: Optional[Dict[str, bool]] = None) -> None:
+        """Check arrow actions in View → Miniature Boards from settings."""
+        from app.services.user_settings_service import UserSettingsService
+
+        if arrows is None:
+            arrows = UserSettingsService.get_instance().get_miniature_board_arrows()
+        for key, action in getattr(self, "miniature_board_arrow_actions", {}).items():
+            action.setChecked(bool(arrows.get(key, True)))
+
+    def _apply_miniature_board_arrow(self, arrow_key: str, enabled: bool) -> None:
+        """Push arrow visibility into live miniature-board surfaces."""
+        from app.utils.miniature_board_arrows import (
+            GAME_SUMMARY_BEST_ALTERNATIVE,
+            GAME_SUMMARY_PLAYED,
+            OPENING_EXPLORER,
+        )
+
+        if arrow_key == OPENING_EXPLORER:
+            explorer = getattr(getattr(self, "detail_panel", None), "opening_explorer_view", None)
+            if explorer is not None and hasattr(explorer, "set_show_move_arrows"):
+                explorer.set_show_move_arrows(enabled)
+            return
+
+        if arrow_key in (GAME_SUMMARY_PLAYED, GAME_SUMMARY_BEST_ALTERNATIVE):
+            summary = getattr(getattr(self, "detail_panel", None), "summary_view", None)
+            if summary is not None and hasattr(summary, "set_highlight_mini_board_arrows"):
+                summary.set_highlight_mini_board_arrows(enabled)
+            return
+
+        # Move-link popup arrows are read from settings on each present().
+
+    def _sync_miniature_board_scale_menu(self, scales: Optional[Dict[str, float]] = None) -> None:
+        """Check the correct scale actions in View → Miniature Boards."""
+        from app.services.user_settings_service import UserSettingsService
+
+        if scales is None:
+            scales = UserSettingsService.get_instance().get_miniature_boards()
+        actions_by_surface = getattr(self, "miniature_board_scale_actions", {})
+        for surface_key, actions_map in actions_by_surface.items():
+            current = float(scales.get(surface_key, 1.0))
+            for scale, action in actions_map.items():
+                action.setChecked(abs(float(scale) - current) < 0.01)
+
+    def _apply_miniature_board_scale(self, surface_key: str, scale_factor: float) -> None:
+        """Push a new scale into live UI that already shows miniature boards."""
+        from app.utils.miniature_board_scales import (
+            GAME_SUMMARY_HIGHLIGHTS,
+            MANUAL_ANALYSIS,
+            MOVE_LINK_POPUPS,
+            OPENING_ENCYCLOPEDIA,
+            OPENING_EXPLORER,
+        )
+
+        if surface_key == MANUAL_ANALYSIS:
+            return  # PV hover recreates its board on next hover using the model value.
+
+        if surface_key == OPENING_EXPLORER:
+            explorer = getattr(getattr(self, "detail_panel", None), "opening_explorer_view", None)
+            if explorer is not None and hasattr(explorer, "set_miniature_board_scale"):
+                explorer.set_miniature_board_scale(scale_factor)
+            elif explorer is not None and hasattr(explorer, "refresh"):
+                explorer.refresh()
+            return
+
+        if surface_key == GAME_SUMMARY_HIGHLIGHTS:
+            summary = getattr(getattr(self, "detail_panel", None), "summary_view", None)
+            if summary is not None and hasattr(summary, "set_highlight_mini_board_scale"):
+                summary.set_highlight_mini_board_scale(scale_factor)
+            return
+
+        if surface_key == OPENING_ENCYCLOPEDIA:
+            try:
+                from app.views.dialogs.opening_encyclopedia_dialog import OpeningEncyclopediaDialog
+
+                for dlg in self.findChildren(OpeningEncyclopediaDialog):
+                    if hasattr(dlg, "set_miniature_board_scale"):
+                        dlg.set_miniature_board_scale(scale_factor)
+            except Exception:
+                pass
+            return
+
+        if surface_key == MOVE_LINK_POPUPS:
+            try:
+                from app.views.widgets.move_link_popup import MoveLinkPopup
+
+                for popup in self.findChildren(MoveLinkPopup):
+                    if hasattr(popup, "set_miniature_board_scale"):
+                        popup.set_miniature_board_scale(scale_factor)
+            except Exception:
+                pass
     
     def _on_explore_pv1_plans_toggled(self) -> None:
         """Handle PV1 positional plans toggle."""
@@ -3843,18 +3970,179 @@ class MainWindow(QMainWindow):
             # Set initial checkmark state
             current_index = self.detail_panel.tab_widget.currentIndex()
             self._on_detail_tab_changed(current_index)
-    
-    def _switch_detail_tab(self, index: int) -> None:
-        """Switch to the specified detail panel tab.
-        
+
+    def _get_detail_panel_visibility(self) -> Dict[str, bool]:
+        """Return normalized detail-panel visibility from user settings."""
+        from app.services.detail_panel_visibility import default_detail_panel_visibility
+        from app.services.user_settings_service import UserSettingsService
+
+        try:
+            return UserSettingsService.get_instance().get_model().get_detail_panel_visibility()
+        except Exception:
+            return default_detail_panel_visibility()
+
+    def _find_detail_tab_index(self, tab_title: str) -> int:
+        """Return tab index for ``tab_title``, or -1 if not found."""
+        if not hasattr(self, "detail_panel") or not hasattr(self.detail_panel, "tab_widget"):
+            return -1
+        tab_widget = self.detail_panel.tab_widget
+        for i in range(tab_widget.count()):
+            if tab_widget.tabText(i) == tab_title:
+                return i
+        return -1
+
+    def _menubar_action_for_title(self, menu_title: str) -> Optional[QAction]:
+        """Find a top-level menubar action by menu title."""
+        try:
+            for action in self.menuBar().actions():
+                if action.text() == menu_title:
+                    return action
+        except Exception:
+            pass
+        return None
+
+    def _view_action_for_unit(self, unit_id: str) -> Optional[QAction]:
+        """Return the View-menu F-key action for a visibility unit id."""
+        attr = {
+            "moves_list": "view_moves_list_action",
+            "metadata": "view_metadata_action",
+            "manual_analysis": "view_manual_analysis_action",
+            "opening_explorer": "view_opening_explorer_action",
+            "game_summary": "view_game_summary_action",
+            "player_stats": "view_player_stats_action",
+            "annotations": "view_annotations_action",
+            "ai_summary": "view_ai_summary_action",
+            "notes": "view_notes_action",
+        }.get(unit_id)
+        if not attr:
+            return None
+        return getattr(self, attr, None)
+
+    def _apply_detail_panel_visibility(self) -> None:
+        """Apply Show/Hide settings to detail tabs, related menus, and View shortcuts."""
+        from app.services.detail_panel_visibility import DETAIL_PANEL_VISIBILITY_UNITS
+
+        visibility = self._get_detail_panel_visibility()
+        tab_widget = getattr(getattr(self, "detail_panel", None), "tab_widget", None)
+
+        for unit in DETAIL_PANEL_VISIBILITY_UNITS:
+            visible = bool(visibility.get(unit.id, True))
+
+            if unit.tab_title and tab_widget is not None:
+                index = self._find_detail_tab_index(unit.tab_title)
+                if index >= 0 and hasattr(tab_widget, "setTabVisible"):
+                    tab_widget.setTabVisible(index, visible)
+
+            if unit.menu_title:
+                menu_action = self._menubar_action_for_title(unit.menu_title)
+                if menu_action is not None:
+                    menu_action.setVisible(visible)
+
+            view_action = self._view_action_for_unit(unit.id)
+            if view_action is not None:
+                # Disable F-key shortcuts for hidden tabs; keep action checkable state.
+                view_action.setEnabled(visible)
+
+            show_hide = getattr(self, "_detail_panel_visibility_actions", None)
+            if isinstance(show_hide, dict) and unit.id in show_hide:
+                action = show_hide[unit.id]
+                action.blockSignals(True)
+                action.setChecked(visible)
+                action.blockSignals(False)
+
+        self._ensure_visible_detail_tab()
+
+    def _ensure_visible_detail_tab(self) -> None:
+        """If the current detail tab is hidden, switch to a visible fallback."""
+        if not hasattr(self, "detail_panel") or not hasattr(self.detail_panel, "tab_widget"):
+            return
+        tab_widget = self.detail_panel.tab_widget
+        current = tab_widget.currentIndex()
+        if current >= 0 and (
+            not hasattr(tab_widget, "isTabVisible") or tab_widget.isTabVisible(current)
+        ):
+            return
+        # Prefer Moves List, then first visible tab.
+        if self._switch_detail_tab_by_id("moves_list"):
+            return
+        for i in range(tab_widget.count()):
+            if not hasattr(tab_widget, "isTabVisible") or tab_widget.isTabVisible(i):
+                self._switch_detail_tab(i)
+                return
+
+    def _on_detail_panel_visibility_toggled(self, unit_id: str, checked: bool) -> None:
+        """Handle View → Show/Hide checkbox; refuse hiding the last visible tab."""
+        from app.services.detail_panel_visibility import (
+            DETAIL_PANEL_VISIBILITY_UNITS,
+            unit_by_id,
+        )
+        from app.services.user_settings_service import UserSettingsService
+
+        unit = unit_by_id(unit_id)
+        actions = getattr(self, "_detail_panel_visibility_actions", {}) or {}
+        action = actions.get(unit_id)
+
+        if not checked and unit is not None and unit.tab_title:
+            prospective = dict(self._get_detail_panel_visibility())
+            prospective[unit_id] = False
+            if not any(
+                prospective.get(u.id, True)
+                for u in DETAIL_PANEL_VISIBILITY_UNITS
+                if u.tab_title
+            ):
+                if action is not None:
+                    action.blockSignals(True)
+                    action.setChecked(True)
+                    action.blockSignals(False)
+                if hasattr(self, "controller") and self.controller:
+                    self.controller.set_status(
+                        "At least one detail tab must remain visible"
+                    )
+                return
+
+        UserSettingsService.get_instance().update_detail_panel_visibility(
+            unit_id, bool(checked)
+        )
+        self._apply_detail_panel_visibility()
+        label = unit.label if unit else unit_id
+        if hasattr(self, "controller") and self.controller:
+            self.controller.set_status(
+                f"{label} {'shown' if checked else 'hidden'}"
+            )
+
+    def _switch_detail_tab(self, index: int) -> bool:
+        """Switch to the specified detail panel tab if it exists and is visible.
+
         Args:
             index: Tab index (0=Moves List, 1=Metadata, 2=Manual Analysis, 3=Opening Explorer,
                    4=Game Summary, 5=Player Stats, 6=Annotations, 7=AI Summary, 8=Notes).
+
+        Returns:
+            True if the tab was selected, False otherwise.
         """
-        if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'tab_widget'):
-            tab_widget = self.detail_panel.tab_widget
-            if 0 <= index < tab_widget.count():
-                tab_widget.setCurrentIndex(index)
+        if not hasattr(self, "detail_panel") or not hasattr(self.detail_panel, "tab_widget"):
+            return False
+        tab_widget = self.detail_panel.tab_widget
+        if not (0 <= index < tab_widget.count()):
+            return False
+        if hasattr(tab_widget, "isTabVisible") and not tab_widget.isTabVisible(index):
+            return False
+        tab_widget.setCurrentIndex(index)
+        return True
+
+    def _switch_detail_tab_by_id(self, unit_id: str) -> bool:
+        """Switch to a detail tab by stable unit id; no-op if hidden or missing."""
+        from app.services.detail_panel_visibility import unit_by_id
+
+        unit = unit_by_id(unit_id)
+        if unit is None or not unit.tab_title:
+            return False
+        if not self._get_detail_panel_visibility().get(unit_id, True):
+            return False
+        index = self._find_detail_tab_index(unit.tab_title)
+        if index < 0:
+            return False
+        return self._switch_detail_tab(index)
 
     def _cycle_detail_tab(self, delta: int) -> None:
         """Switch to the next or previous eligible detail panel tab (wraps).
@@ -4231,6 +4519,9 @@ class MainWindow(QMainWindow):
         # Store settings service reference for saving later
         self._settings_service = settings_service
 
+        # Detail tabs + related top-level menus (View → Show/Hide)
+        self._apply_detail_panel_visibility()
+
         if hasattr(self, "detail_panel"):
             psv = getattr(self.detail_panel, "player_stats_view", None)
             if psv:
@@ -4589,6 +4880,17 @@ class MainWindow(QMainWindow):
         if hasattr(self, 'enable_miniature_preview_action'):
             self.enable_miniature_preview_action.setChecked(enable_miniature_preview)
 
+        # Miniature preview move arrow (Show Move Arrow)
+        move_arrow = bool(
+            manual_analysis_settings.get("miniature_preview_show_move_arrow", True)
+        )
+        if manual_analysis_controller:
+            manual_analysis_model = manual_analysis_controller.get_analysis_model()
+            if manual_analysis_model:
+                manual_analysis_model.miniature_preview_show_move_arrow = move_arrow
+        if hasattr(self, "miniature_preview_move_arrow_action"):
+            self.miniature_preview_move_arrow_action.setChecked(move_arrow)
+
         # Show W/D/L probabilities (default on)
         show_wdl_probabilities = manual_analysis_settings.get("show_wdl_probabilities", True)
         if manual_analysis_controller:
@@ -4597,17 +4899,40 @@ class MainWindow(QMainWindow):
                 manual_analysis_model.show_wdl_probabilities = show_wdl_probabilities
         if hasattr(self, "show_wdl_probabilities_action"):
             self.show_wdl_probabilities_action.setChecked(show_wdl_probabilities)
-        
-        # Miniature preview scale factor
-        scale_factor = manual_analysis_settings.get("miniature_preview_scale_factor", 1.25)
+
+        # Miniature board scales (View → Miniature Boards).
+        from app.utils.miniature_board_scales import MANUAL_ANALYSIS
+        from app.services.user_settings_service import UserSettingsService
+
+        mini_scales = UserSettingsService.get_instance().get_miniature_boards()
+        ma_scale = float(mini_scales.get(MANUAL_ANALYSIS, 1.25))
         if manual_analysis_controller:
             manual_analysis_model = manual_analysis_controller.get_analysis_model()
             if manual_analysis_model:
-                manual_analysis_model.miniature_preview_scale_factor = scale_factor
-        if hasattr(self, 'miniature_preview_scale_actions'):
-            # Check the appropriate scale factor action
-            for scale, action in self.miniature_preview_scale_actions.items():
-                action.setChecked(abs(scale - scale_factor) < 0.01)  # Use small epsilon for float comparison
+                manual_analysis_model.miniature_preview_scale_factor = ma_scale
+        self._sync_miniature_board_scale_menu(mini_scales)
+        self._sync_miniature_board_arrow_menu()
+        # Apply explorer/summary arrow prefs into live views after widgets exist.
+        try:
+            from app.utils.miniature_board_arrows import (
+                GAME_SUMMARY_BEST_ALTERNATIVE,
+                GAME_SUMMARY_PLAYED,
+                OPENING_EXPLORER as ARROWS_OPENING_EXPLORER,
+            )
+
+            arrow_prefs = UserSettingsService.get_instance().get_miniature_board_arrows()
+            self._apply_miniature_board_arrow(
+                ARROWS_OPENING_EXPLORER, bool(arrow_prefs.get(ARROWS_OPENING_EXPLORER, True))
+            )
+            self._apply_miniature_board_arrow(
+                GAME_SUMMARY_PLAYED, bool(arrow_prefs.get(GAME_SUMMARY_PLAYED, True))
+            )
+            self._apply_miniature_board_arrow(
+                GAME_SUMMARY_BEST_ALTERNATIVE,
+                bool(arrow_prefs.get(GAME_SUMMARY_BEST_ALTERNATIVE, True)),
+            )
+        except Exception:
+            pass
         
         # Max number of pieces to explore
         max_pieces = manual_analysis_settings.get("max_pieces_to_explore", 1)
@@ -4802,15 +5127,9 @@ class MainWindow(QMainWindow):
             self.start_game_analysis_action.setEnabled(False)
             self.cancel_game_analysis_action.setEnabled(True)
             
-            # Switch to Moves List tab if enabled (do this immediately after successful start)
+            # Switch to Moves List tab if enabled (no-op if that tab is hidden)
             if hasattr(self, 'switch_to_moves_list_action') and self.switch_to_moves_list_action.isChecked():
-                if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'tab_widget'):
-                    # Find Moves List tab by title (index may shift when tabs are added)
-                    tab_widget = self.detail_panel.tab_widget
-                    for i in range(tab_widget.count()):
-                        if tab_widget.tabText(i) == "Moves List":
-                            tab_widget.setCurrentIndex(i)
-                            break
+                self._switch_detail_tab_by_id("moves_list")
             
             # Connect to analysis signals
             game_analysis_controller.analysis_started.connect(self._on_game_analysis_started)
@@ -4940,15 +5259,9 @@ class MainWindow(QMainWindow):
             game_controller = self.controller.get_game_controller()
             game_controller.navigate_to_ply(0)  # Navigate to starting position (ply 0)
         
-        # Switch to Game Summary tab if enabled
+        # Switch to Game Summary tab if enabled (no-op if that tab is hidden)
         if hasattr(self, 'switch_to_summary_action') and self.switch_to_summary_action.isChecked():
-            if hasattr(self, 'detail_panel') and hasattr(self.detail_panel, 'tab_widget'):
-                # Find Game Summary tab by title (index may shift when tabs are added)
-                tab_widget = self.detail_panel.tab_widget
-                for i in range(tab_widget.count()):
-                    if tab_widget.tabText(i) == "Game Summary":
-                        tab_widget.setCurrentIndex(i)
-                        break
+            self._switch_detail_tab_by_id("game_summary")
 
         # Auto-tagging pass (optional) — updates CARAGameTags in-memory, marks DB unsaved via metadata controller.
         if hasattr(self, "auto_game_tagging_action") and self.auto_game_tagging_action.isChecked():

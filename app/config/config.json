@@ -735,6 +735,22 @@
         "title": "Chess Log Settings",
         "width": 440,
         "height": 360
+      },
+      "chess_log_messages": {
+        "shallow_notes": {
+          "all_failed": {
+            "title": "Shallow Tags Error",
+            "message_template": "None of the {count} note{s_suffix} could be classified. Try again; the model’s reply couldn’t be read."
+          },
+          "partial": {
+            "title": "Shallow Notes",
+            "message_template": "{unparsed} of {total} note{s_suffix} couldn’t be classified — left unchanged. Marked {flagged} shallow."
+          },
+          "none_found": {
+            "title": "No Shallow Notes",
+            "message_template": "No shallow notes found — great job."
+          }
+        }
       }
     },
     "positional_heatmap": {

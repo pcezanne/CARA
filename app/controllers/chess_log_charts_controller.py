@@ -205,14 +205,37 @@ class ChessLogShallowThread(QThread):
             if not result.success:
                 self.shallow_failed.emit(result.error or "Classification failed.")
                 return
-            if result.unparsed_indices:
-                n = len(result.unparsed_indices)
-                m = len(result.shallow_keys)
-                self.shallow_partial.emit(
-                    f"{n} note{'s' if n != 1 else ''} couldn't be classified "
-                    f"— left unchanged. "
-                    f"Marked {m} position{'s' if m != 1 else ''} shallow."
+            msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
+                "chess_log_messages", {}
+            ).get("shallow_notes", {})
+            n_unparsed = len(result.unparsed_indices)
+            n_shallow = len(result.shallow_keys)
+            s = lambda n: "" if n == 1 else "s"
+            if n_unparsed > 0 and n_shallow == 0:
+                # Every note failed — single failure message, no results shown.
+                tmpl = msgs.get("all_failed", {}).get(
+                    "message_template",
+                    "None of the {count} note{s_suffix} could be classified. "
+                    "Try again; the model's reply couldn't be read.",
                 )
+                msg = tmpl.format(count=n_unparsed, s_suffix=s(n_unparsed))
+                self.shallow_failed.emit(msg)
+                return
+            if n_unparsed > 0:
+                # Partial failure — informational notice, then results.
+                total = n_unparsed + n_shallow
+                tmpl = msgs.get("partial", {}).get(
+                    "message_template",
+                    "{unparsed} of {total} note{s_suffix} couldn't be classified "
+                    "— left unchanged. Marked {flagged} shallow.",
+                )
+                msg = tmpl.format(
+                    unparsed=n_unparsed,
+                    total=total,
+                    s_suffix=s(n_unparsed),
+                    flagged=n_shallow,
+                )
+                self.shallow_partial.emit(msg)
             self.shallow_ready.emit(result.shallow_keys, result.usage)
         except Exception as exc:
             self.shallow_failed.emit(f"Unexpected error: {exc}")

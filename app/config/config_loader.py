@@ -3221,6 +3221,12 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "prompts.chess_log.narrative_3x3_structure",
     "prompts.chess_log.narrative_3x3_moment_framing",
     "prompts.chess_log.classifier",
+    "ui.dialogs.chess_log_messages.shallow_notes.all_failed.title",
+    "ui.dialogs.chess_log_messages.shallow_notes.all_failed.message_template",
+    "ui.dialogs.chess_log_messages.shallow_notes.partial.title",
+    "ui.dialogs.chess_log_messages.shallow_notes.partial.message_template",
+    "ui.dialogs.chess_log_messages.shallow_notes.none_found.title",
+    "ui.dialogs.chess_log_messages.shallow_notes.none_found.message_template",
     "prompts.ai_chat.system_preamble",
     "prompts.ai_chat.formatting_rules",
 )

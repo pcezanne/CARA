@@ -874,6 +874,123 @@ class TestChessLogShallowThreadExceptionHandling(unittest.TestCase):
         self.assertIn("classifier", failed[0])
 
 
+def _shallow_config():
+    """Minimal config carrying the chess_log_messages wording used by the thread."""
+    return {
+        "ui": {
+            "dialogs": {
+                "chess_log_messages": {
+                    "shallow_notes": {
+                        "all_failed": {
+                            "title": "Shallow Tags Error",
+                            "message_template": "None of the {count} note{s_suffix} could be classified. Try again; the model's reply couldn't be read.",
+                        },
+                        "partial": {
+                            "title": "Shallow Notes",
+                            "message_template": "{unparsed} of {total} note{s_suffix} couldn't be classified — left unchanged. Marked {flagged} shallow.",
+                        },
+                        "none_found": {
+                            "title": "No Shallow Notes",
+                            "message_template": "No shallow notes found — great job.",
+                        },
+                    }
+                }
+            }
+        }
+    }
+
+
+def _make_shallow_thread(notes=None, config=None):
+    from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+    if notes is None:
+        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+    return ChessLogShallowThread(
+        games=[],
+        provider="anthropic",
+        model="claude-sonnet-4-6",
+        api_key="sk-test",
+        base_url_override=None,
+        config=config if config is not None else _shallow_config(),
+        timeout_seconds=30,
+        notes=notes,
+    )
+
+
+def _shallow_result(shallow_keys=None, unparsed_indices=(), success=True, error=None):
+    from app.services.chess_log_shallow_service import ShallowResult
+    from app.services.ai_service import TokenUsage
+    return ShallowResult(
+        success=success,
+        shallow_keys=frozenset(shallow_keys or []),
+        error=error,
+        usage=TokenUsage(input_tokens=10, output_tokens=5, reasoning_tokens=None, reported=True),
+        model="claude-sonnet-4-6",
+        unparsed_indices=tuple(unparsed_indices),
+    )
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogShallowThreadSignalShape(unittest.TestCase):
+    """3-way branch: all-fail / partial / clean paths emit correct signals."""
+
+    def _run_thread(self, result, notes=None):
+        thread = _make_shallow_thread(notes=notes)
+        failed, partial, ready = [], [], []
+        thread.shallow_failed.connect(failed.append)
+        thread.shallow_partial.connect(partial.append)
+        thread.shallow_ready.connect(lambda k, u: ready.append(k))
+        with patch(
+            "app.services.chess_log_shallow_service.classify_notes",
+            return_value=result,
+        ):
+            thread.run()
+        return failed, partial, ready
+
+    def test_all_notes_unparsed_emits_shallow_failed_only(self):
+        """All notes unparsed → shallow_failed once with count; no partial, no ready."""
+        result = _shallow_result(shallow_keys=[], unparsed_indices=(0, 1, 2))
+        failed, partial, ready = self._run_thread(result)
+        self.assertEqual(len(failed), 1, "shallow_failed must fire once")
+        self.assertEqual(len(partial), 0, "shallow_partial must not fire")
+        self.assertEqual(len(ready), 0, "shallow_ready must not fire")
+        self.assertIn("3", failed[0])
+
+    def test_partial_unparsed_emits_partial_then_ready(self):
+        """Some unparsed, some classified → shallow_partial then shallow_ready."""
+        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        result = _shallow_result(
+            shallow_keys=[(2, "path/2", "CLAMP")],
+            unparsed_indices=(0,),
+        )
+        failed, partial, ready = self._run_thread(result, notes=notes)
+        self.assertEqual(len(failed), 0)
+        self.assertEqual(len(partial), 1, "shallow_partial must fire once")
+        self.assertEqual(len(ready), 1, "shallow_ready must also fire")
+        self.assertIn("1", partial[0])
+
+    def test_all_parsed_zero_flagged_emits_ready_only(self):
+        """All parsed, none SHALLOW → shallow_ready(empty) only (congratulation path)."""
+        result = _shallow_result(shallow_keys=[], unparsed_indices=())
+        failed, partial, ready = self._run_thread(result)
+        self.assertEqual(len(failed), 0)
+        self.assertEqual(len(partial), 0)
+        self.assertEqual(len(ready), 1, "shallow_ready must fire once")
+        self.assertEqual(ready[0], frozenset())
+
+    def test_all_parsed_some_flagged_emits_ready_only(self):
+        """All parsed, some SHALLOW → shallow_ready(keys) only; no partial."""
+        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        result = _shallow_result(
+            shallow_keys=[(1, "path/1", "CLAMP"), (3, "path/2", "CLAMP")],
+            unparsed_indices=(),
+        )
+        failed, partial, ready = self._run_thread(result, notes=notes)
+        self.assertEqual(len(failed), 0)
+        self.assertEqual(len(partial), 0)
+        self.assertEqual(len(ready), 1)
+        self.assertGreater(len(ready[0]), 0)
+
+
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerGetAvailableModels(unittest.TestCase):
     """Characterisation tests for get_available_models() — pin behaviour before extraction.

@@ -600,7 +600,12 @@ class DetailChessLogChartsView(QWidget):
             return
         if not shallow_keys:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "No Shallow Notes", "No shallow notes found — great job.")
+            msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
+                "chess_log_messages", {}
+            ).get("shallow_notes", {}).get("none_found", {})
+            title = msgs.get("title", "No Shallow Notes")
+            message = msgs.get("message_template", "No shallow notes found — great job.")
+            QMessageBox.information(self, title, message)
             return
         games = self._controller.resolve_games()
         chess_log_ctrl = self._controller.get_chess_log_controller()

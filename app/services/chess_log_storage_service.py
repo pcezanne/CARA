@@ -16,6 +16,7 @@ from app.utils.pgn_tag_compression import (
     compress_and_encode_from_str,
     compute_checksum,
 )
+from app.utils.pgn_variation_path import decode_path, node_at_path
 
 
 class ChessLogStorageService:
@@ -100,6 +101,42 @@ class ChessLogStorageService:
             return {}
 
     @staticmethod
+    def load_resolved_paths(game: GameData) -> Dict[str, List[Dict[str, Any]]]:
+        """Load Chess Log moments, hiding path_keys that don't resolve in game's move tree.
+
+        Returns only the path_keys whose decoded paths exist as nodes in the parsed
+        chess_game.  Orphans are logged at WARNING and excluded from the returned dict,
+        but they remain in the on-disk PGN (use load_tags for the byte-for-byte full
+        dict).  This is the view consumed by all feature code; load_tags is the view
+        used for save-time round-trip preservation.
+        """
+        full = ChessLogStorageService.load_tags(game)
+        if not full:
+            return full
+        if not hasattr(game, "pgn") or not game.pgn:
+            return full
+        try:
+            chess_game = chess.pgn.read_game(StringIO(game.pgn))
+        except Exception:
+            return full
+        if not chess_game:
+            return full
+        resolved: Dict[str, List[Dict[str, Any]]] = {}
+        for path_key, entries in full.items():
+            path = decode_path(path_key)
+            if path is None or node_at_path(chess_game, path) is None:
+                preset_set = sorted({e.get("preset", "") for e in (entries or [])})
+                LoggingService.get_instance().warning(
+                    f"Chess Log orphan path_key skipped on load: "
+                    f"game#{getattr(game, 'game_number', '?')}, "
+                    f"path_key={path_key!r}, presets={preset_set}, "
+                    f"entries={len(entries or [])}"
+                )
+            else:
+                resolved[path_key] = entries
+        return resolved
+
+    @staticmethod
     def load_nag_shown(game: GameData) -> bool:
         """Read the nag_shown flag from the CARAChessLog payload.
 
@@ -126,11 +163,40 @@ class ChessLogStorageService:
         paths_data: Dict[str, List[Dict[str, Any]]],
         config: Optional[Dict[str, Any]] = None,
         nag_shown: bool = False,
+        original_paths: Optional[Dict[str, List[Dict[str, Any]]]] = None,
     ) -> bool:
-        """Store Chess Log moments into game PGN (in-memory). Returns True on success."""
+        """Store Chess Log moments into game PGN (in-memory). Returns True on success.
+
+        If ``original_paths`` is provided, any path_key that is (a) new — not present
+        in ``original_paths`` — AND (b) does not resolve to a node in the game's current
+        move tree is refused and logged at ERROR.  Pre-existing orphan keys (present in
+        ``original_paths`` even if they no longer resolve) pass through untouched so that
+        historical data is never silently destroyed.  When ``original_paths`` is None the
+        guard is not applied (backward-compatible behaviour).
+        """
         if game is None or not hasattr(game, "pgn") or game.pgn is None:
             return False
         try:
+            chess_game = chess.pgn.read_game(StringIO(game.pgn))
+            if not chess_game:
+                return False
+            if original_paths is not None:
+                filtered: Dict[str, List[Dict[str, Any]]] = {}
+                for pk, entries in paths_data.items():
+                    if pk in original_paths:
+                        filtered[pk] = entries  # pre-existing: always passthrough
+                    else:
+                        path = decode_path(pk)
+                        if path is not None and node_at_path(chess_game, path) is not None:
+                            filtered[pk] = entries
+                        else:
+                            preset_set = sorted({e.get("preset", "") for e in (entries or [])})
+                            LoggingService.get_instance().error(
+                                f"Chess Log refusing new orphan path_key on save: "
+                                f"game#{getattr(game, 'game_number', '?')}, "
+                                f"path_key={pk!r}, presets={preset_set}"
+                            )
+                paths_data = filtered
             payload: Dict[str, Any] = {"_v": 1, "paths": paths_data}
             if nag_shown:
                 payload["nag_shown"] = True
@@ -143,9 +209,6 @@ class ChessLogStorageService:
                 f"App Version: {app_version}, "
                 f"Created: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
             )
-            chess_game = chess.pgn.read_game(StringIO(game.pgn))
-            if not chess_game:
-                return False
             chess_game.headers[ChessLogStorageService.TAG_NAME] = encoded
             chess_game.headers[ChessLogStorageService.TAG_INFO] = info_str
             chess_game.headers[ChessLogStorageService.TAG_CHECKSUM] = checksum

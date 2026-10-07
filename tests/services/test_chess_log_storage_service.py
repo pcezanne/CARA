@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from unittest.mock import MagicMock, patch
 
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
@@ -489,6 +490,146 @@ class TestHasChessLogTagsFlag(unittest.TestCase):
         untagged_dict = self._extract(self.ONE_MOVE_PGN)
         self.assertTrue(tagged_dict.get("has_chess_log_tags", False))
         self.assertFalse(untagged_dict.get("has_chess_log_tags", False))
+
+
+ONE_MOVE_PGN = (
+    '[Event "Test"]\n'
+    '[Site "?"]\n'
+    '[Date "2026.08.24"]\n'
+    '[Round "?"]\n'
+    '[White "White"]\n'
+    '[Black "Black"]\n'
+    '[Result "*"]\n'
+    '\n1. e4 *\n'
+)
+
+
+class TestLoadResolvedPaths(unittest.TestCase):
+    """load_resolved_paths hides orphan path_keys from feature code while
+    leaving them in the on-disk PGN (load_tags byte-for-byte round-trip)."""
+
+    def test_load_tags_round_trip_preserves_orphans_but_hides_them_from_resolved_view(self):
+        """Full dict from load_tags contains both resolvable and orphan keys.
+        Resolved view from load_resolved_paths contains only the resolvable key.
+        LoggingService.warning is called exactly once for the orphan.
+        """
+        game = GameData(game_number=7, pgn=ONE_MOVE_PGN)
+        # "0" resolves (first move exists); "99.0" is an orphan (no 100th variation)
+        paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "M", "good tag")],
+            "99.0": [ChessLogStorageService.make_entry("CCT", "C", "orphan tag")],
+        }
+        # Store without guard (original_paths=None) so the orphan gets written
+        ChessLogStorageService.store_tags(game, paths_data)
+
+        # Full dict must contain both
+        full = ChessLogStorageService.load_tags(game)
+        self.assertIn("0", full)
+        self.assertIn("99.0", full)
+
+        mock_svc = MagicMock()
+        with patch(
+            "app.services.chess_log_storage_service.LoggingService.get_instance",
+            return_value=mock_svc,
+        ):
+            resolved = ChessLogStorageService.load_resolved_paths(game)
+
+        # Resolved view must contain only the good tag
+        self.assertIn("0", resolved)
+        self.assertNotIn("99.0", resolved)
+        self.assertEqual(resolved["0"][0]["cat"], "M")
+        # Warning logged exactly once for the orphan
+        mock_svc.warning.assert_called_once()
+        warning_msg = mock_svc.warning.call_args.args[0]
+        self.assertIn("99.0", warning_msg)
+        self.assertIn("orphan", warning_msg)
+
+    def test_load_resolved_paths_returns_empty_for_no_chess_log_tag(self):
+        game = GameData(game_number=1, pgn=ONE_MOVE_PGN)
+        resolved = ChessLogStorageService.load_resolved_paths(game)
+        self.assertEqual(resolved, {})
+
+    def test_load_resolved_paths_all_valid_no_warnings(self):
+        game = GameData(game_number=1, pgn=ONE_MOVE_PGN)
+        paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]}
+        ChessLogStorageService.store_tags(game, paths_data)
+        mock_svc = MagicMock()
+        with patch(
+            "app.services.chess_log_storage_service.LoggingService.get_instance",
+            return_value=mock_svc,
+        ):
+            resolved = ChessLogStorageService.load_resolved_paths(game)
+        self.assertIn("0", resolved)
+        mock_svc.warning.assert_not_called()
+
+
+class TestStoreSideOrphanGuard(unittest.TestCase):
+    """store_tags with original_paths refuses newly-added orphan path_keys
+    but passes through pre-existing orphans (data preservation policy)."""
+
+    def test_save_refuses_new_orphan_but_preserves_pre_existing_orphan(self):
+        """One pre-existing orphan ('99.0') passes through.
+        One new resolvable key ('0') is written.
+        One new orphan ('99.1') is refused and logged at ERROR."""
+        game = GameData(game_number=3, pgn=ONE_MOVE_PGN)
+
+        # Establish a pre-existing orphan on disk
+        initial = {
+            "99.0": [ChessLogStorageService.make_entry("CLAMP", "M", "old-orphan")],
+        }
+        ChessLogStorageService.store_tags(game, initial)  # no guard, writes orphan
+        original_paths = ChessLogStorageService.load_tags(game)
+        self.assertIn("99.0", original_paths)
+
+        # Now try to add a resolvable key + a new orphan key
+        new_paths = {
+            "99.0": original_paths["99.0"],             # pre-existing orphan
+            "0": [ChessLogStorageService.make_entry("CCT", "C", "new-good")],    # new, resolves
+            "99.1": [ChessLogStorageService.make_entry("CCT", "T", "new-orphan")],  # new, orphan
+        }
+
+        mock_svc = MagicMock()
+        with patch(
+            "app.services.chess_log_storage_service.LoggingService.get_instance",
+            return_value=mock_svc,
+        ):
+            ok = ChessLogStorageService.store_tags(
+                game, new_paths, original_paths=original_paths
+            )
+
+        self.assertTrue(ok)
+        # ERROR logged exactly once — for the refused new orphan
+        mock_svc.error.assert_called_once()
+        error_msg = mock_svc.error.call_args.args[0]
+        self.assertIn("99.1", error_msg)
+        self.assertIn("refusing", error_msg)
+
+        # Reload and check the written PGN
+        written = ChessLogStorageService.load_tags(game)
+        self.assertIn("99.0", written)   # pre-existing orphan preserved
+        self.assertIn("0", written)       # new resolvable key written
+        self.assertNotIn("99.1", written) # new orphan refused
+
+    def test_store_without_original_paths_applies_no_guard(self):
+        """Backward-compat: when original_paths is None, orphan keys are written
+        without error (existing behaviour before the guard was added)."""
+        game = GameData(game_number=1, pgn=ONE_MOVE_PGN)
+        paths_data = {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "C")],
+            "99.0": [ChessLogStorageService.make_entry("CLAMP", "M", "orphan")],
+        }
+        mock_svc = MagicMock()
+        with patch(
+            "app.services.chess_log_storage_service.LoggingService.get_instance",
+            return_value=mock_svc,
+        ):
+            ok = ChessLogStorageService.store_tags(game, paths_data)  # no original_paths
+
+        self.assertTrue(ok)
+        mock_svc.error.assert_not_called()
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertIn("0", loaded)
+        self.assertIn("99.0", loaded)  # orphan written without guard
 
 
 if __name__ == "__main__":

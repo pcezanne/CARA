@@ -543,9 +543,9 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
     """Warning/debug logging fires on parse failure with full metadata."""
 
     @patch("app.services.ai_service.requests.post")
-    def test_all_fail_logs_warning_with_full_metadata(self, mock_post):
-        """All notes unparsed → LoggingService.warning called with reply, model, stop_reason,
-        block_count, block_types, usage."""
+    def test_all_fail_logs_error_with_full_metadata(self, mock_post):
+        """All notes unparsed → LoggingService.error called with reply, model, stop_reason,
+        max_tokens, input/output token counts, block_count, block_types."""
         from app.services.chess_log_shallow_service import classify_notes
         mock_post.return_value = _mock_anthropic_response("no verdicts here at all")
         notes = _make_notes(["a", "b"])
@@ -556,14 +556,17 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
         ):
             result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertEqual(len(result.unparsed_indices), 2)
-        mock_logger.warning.assert_called_once()
-        log_msg = mock_logger.warning.call_args.args[0]
+        mock_logger.error.assert_called_once()
+        mock_logger.warning.assert_not_called()
+        log_msg = mock_logger.error.call_args.args[0]
         self.assertIn("no verdicts here at all", log_msg)
         self.assertIn("claude-sonnet-4-6", log_msg)
         self.assertIn("stop_reason", log_msg)
+        self.assertIn("max_tokens", log_msg)
+        self.assertIn("input_tokens", log_msg)
+        self.assertIn("output_tokens", log_msg)
         self.assertIn("block_count", log_msg)
         self.assertIn("block_types", log_msg)
-        self.assertIn("usage", log_msg)
 
     @patch("app.services.ai_service.requests.post")
     def test_log_message_contains_no_api_key_substring(self, mock_post):
@@ -578,8 +581,8 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
             return_value=mock_logger,
         ):
             classify_notes(notes, "anthropic", "claude-sonnet-4-6", sentinel_key, None, _CONFIG, 30)
-        mock_logger.warning.assert_called_once()
-        log_msg = mock_logger.warning.call_args.args[0]
+        mock_logger.error.assert_called_once()
+        log_msg = mock_logger.error.call_args.args[0]
         self.assertNotIn(sentinel_key, log_msg)
 
     @patch("app.services.ai_service.requests.post")

@@ -151,6 +151,7 @@ def classify_notes(
         )
     prompt = classifier_body + notes_text
 
+    token_limit = _classifier_token_limit(len(notes))
     service = AIService(config=config)
     result = service.send_message(
         provider=provider,
@@ -160,7 +161,7 @@ def classify_notes(
         base_url_override=base_url_override,
         timeout_seconds=timeout_seconds,
         thinking=thinking,
-        token_limit=_classifier_token_limit(len(notes)),
+        token_limit=token_limit,
     )
 
     if not result.success:
@@ -185,15 +186,19 @@ def classify_notes(
     if unparsed:
         all_failed = len(parsed) == 0 and len(notes) > 0
         logger = LoggingService.get_instance()
-        log = logger.warning if all_failed else logger.debug
+        log = logger.error if all_failed else logger.debug
         log(
             "chess_log classifier parsed %d of %d notes "
-            "(model=%s, stop_reason=%r, block_count=%s, block_types=%s, "
-            "usage=%s, reply_text=%r)"
+            "(model=%s, stop_reason=%r, max_tokens=%s, "
+            "input_tokens=%s, output_tokens=%s, "
+            "block_count=%s, block_types=%s, reply_text=%r)"
             % (
                 len(parsed), len(notes), result.model,
-                result.stop_reason, result.content_block_count,
-                result.content_block_types, result.usage,
+                result.stop_reason, token_limit,
+                result.usage.input_tokens if result.usage else None,
+                result.usage.output_tokens if result.usage else None,
+                result.content_block_count,
+                result.content_block_types,
                 result.text[:4000],
             )
         )

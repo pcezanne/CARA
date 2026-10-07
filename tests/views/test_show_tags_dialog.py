@@ -798,5 +798,37 @@ class TestShowTagsDialogResizeGrip(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
 
 
+@requires_qt
+class TestOrphanRowSkipped(unittest.TestCase):
+    """Dialog must skip rows whose path_key doesn't resolve in the game's move tree
+    and never render the raw path_key string (e.g. '99.0') as a move label."""
+
+    def test_tag_row_skips_orphan_path_key_with_notice(self):
+        """A game whose paths dict contains one resolvable key ('0') and one orphan
+        ('99.0') must produce exactly one row widget — for the valid move — and
+        surface a single notice QLabel, never rendering '99.0' verbatim."""
+        paths_data = {
+            "0": [_make_entry("CLAMP", "M", "good tag")],
+            "99.0": [_make_entry("CCT", "C", "orphan tag")],
+        }
+        dlg, _ = _make_dialog(paths_data)
+
+        # Exactly one row widget built (the orphan is silently skipped)
+        self.assertEqual(len(dlg._row_widgets), 1)
+
+        # The row that was built must NOT use the raw path_key as its label
+        row = dlg._row_widgets[0]
+        label_text = row._header_label.text() if row._header_label else ""
+        self.assertNotEqual(label_text, "99.0")
+        self.assertNotEqual(label_text, "0")  # must be a human-readable move string
+
+        # A notice QLabel must be present
+        from PyQt6.QtWidgets import QLabel
+        labels = dlg.findChildren(QLabel)
+        notice_texts = [lbl.text() for lbl in labels if "could not be located" in lbl.text()]
+        self.assertEqual(len(notice_texts), 1, "Expected exactly one orphan notice label")
+        self.assertIn("1 tagged moment", notice_texts[0])
+
+
 if __name__ == "__main__":
     unittest.main()

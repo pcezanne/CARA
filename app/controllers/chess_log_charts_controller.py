@@ -463,6 +463,10 @@ class ChessLogChartsController(QObject):
         """Set a specific model to use for narrative generation (None = provider default)."""
         self._narrative_model_override = model or None
 
+    def get_narrative_model_override(self) -> Optional[str]:
+        """Return the user's currently persisted model override, or None."""
+        return self._narrative_model_override
+
     def get_available_models(self) -> List[str]:
         """Return model IDs available for the active provider."""
         return _get_available_models(self._user_settings)
@@ -925,6 +929,7 @@ class ChessLogChartsController(QObject):
         if self._source_selection not in (1, 2):
             return
         self._cancel_agg_worker()
+        self._cancel_shallow_thread()
         self._player_explicit_selected = False
         self.player_selection_cleared.emit()
         games = self._resolve_games()

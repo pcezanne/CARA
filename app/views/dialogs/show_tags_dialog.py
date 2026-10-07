@@ -474,18 +474,27 @@ class ShowTagsDialog(QDialog):
 
             multi_game = len(self._games) > 1
             last_game = None
+            row_count = 0
+            orphan_count = 0
 
             for i, (path_key, preset, entries) in enumerate(self._rows_data):
                 game = self._row_games[i]
                 pgn_game = self._row_pgn_games[i]
 
+                fen, played_move, move_label, mover_is_black = _node_info_fn(pgn_game, path_key)
+                if move_label == path_key:
+                    # Orphan: path does not resolve in this game's move tree (e.g.
+                    # the game's moves were edited after the moment was tagged).
+                    # Never display the raw dotted-integer path_key as a label.
+                    orphan_count += 1
+                    continue
+
                 if multi_game and game is not last_game:
                     self._rows_layout.addWidget(self._make_game_header(game))
                     last_game = game
-                elif i > 0:
+                elif row_count > 0:
                     self._rows_layout.addWidget(self._make_separator())
 
-                fen, played_move, move_label, mover_is_black = _node_info_fn(pgn_game, path_key)
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
                 row_is_shallow = any(e.get("is_shallow") for e in entries)
                 row_widget = _TagRowWidget(
@@ -503,6 +512,20 @@ class ShowTagsDialog(QDialog):
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)
+                row_count += 1
+
+            if orphan_count > 0:
+                s = "s" if orphan_count != 1 else ""
+                notice = QLabel(
+                    f"Note: {orphan_count} tagged moment{s} could not be located "
+                    f"— the game’s moves may have been edited after tagging."
+                )
+                tr, tg, tb = self._text_color_rgb
+                notice.setStyleSheet(
+                    f"color: rgb({tr},{tg},{tb}); padding: 4px 0px;"
+                )
+                notice.setWordWrap(True)
+                self._rows_layout.addWidget(notice)
 
             self._rows_layout.addStretch(1)
             scroll.setWidget(content)

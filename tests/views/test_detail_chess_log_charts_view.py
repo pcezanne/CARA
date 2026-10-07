@@ -57,6 +57,7 @@ def _make_stub_controller(ai_configured: bool = False, models=None, timeout: int
     ctrl.get_available_models.return_value = models or []
     ctrl.get_default_narrative_model.return_value = (models[0] if models else None)
     ctrl.get_narrative_timeout_seconds.return_value = timeout
+    ctrl.get_narrative_model_override.return_value = None
     # Simulate signal attributes so connect() calls succeed
     for sig in (
         "charts_updated", "charts_unavailable", "charts_loading",
@@ -328,6 +329,19 @@ class TestDetailChessLogChartsViewSelector(unittest.TestCase):
         view._reset_player_selection()
         self.assertEqual(view._player_combo.currentIndex(), -1)
 
+    def test_reset_player_selection_clears_last_shallow_keys_and_narrative(self):
+        """DB switch and player-change both call _reset_player_selection;
+        it must clear _last_shallow_keys and _last_narrative so stale data
+        from the previous database is never shown against the new one."""
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        # Simulate having stale shallow-key results from a previous library
+        view._last_shallow_keys = frozenset([(5, "0.0", "CLAMP")])
+        view._last_narrative = "Prior narrative text"
+        view._reset_player_selection()
+        self.assertIsNone(view._last_shallow_keys)
+        self.assertEqual(view._last_narrative, "")
+
     def test_players_ready_with_empty_list_shows_no_players_placeholder(self):
         view = DetailChessLogChartsView(config={})
         view.set_controller(_make_stub_controller())
@@ -447,6 +461,36 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view._controller.set_narrative_model_override = MagicMock()
         view._model_combo.setCurrentIndex(1)
         view._controller.set_narrative_model_override.assert_called_with("gpt-4-turbo")
+
+    def test_refresh_ai_state_prefers_narrative_override_over_default(self):
+        """When the current combo text is absent from the new model list (e.g. after a
+        DB switch that resets the combo) and the controller has a persisted override,
+        _refresh_ai_state must select the override rather than the default model."""
+        ctrl = _make_stub_controller(
+            ai_configured=True,
+            models=["claude-opus-4-7", "claude-sonnet-4-6"],
+        )
+        ctrl.get_default_narrative_model.return_value = "claude-sonnet-4-6"
+        ctrl.get_narrative_model_override.return_value = "claude-opus-4-7"
+        view = DetailChessLogChartsView(config={})
+        # Clear the combo so currentText() returns "" (simulates a freshly cleared combo)
+        view._model_combo.clear()
+        view.set_controller(ctrl)
+        self.assertEqual(view._model_combo.currentText(), "claude-opus-4-7")
+
+    def test_refresh_ai_state_falls_back_to_default_when_override_absent(self):
+        """When the override model is not in the available list, _refresh_ai_state
+        must fall back to the default model rather than silently landing on index 0."""
+        ctrl = _make_stub_controller(
+            ai_configured=True,
+            models=["claude-sonnet-4-6", "claude-haiku-4-5"],
+        )
+        ctrl.get_default_narrative_model.return_value = "claude-sonnet-4-6"
+        ctrl.get_narrative_model_override.return_value = "claude-opus-4-7"  # not in list
+        view = DetailChessLogChartsView(config={})
+        view._model_combo.clear()
+        view.set_controller(ctrl)
+        self.assertEqual(view._model_combo.currentText(), "claude-sonnet-4-6")
 
     # --- Timeout spinner (Item 4) ---
 

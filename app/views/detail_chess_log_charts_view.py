@@ -568,6 +568,8 @@ class DetailChessLogChartsView(QWidget):
         self._chart_widgets.clear()
 
     def _reset_player_selection(self) -> None:
+        self._last_shallow_keys = None
+        self._last_narrative = ""
         self._player_combo.blockSignals(True)
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)
@@ -665,15 +667,18 @@ class DetailChessLogChartsView(QWidget):
             timeout = self._controller.get_narrative_timeout_seconds()
 
             # Repopulate combo without firing model-changed signal.
-            # Preserve the user's current selection; fall back to default only
-            # if that model is no longer in the list (e.g. provider changed).
+            # Priority: (1) current visible selection, (2) persisted override
+            # from the controller (survives a DB switch that clears the combo),
+            # (3) provider default.
             current_selection = self._model_combo.currentText()
+            override = self._controller.get_narrative_model_override() or ""
             self._model_combo.blockSignals(True)
             self._model_combo.clear()
             for m in models:
                 self._model_combo.addItem(m)
-            restore = current_selection if current_selection else default_model
-            idx = self._model_combo.findText(restore)
+            idx = self._model_combo.findText(current_selection) if current_selection else -1
+            if idx < 0 and override:
+                idx = self._model_combo.findText(override)
             if idx < 0:
                 idx = self._model_combo.findText(default_model)
             self._model_combo.setCurrentIndex(idx if idx >= 0 else 0)

@@ -38,22 +38,23 @@ class ChessLogController:
         self._cached_game_id: Optional[int] = None
         self._cached_game: Optional[Any] = None  # game object for the active game
 
-        # Multi-game cache for Tags Report and save-all.
-        # Games not currently active live here; the active game lives in
-        # _cached_paths_data / _cached_game_id.  Games move between stores on
-        # active-game transitions — only one store ever owns a given game_number.
-        self._multi_cache: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
-        self._dirty_games: Dict[int, Any] = {}  # game_number -> GameData
+        # Multi-game cache for Tags Report and save-all.  Keyed by id(game) so
+        # two databases with the same sequential game_number cannot collide.
+        # The active game lives in _cached_paths_data/_cached_game_id; inactive
+        # games live here.  Games move between stores on active-game transitions.
+        self._multi_cache: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}  # keyed by id(game)
+        self._dirty_games: Dict[int, Any] = {}  # keyed by id(game) -> GameData
 
         # Nag persistence: once the "more than three moments?" nag has been shown
         # for a game, it is suppressed for the rest of the session (global flag)
         # and for all future sessions for that specific game (per-game flag
         # persisted in the CARAChessLog payload).
-        self._nag_shown_by_game: Dict[int, bool] = {}
+        self._nag_shown_by_game: Dict[int, bool] = {}  # keyed by id(game)
         self._nag_shown_this_session: bool = False
 
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
+        self._connect_to_database_panel_model()
 
     # ------------------------------------------------------------------
     # Public API
@@ -71,7 +72,7 @@ class ChessLogController:
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return {}
-        if game.game_number != self._cached_game_id:
+        if id(game) != self._cached_game_id:
             self._load_into_cache(game)
         return self._cached_paths_data
 
@@ -101,7 +102,7 @@ class ChessLogController:
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return False
-        if game.game_number != self._cached_game_id:
+        if id(game) != self._cached_game_id:
             self._load_into_cache(game)
 
         path_key = encode_path(self._game_controller.get_game_model().get_active_path())
@@ -127,7 +128,7 @@ class ChessLogController:
             nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
         )
         if ok:
-            self._dirty_games.pop(game.game_number, None)
+            self._dirty_games.pop(id(game), None)
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -143,7 +144,7 @@ class ChessLogController:
             # clear_tags writes the final state immediately, so nothing is left to
             # save for this game — remove it from _dirty_games to prevent
             # save_all_dirty_games from saving it again with empty data.
-            self._dirty_games.pop(game.game_number, None)
+            self._dirty_games.pop(id(game), None)
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -192,7 +193,7 @@ class ChessLogController:
         moments are always read from the single-game cache to stay coherent with
         in-progress edits.
         """
-        gid = game.game_number
+        gid = id(game)
         if gid == self._cached_game_id:
             return self._cached_paths_data
         if gid not in self._multi_cache:
@@ -212,7 +213,7 @@ class ChessLogController:
         the active game, multi-cache otherwise).  Marks the game dirty so
         save_all_dirty_games() will persist it later.
         """
-        gid = game.game_number
+        gid = id(game)
         tagged = [
             ChessLogStorageService.make_entry(
                 e["preset"], e["cat"], e.get("why", ""),
@@ -257,7 +258,7 @@ class ChessLogController:
         # Save the active game's single-game cache if it has unsaved changes and is
         # not already captured in _dirty_games (the loop below handles that case).
         current_game = self._game_controller.get_game_model().active_game
-        if current_game is not None and current_game.game_number not in self._dirty_games:
+        if current_game is not None and id(current_game) not in self._dirty_games:
             if self.has_unsaved_changes():
                 ok = ChessLogStorageService.store_tags(
                     current_game, self._cached_paths_data, self.config,
@@ -330,6 +331,12 @@ class ChessLogController:
             self._cached_paths_data = {}
             self._cached_game_id = None
             self._cached_game = None
+            # All game-object-keyed caches become stale when there is no active
+            # game (reload, database close).  Drop them so orphaned id(game) refs
+            # don't accumulate or produce misleading save_all_dirty_games results.
+            self._multi_cache.clear()
+            self._dirty_games.clear()
+            self._nag_shown_by_game.clear()
         else:
             self._load_into_cache(game)
 
@@ -340,7 +347,7 @@ class ChessLogController:
         survive being made active.  Remove from _multi_cache once promoted
         (a game lives in exactly one store at a time).
         """
-        gid = game.game_number
+        gid = id(game)
         if gid in self._multi_cache:
             self._cached_paths_data = self._multi_cache.pop(gid)
             # Keep any in-session nag flag set for this game; don't overwrite from disk.
@@ -349,6 +356,34 @@ class ChessLogController:
             self._nag_shown_by_game[gid] = ChessLogStorageService.load_nag_shown(game)
         self._cached_game_id = gid
         self._cached_game = game
+
+    def _connect_to_database_panel_model(self) -> None:
+        if self._database_controller is None:
+            return
+        panel_model = self._database_controller.get_panel_model()
+        if not panel_model:
+            return
+        try:
+            panel_model.active_database_changed.disconnect(self._on_active_database_changed)
+        except (RuntimeError, TypeError):
+            pass
+        panel_model.active_database_changed.connect(self._on_active_database_changed)
+
+    def _on_active_database_changed(self, _database) -> None:
+        """Clear all per-game caches when the active database changes.
+
+        Under identity keying, entries from the outgoing database have unique
+        id(game) values and cannot collide with the incoming database's games.
+        However, they are now unreachable by any live call path, so clearing
+        them avoids unbounded accumulation and ensures stale multi-game edits
+        from the previous database are not saved after a switch.
+        """
+        self._cached_game = None
+        self._cached_game_id = None
+        self._cached_paths_data = {}
+        self._multi_cache.clear()
+        self._dirty_games.clear()
+        self._nag_shown_by_game.clear()
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:
@@ -373,7 +408,7 @@ class ChessLogController:
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return True
-        if game.game_number != self._cached_game_id:
+        if id(game) != self._cached_game_id:
             self._load_into_cache(game)
         path_key = encode_path(self._game_controller.get_game_model().get_active_path())
         is_new_moment = (
@@ -384,7 +419,7 @@ class ChessLogController:
             return True
         if ChessLogStorageService.count_tags(self._cached_paths_data) < 3:
             return True
-        gid = game.game_number
+        gid = id(game)
         if self._nag_shown_this_session:
             return True
         if self._nag_shown_by_game.get(gid, False):

@@ -374,6 +374,18 @@ class TestChessLogChartsControllerActiveDatabaseChanged(unittest.TestCase):
         ctrl._on_active_database_changed(None)
         self.assertIsNone(ctrl._agg_worker)
 
+    def test_active_db_changed_cancels_in_flight_shallow_thread(self):
+        """An in-flight shallow-notes thread from the previous DB must be
+        cancelled on DB switch so its results cannot apply to the new DB's games."""
+        ctrl = self._make_controller_with_source(1)
+        mock_thread = MagicMock()
+        mock_thread.isRunning.return_value = True
+        mock_thread.finished = MagicMock()
+        ctrl._shallow_thread = mock_thread
+        ctrl._on_active_database_changed(None)
+        mock_thread.cancel.assert_called_once()
+        self.assertIsNone(ctrl._shallow_thread)
+
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
 class TestChessLogChartsControllerChartSettings(unittest.TestCase):

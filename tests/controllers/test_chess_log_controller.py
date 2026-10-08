@@ -15,7 +15,8 @@ from app.services.chess_log_storage_service import ChessLogStorageService
 
 MINIMAL_PGN = (
     '[Event "Test"]\n[Site "?"]\n[Date "2026.08.24"]\n'
-    '[Round "?"]\n[White "White"]\n[Black "Black"]\n[Result "*"]\n\n*\n'
+    '[Round "?"]\n[White "White"]\n[Black "Black"]\n[Result "*"]\n\n'
+    '1. e4 ( 1. d4 ) e5 2. Nf3 Nc6 *\n'
 )
 
 
@@ -526,7 +527,7 @@ class TestMultiGameCache(unittest.TestCase):
         store_calls = []
         original = ChessLogStorageService.store_tags
 
-        def fake_store(game, data, config, nag_shown=False):
+        def fake_store(game, data, config, nag_shown=False, **_kwargs):
             store_calls.append((game.game_number, dict(data)))
             return original(game, data, config)
 
@@ -551,7 +552,7 @@ class TestMultiGameCache(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game, data, config, nag_shown=False):
+        def fake_store(game, data, config, nag_shown=False, **_kwargs):
             captured["data"] = dict(data)
             return True
 
@@ -639,7 +640,7 @@ class TestMultiGameCache(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game, data, config, nag_shown=False):
+        def fake_store(game, data, config, nag_shown=False, **_kwargs):
             captured[game.game_number] = {
                 pk: [e["why"] for e in entries]
                 for pk, entries in data.items()
@@ -1129,7 +1130,7 @@ class TestIdentityKeyingCrossDatabase(unittest.TestCase):
 
         written = {}
 
-        def fake_store(game, data, config, nag_shown=False):
+        def fake_store(game, data, config, nag_shown=False, **_kwargs):
             written[id(game)] = {
                 pk: [e["why"] for e in entries]
                 for pk, entries in data.items()
@@ -1208,7 +1209,7 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game, data, config, nag_shown=False):
+        def fake_store(game, data, config, nag_shown=False, **_kwargs):
             captured[id(game)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
             return True
 
@@ -1287,7 +1288,7 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game_, data, config, nag_shown=False):
+        def fake_store(game_, data, config, nag_shown=False, **_kwargs):
             captured["data"] = dict(data)
             return True
 
@@ -1316,7 +1317,7 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game_, data, config, nag_shown=False):
+        def fake_store(game_, data, config, nag_shown=False, **_kwargs):
             captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
             return True
 
@@ -1343,7 +1344,7 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game_, data, config, nag_shown=False):
+        def fake_store(game_, data, config, nag_shown=False, **_kwargs):
             captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
             return True
 
@@ -1431,7 +1432,7 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game_, data, config, nag_shown=False):
+        def fake_store(game_, data, config, nag_shown=False, **_kwargs):
             captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
             return True
 
@@ -1441,6 +1442,105 @@ class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
 
         self.assertEqual((saved, failed), (1, 0))
         self.assertIn("preserved", captured.get(id(game), {}).get("", []))
+
+
+class TestSaveOrphanGuard(unittest.TestCase):
+    """Commit 2 — save-side orphan guard wired through production save paths.
+
+    Tests 10-13 from the Phase 2 plan.
+    """
+
+    def _make_ctrl_with_game(self):
+        """Return a controller with an active game fully loaded into cache."""
+        game = make_game()
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+        return ctrl, gm, game
+
+    def test_save_tags_for_current_game_passes_original_paths(self):
+        """save_tags_for_current_game must pass _cached_original_paths[gid] as
+        original_paths= to store_tags so the orphan guard is active."""
+        ctrl, gm, game = self._make_ctrl_with_game()
+        # Inject a recognisable sentinel snapshot so we can verify identity.
+        sentinel = {"sentinel": [ChessLogStorageService.make_entry("CLAMP", "M")]}
+        ctrl._cached_original_paths[id(game)] = sentinel
+
+        captured = {}
+
+        def fake_store(game_, data, config, nag_shown=False, original_paths=None):
+            captured["original_paths"] = original_paths
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            ctrl.save_tags_for_current_game()
+
+        self.assertIs(captured["original_paths"], sentinel)
+
+    def test_save_refuses_new_orphan_via_production_path(self):
+        """An unresolvable path_key injected into the in-memory cache after load
+        must not reach the PGN.  LoggingService.error must fire exactly once."""
+        ctrl, gm, game = self._make_ctrl_with_game()
+        orphan_key = "99999"
+        ctrl._cached_paths_data[orphan_key] = [ChessLogStorageService.make_entry("CLAMP", "M")]
+
+        with patch("app.services.chess_log_storage_service.LoggingService") as mock_ls:
+            mock_logger = MagicMock()
+            mock_ls.get_instance.return_value = mock_logger
+            ctrl.save_tags_for_current_game()
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertNotIn(orphan_key, loaded)
+        mock_logger.error.assert_called_once()
+
+    def test_save_refuses_new_orphan_remains_refused_on_second_save(self):
+        """The orphan guard must fire on every save.
+
+        After a successful save, _cached_original_paths is refreshed from the
+        on-disk snapshot (which never received the refused key), so the refused
+        key is still treated as 'new' on the next save call.
+        """
+        ctrl, gm, game = self._make_ctrl_with_game()
+        orphan_key = "99999"
+        ctrl._cached_paths_data[orphan_key] = [ChessLogStorageService.make_entry("CLAMP", "M")]
+
+        with patch("app.services.chess_log_storage_service.LoggingService") as mock_ls:
+            mock_logger = MagicMock()
+            mock_ls.get_instance.return_value = mock_logger
+            ctrl.save_tags_for_current_game()   # first save
+            ctrl.save_tags_for_current_game()   # second save
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertNotIn(orphan_key, loaded)
+        self.assertEqual(mock_logger.error.call_count, 2)
+
+    def test_save_preserves_preexisting_on_disk_orphan(self):
+        """An orphan path_key already present in the PGN must pass through on save
+        (byte-identical round-trip), even when a new resolvable moment is added."""
+        game = make_game()
+        orphan_key = "99999"
+        # Pre-seed the PGN with an orphan key — bypass guard with no original_paths.
+        ChessLogStorageService.store_tags(
+            game,
+            {orphan_key: [ChessLogStorageService.make_entry("CLAMP", "M", "orphan")]},
+            {},
+        )
+
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)   # _cached_original_paths[gid] = {orphan_key: [...]}
+
+        # Add a new resolvable moment at path "0" (first move — exists in MINIMAL_PGN).
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": "new"}])
+
+        ctrl.save_tags_for_current_game()
+
+        loaded = ChessLogStorageService.load_tags(game)
+        self.assertIn(orphan_key, loaded)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["why"], "new")
 
 
 if __name__ == "__main__":

@@ -52,6 +52,14 @@ class ChessLogController:
         self._nag_shown_by_game: Dict[int, bool] = {}  # keyed by id(game)
         self._nag_shown_this_session: bool = False
 
+        # Original on-disk paths snapshot per game, keyed by id(game).  Captured
+        # at every cache-load site (from a fresh load_tags disk read) and
+        # refreshed from disk after every successful store_tags.  Passed as
+        # original_paths= to activate the save-side orphan guard: new
+        # unresolvable path_keys are refused, pre-existing orphans pass through
+        # byte-for-byte.
+        self._cached_original_paths: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
+
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
         self._connect_to_database_panel_model()
@@ -124,12 +132,18 @@ class ChessLogController:
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return False
+        gid = id(game)
         ok = ChessLogStorageService.store_tags(
             game, self._cached_paths_data, self.config,
             nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
+            original_paths=self._cached_original_paths.get(gid),
         )
         if ok:
-            self._dirty_games.pop(id(game), None)
+            self._dirty_games.pop(gid, None)
+            # Refresh the snapshot from disk — NOT from the paths_data we passed
+            # in — so a refused new orphan isn't recorded as pre-existing on the
+            # next save, which would defeat the guard.
+            self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -146,6 +160,8 @@ class ChessLogController:
             # save for this game — remove it from _dirty_games to prevent
             # save_all_dirty_games from saving it again with empty data.
             self._dirty_games.pop(id(game), None)
+            # On-disk tag is gone; refresh the snapshot to match.
+            self._cached_original_paths[id(game)] = {}
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -200,7 +216,10 @@ class ChessLogController:
         if gid == self._cached_game_id:
             return self._cached_paths_data
         if gid not in self._multi_cache:
-            self._multi_cache[gid] = ChessLogStorageService.load_tags(game)
+            loaded = ChessLogStorageService.load_tags(game)
+            self._multi_cache[gid] = loaded
+            # Snapshot the disk state for the save-side orphan guard.
+            self._cached_original_paths[gid] = dict(loaded)
         return self._multi_cache[gid]
 
     def replace_entries_at_path_for_game(
@@ -229,7 +248,9 @@ class ChessLogController:
             data = self._cached_paths_data
         else:
             if gid not in self._multi_cache:
-                self._multi_cache[gid] = ChessLogStorageService.load_tags(game)
+                loaded = ChessLogStorageService.load_tags(game)
+                self._multi_cache[gid] = loaded
+                self._cached_original_paths[gid] = dict(loaded)
             data = self._multi_cache[gid]
 
         if path_key in data:
@@ -264,12 +285,15 @@ class ChessLogController:
         current_game = self._game_controller.get_game_model().active_game
         if current_game is not None and id(current_game) not in self._dirty_games:
             if self.has_unsaved_changes():
+                cur_gid = id(current_game)
                 ok = ChessLogStorageService.store_tags(
                     current_game, self._cached_paths_data, self.config,
                     nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
+                    original_paths=self._cached_original_paths.get(cur_gid),
                 )
                 if ok:
                     saved += 1
+                    self._cached_original_paths[cur_gid] = ChessLogStorageService.load_tags(current_game)
                     self._mark_database_unsaved(current_game)
                     self._game_controller.get_game_model().metadata_updated.emit()
                 else:
@@ -284,9 +308,11 @@ class ChessLogController:
             ok = ChessLogStorageService.store_tags(
                 game, data, self.config,
                 nag_shown=self._nag_shown_by_game.get(gid, False),
+                original_paths=self._cached_original_paths.get(gid),
             )
             if ok:
                 saved += 1
+                self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
                 self._mark_database_unsaved(game)
                 self._dirty_games.pop(gid, None)
             else:
@@ -351,6 +377,9 @@ class ChessLogController:
             for gid in list(self._nag_shown_by_game.keys()):
                 if gid not in self._dirty_games:
                     del self._nag_shown_by_game[gid]
+            for gid in list(self._cached_original_paths.keys()):
+                if gid not in self._dirty_games:
+                    del self._cached_original_paths[gid]
         else:
             self._load_into_cache(game)
 
@@ -360,13 +389,25 @@ class ChessLogController:
         Rule A: check _multi_cache first so unsaved edits on an inactive game
         survive being made active.  Remove from _multi_cache once promoted
         (a game lives in exactly one store at a time).
+
+        On any fresh disk read (either branch), capture a fresh on-disk
+        snapshot into _cached_original_paths for the save-side orphan guard.
+        On _multi_cache promotion the snapshot that was captured on first
+        peek is already correct — don't overwrite with the possibly-edited
+        in-memory dict.
         """
         gid = id(game)
         if gid in self._multi_cache:
             self._cached_paths_data = self._multi_cache.pop(gid)
             # Keep any in-session nag flag set for this game; don't overwrite from disk.
+            # Snapshot already captured on first peek via get_tags_for_game /
+            # replace_entries_at_path_for_game — leave it alone.
+            if gid not in self._cached_original_paths:
+                self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
         else:
-            self._cached_paths_data = ChessLogStorageService.load_tags(game)
+            loaded = ChessLogStorageService.load_tags(game)
+            self._cached_paths_data = loaded
+            self._cached_original_paths[gid] = dict(loaded)
             self._nag_shown_by_game[gid] = ChessLogStorageService.load_nag_shown(game)
         self._cached_game_id = gid
         self._cached_game = game
@@ -411,6 +452,9 @@ class ChessLogController:
         for gid in list(self._nag_shown_by_game.keys()):
             if gid not in self._dirty_games:
                 del self._nag_shown_by_game[gid]
+        for gid in list(self._cached_original_paths.keys()):
+            if gid not in self._dirty_games:
+                del self._cached_original_paths[gid]
 
     def _outgoing_has_real_edits(self) -> bool:
         """True iff the current outgoing-game cache differs from its on-disk tag.
@@ -447,6 +491,7 @@ class ChessLogController:
                 del self._dirty_games[gid]
                 self._multi_cache.pop(gid, None)
                 self._nag_shown_by_game.pop(gid, None)
+                self._cached_original_paths.pop(gid, None)
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:

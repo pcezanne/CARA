@@ -1089,29 +1089,21 @@ class TestIdentityKeyingCrossDatabase(unittest.TestCase):
         self.assertEqual(tags_a["0"][0]["cat"], "M")
         self.assertEqual(tags_b["0"][0]["cat"], "P")
 
-    def test_db_switch_clears_all_caches(self):
-        """Firing _on_active_database_changed must purge _multi_cache,
-        _cached_paths_data, _nag_shown_by_game, and _dirty_games so that
-        stale entries from the old database cannot contaminate the new one."""
+    def test_db_switch_resets_active_cache_pointers(self):
+        """After switch, active-game pointers must be cleared so a new active
+        game can be loaded cleanly.  (Dirty entries are preserved — see
+        TestDbSwitchPreservesDirtyEdits for that contract.)"""
         game = make_game(1)
         ctrl, gm = make_controller(game)
         ctrl._cached_game_id = id(game)
         gm.active_game = game
-
-        # Populate every cache
-        ctrl._cached_paths_data = {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]}
-        ctrl._multi_cache[id(game)] = {"1": [ChessLogStorageService.make_entry("CCT", "C")]}
-        ctrl._dirty_games[id(game)] = game
-        ctrl._nag_shown_by_game[id(game)] = True
+        ctrl._cached_paths_data = {}  # untouched active game — nothing to flush
 
         ctrl._on_active_database_changed(None)
 
         self.assertEqual(ctrl._cached_paths_data, {})
         self.assertIsNone(ctrl._cached_game_id)
         self.assertIsNone(ctrl._cached_game)
-        self.assertEqual(ctrl._multi_cache, {})
-        self.assertEqual(ctrl._dirty_games, {})
-        self.assertEqual(ctrl._nag_shown_by_game, {})
 
     def test_identity_keyed_dirty_games_write_to_right_game(self):
         """save_all_dirty_games must write game_a's data to game_a and game_b's
@@ -1157,6 +1149,298 @@ class TestIdentityKeyingCrossDatabase(unittest.TestCase):
         # Cross-contamination check: game_a must not have b-data and vice versa
         self.assertNotIn("b-data", written.get(id(game_a), {}).get("0", []))
         self.assertNotIn("a-data", written.get(id(game_b), {}).get("0", []))
+
+
+def _make_fake_panel_model(db_models):
+    pm = MagicMock()
+    pm.get_all_database_models.return_value = list(db_models)
+    pm.active_database_changed = MagicMock()
+    pm.active_database_changed.connect = MagicMock()
+    pm.active_database_changed.disconnect = MagicMock()
+    return pm
+
+
+def _make_fake_db_model(games):
+    db = MagicMock()
+    db.get_all_games.return_value = list(games)
+    return db
+
+
+def _make_fake_db_controller(panel_model):
+    dc = MagicMock()
+    dc.get_panel_model.return_value = panel_model
+    dc.find_database_model_for_game.return_value = None
+    return dc
+
+
+def make_controller_with_dbs(active_game, dbs_games, active_path=()):
+    """dbs_games: list of lists of GameData (one list per database)."""
+    gm = make_game_model_mock(active_game, active_path)
+    gc = make_game_controller_mock(gm)
+    db_models = [_make_fake_db_model(gs) for gs in dbs_games]
+    panel_model = _make_fake_panel_model(db_models)
+    dc = _make_fake_db_controller(panel_model)
+    ctrl = ChessLogController({}, gc, database_controller=dc)
+    if active_game is not None:
+        ctrl._cached_game = active_game
+        ctrl._cached_game_id = id(active_game)
+    return ctrl, gm, dc
+
+
+class TestDbSwitchPreservesDirtyEdits(unittest.TestCase):
+    """Phase 2 — _on_active_database_changed must preserve unsaved Chess Log
+    edits.  Phase 1 cleared _dirty_games unconditionally on switch; the fix
+    flushes the outgoing active game's real edits into _dirty_games/_multi_cache
+    and only prunes entries belonging to games no longer in any open DB."""
+
+    def test_db_switch_preserves_dirty_edits_from_outgoing_active_game(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm, _dc = make_controller_with_dbs(game_a, [[game_a], [game_b]])
+        gm.active_game = game_a
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "L", "why": "edit"}])
+
+        ctrl._on_active_database_changed(None)
+
+        self.assertIn(id(game_a), ctrl._dirty_games)
+        self.assertIn(id(game_a), ctrl._multi_cache)
+        self.assertEqual(ctrl._multi_cache[id(game_a)][""][0]["why"], "edit")
+
+        captured = {}
+
+        def fake_store(game, data, config, nag_shown=False):
+            captured[id(game)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual((saved, failed), (1, 0))
+        self.assertIn("edit", captured.get(id(game_a), {}).get("", []))
+
+    def test_db_switch_preserves_dirty_edits_from_inactive_game_tags_report(self):
+        active = make_game(1)
+        game_a7 = make_game(7)
+        game_b = make_game(99)
+        ctrl, gm, _dc = make_controller_with_dbs(active, [[active, game_a7], [game_b]])
+        gm.active_game = active
+        ctrl.replace_entries_at_path_for_game(
+            game_a7, "", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "tags-report-edit"}]
+        )
+        self.assertIn(id(game_a7), ctrl._dirty_games)
+        self.assertIn(id(game_a7), ctrl._multi_cache)
+
+        ctrl._on_active_database_changed(None)
+
+        self.assertIn(id(game_a7), ctrl._dirty_games)
+        self.assertIn(id(game_a7), ctrl._multi_cache)
+
+    def test_db_switch_prunes_non_dirty_multi_cache_entries(self):
+        active = make_game(1)
+        peek_game = make_game(2)
+        ctrl, gm, _dc = make_controller_with_dbs(active, [[active, peek_game]])
+        gm.active_game = active
+        # Peek at an inactive game (populates _multi_cache without dirtying)
+        _ = ctrl.get_tags_for_game(peek_game)
+        self.assertIn(id(peek_game), ctrl._multi_cache)
+        self.assertNotIn(id(peek_game), ctrl._dirty_games)
+
+        ctrl._on_active_database_changed(None)
+
+        self.assertNotIn(id(peek_game), ctrl._multi_cache)
+
+    def test_db_switch_untouched_active_game_not_marked_dirty(self):
+        game = make_game(1)
+        ctrl, gm, _dc = make_controller_with_dbs(game, [[game]])
+        gm.active_game = game
+        # No edits — _cached_paths_data stays matching the on-disk tag (both empty)
+        ctrl._on_active_database_changed(None)
+        self.assertNotIn(id(game), ctrl._dirty_games)
+        self.assertNotIn(id(game), ctrl._multi_cache)
+
+    def test_db_switch_last_moment_deletion_survives_and_saves(self):
+        """Game has 1 moment on disk; delete via replace_entries_at_path on the
+        active cache (does NOT dirty-mark); switch DB; verify dirty + save
+        writes a tag-less PGN."""
+        game = make_game(1)
+        # Pre-seed on-disk tag with one CLAMP moment at path ""
+        ChessLogStorageService.store_tags(
+            game, {"": [ChessLogStorageService.make_entry("CLAMP", "C", "orig")]}, {}
+        )
+        ctrl, gm, _dc = make_controller_with_dbs(game, [[game]])
+        gm.active_game = game
+        # Force-load from disk so _cached_paths_data reflects the stored moment
+        ctrl._load_into_cache(game)
+        self.assertEqual(ChessLogStorageService.count_tags(ctrl._cached_paths_data), 1)
+        # Delete the moment via the active-cache replace (NOT dirty-marking)
+        ctrl.replace_entries_at_path("", "CLAMP", [])
+        self.assertEqual(ctrl._cached_paths_data, {})
+        self.assertNotIn(id(game), ctrl._dirty_games)  # replace_entries_at_path doesn't dirty-mark
+
+        ctrl._on_active_database_changed(None)
+
+        # Flush decision compared against disk (which had 1 moment) → dirty
+        self.assertIn(id(game), ctrl._dirty_games)
+        self.assertIn(id(game), ctrl._multi_cache)
+        self.assertEqual(ctrl._multi_cache[id(game)], {})
+
+        captured = {}
+
+        def fake_store(game_, data, config, nag_shown=False):
+            captured["data"] = dict(data)
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual((saved, failed), (1, 0))
+        self.assertEqual(captured["data"], {})  # tag payload empty — no moments
+
+    def test_db_switch_then_back_then_save_persists_edits(self):
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm, _dc = make_controller_with_dbs(game_a, [[game_a], [game_b]])
+        gm.active_game = game_a
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": "edit-a"}])
+
+        # Switch away (DB-B)
+        ctrl._on_active_database_changed(None)
+        # Switch back (DB-A) — simulate the user clicking game_a in the newly-active tab
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+
+        self.assertEqual(ctrl._cached_game_id, id(game_a))
+        self.assertEqual(ctrl._cached_paths_data[""][0]["why"], "edit-a")
+
+        captured = {}
+
+        def fake_store(game_, data, config, nag_shown=False):
+            captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            ctrl.save_tags_for_current_game()
+
+        self.assertIn("edit-a", captured.get(id(game_a), {}).get("", []))
+
+    def test_save_all_dirty_after_cross_db_edits_writes_each_to_own_pgn(self):
+        game_a3 = make_game(3)
+        game_b5 = make_game(5)
+        other = make_game(1)
+        ctrl, gm, _dc = make_controller_with_dbs(other, [[other, game_a3], [game_b5]])
+        gm.active_game = other
+        ctrl.replace_entries_at_path_for_game(
+            game_a3, "", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "a3-edit"}]
+        )
+        ctrl.replace_entries_at_path_for_game(
+            game_b5, "", "CCT", [{"preset": "CCT", "cat": "Threats", "why": "b5-edit"}]
+        )
+
+        ctrl._on_active_database_changed(None)
+
+        captured = {}
+
+        def fake_store(game_, data, config, nag_shown=False):
+            captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual((saved, failed), (2, 0))
+        self.assertIn("a3-edit", captured.get(id(game_a3), {}).get("", []))
+        self.assertIn("b5-edit", captured.get(id(game_b5), {}).get("", []))
+        self.assertNotIn("b5-edit", captured.get(id(game_a3), {}).get("", []))
+        self.assertNotIn("a3-edit", captured.get(id(game_b5), {}).get("", []))
+
+    def test_reload_drops_dirty_entries_for_games_no_longer_open(self):
+        game_a3 = make_game(3)
+        game_b5 = make_game(5)
+        other = make_game(1)
+        db_a_games = [other, game_a3]
+        db_b_games = [game_b5]
+        ctrl, gm, dc = make_controller_with_dbs(other, [db_a_games, db_b_games])
+        gm.active_game = other
+        ctrl.replace_entries_at_path_for_game(
+            game_a3, "", "CLAMP", [{"preset": "CLAMP", "cat": "C", "why": "a3"}]
+        )
+        ctrl.replace_entries_at_path_for_game(
+            game_b5, "", "CCT", [{"preset": "CCT", "cat": "Threats", "why": "b5"}]
+        )
+        self.assertIn(id(game_a3), ctrl._dirty_games)
+        self.assertIn(id(game_b5), ctrl._dirty_games)
+
+        # Simulate reload of DB-A: replace game list with fresh GameData objects.
+        new_other = make_game(1)
+        new_a3 = make_game(3)
+        panel_model = dc.get_panel_model()
+        panel_model.get_all_database_models.return_value[0].get_all_games.return_value = [new_other, new_a3]
+
+        # active_game_changed(None) fires on reload — same prune path.
+        gm.active_game = None
+        ctrl._on_active_game_changed(None)
+
+        self.assertNotIn(id(game_a3), ctrl._dirty_games)
+        self.assertIn(id(game_b5), ctrl._dirty_games)
+
+    def test_chess_log_edit_marks_database_unsaved(self):
+        game = make_game(1)
+        ctrl, gm, dc = make_controller_with_dbs(game, [[game]])
+        gm.active_game = game
+        fake_db_model = MagicMock()
+        dc.find_database_model_for_game.return_value = fake_db_model
+
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": "x"}])
+        ctrl.replace_entries_at_path("", "CLAMP", [
+            ChessLogStorageService.make_entry("CLAMP", "B", "y")
+        ])
+        other = make_game(2)
+        ctrl.replace_entries_at_path_for_game(other, "", "CLAMP", [
+            {"preset": "CLAMP", "cat": "C", "why": "z"}
+        ])
+
+        marked_games = [c.args[0] for c in dc.mark_database_unsaved.call_args_list]
+        self.assertEqual(dc.mark_database_unsaved.call_count, 3)
+        # All three calls should pass the correct game
+        self.assertIs(marked_games[0], fake_db_model)
+        self.assertIs(marked_games[1], fake_db_model)
+        self.assertIs(marked_games[2], fake_db_model)
+
+    def test_edit_preserved_when_active_game_becomes_none(self):
+        """Amendment 21: active game becomes None (close / clipboard clear) →
+        the outgoing-game flush must still fire.  Covers the regression where
+        has_unsaved_changes() would read active_game=None and skip the flush."""
+        game = make_game(1)
+        ctrl, gm, _dc = make_controller_with_dbs(game, [[game]])
+        gm.active_game = game
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "A", "why": "preserved"}])
+
+        # Simulate close/clear: game model's active_game goes to None BEFORE
+        # the handler fires.  If the flush decision used has_unsaved_changes()
+        # (which reads game model.active_game), the edit would be lost.
+        gm.active_game = None
+        ctrl._on_active_game_changed(None)
+
+        self.assertIn(id(game), ctrl._dirty_games)
+        self.assertIn(id(game), ctrl._multi_cache)
+        self.assertEqual(ctrl._multi_cache[id(game)][""][0]["why"], "preserved")
+
+        captured = {}
+
+        def fake_store(game_, data, config, nag_shown=False):
+            captured[id(game_)] = {pk: [e["why"] for e in es] for pk, es in data.items()}
+            return True
+
+        with patch("app.controllers.chess_log_controller.ChessLogStorageService.store_tags",
+                   side_effect=fake_store):
+            saved, failed = ctrl.save_all_dirty_games()
+
+        self.assertEqual((saved, failed), (1, 0))
+        self.assertIn("preserved", captured.get(id(game), {}).get("", []))
 
 
 if __name__ == "__main__":

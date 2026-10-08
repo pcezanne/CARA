@@ -116,6 +116,7 @@ class ChessLogController:
                 self._cached_paths_data[path_key].extend(tagged)
         else:
             self._cached_paths_data[path_key] = tagged
+        self._mark_database_unsaved(game)
         return True
 
     def save_tags_for_current_game(self) -> bool:
@@ -185,6 +186,8 @@ class ChessLogController:
                 del self._cached_paths_data[path_key]
         elif tagged:
             self._cached_paths_data[path_key] = tagged
+        if self._cached_game is not None:
+            self._mark_database_unsaved(self._cached_game)
 
     def get_tags_for_game(self, game) -> Dict[str, List[Dict[str, Any]]]:
         """Return moments for any game, not just the active one.
@@ -240,6 +243,7 @@ class ChessLogController:
             data[path_key] = tagged
 
         self._dirty_games[gid] = game
+        self._mark_database_unsaved(game)
 
     def save_all_dirty_games(self) -> Tuple[int, int]:
         """Persist every dirty game via ChessLogStorageService.store_tags.
@@ -328,15 +332,25 @@ class ChessLogController:
                 self._dirty_games[old_gid] = old_game
 
         if game is None:
+            # Flush outgoing active game's REAL edits into dirty-set before
+            # clearing pointers.  Compare against the OUTGOING game's disk
+            # snapshot — the game model's active_game is already None here.
+            if old_gid is not None and self._outgoing_has_real_edits():
+                self._multi_cache[old_gid] = dict(self._cached_paths_data)
+                self._dirty_games.setdefault(old_gid, old_game)
             self._cached_paths_data = {}
             self._cached_game_id = None
             self._cached_game = None
-            # All game-object-keyed caches become stale when there is no active
-            # game (reload, database close).  Drop them so orphaned id(game) refs
-            # don't accumulate or produce misleading save_all_dirty_games results.
-            self._multi_cache.clear()
-            self._dirty_games.clear()
-            self._nag_shown_by_game.clear()
+            # Prune cache entries whose GameData is no longer in any open DB
+            # (reload / close).  Preserves dirty entries belonging to other
+            # still-open databases.
+            self._prune_dirty_games_against_open_databases()
+            for gid in list(self._multi_cache.keys()):
+                if gid not in self._dirty_games:
+                    del self._multi_cache[gid]
+            for gid in list(self._nag_shown_by_game.keys()):
+                if gid not in self._dirty_games:
+                    del self._nag_shown_by_game[gid]
         else:
             self._load_into_cache(game)
 
@@ -370,20 +384,69 @@ class ChessLogController:
         panel_model.active_database_changed.connect(self._on_active_database_changed)
 
     def _on_active_database_changed(self, _database) -> None:
-        """Clear all per-game caches when the active database changes.
+        """Preserve unsaved Chess Log edits when the active database changes.
 
-        Under identity keying, entries from the outgoing database have unique
-        id(game) values and cannot collide with the incoming database's games.
-        However, they are now unreachable by any live call path, so clearing
-        them avoids unbounded accumulation and ensures stale multi-game edits
-        from the previous database are not saved after a switch.
+        Flush the outgoing active game's real edits into _multi_cache +
+        _dirty_games (compared against the outgoing game's own disk snapshot
+        — the game model's active_game may already be None or newly-switched
+        by the time this handler runs).  Preserve _dirty_games byte-for-byte
+        and prune only cache-only entries belonging to games no longer in any
+        open database.
         """
+        old_gid = self._cached_game_id
+        old_game = self._cached_game
+        if old_gid is not None and self._outgoing_has_real_edits():
+            self._multi_cache[old_gid] = dict(self._cached_paths_data)
+            self._dirty_games.setdefault(old_gid, old_game)
+
         self._cached_game = None
         self._cached_game_id = None
         self._cached_paths_data = {}
-        self._multi_cache.clear()
-        self._dirty_games.clear()
-        self._nag_shown_by_game.clear()
+
+        self._prune_dirty_games_against_open_databases()
+
+        for gid in list(self._multi_cache.keys()):
+            if gid not in self._dirty_games:
+                del self._multi_cache[gid]
+        for gid in list(self._nag_shown_by_game.keys()):
+            if gid not in self._dirty_games:
+                del self._nag_shown_by_game[gid]
+
+    def _outgoing_has_real_edits(self) -> bool:
+        """True iff the current outgoing-game cache differs from its on-disk tag.
+
+        Compares against load_tags(self._cached_game) rather than
+        has_unsaved_changes(), because the game model's active_game may already
+        be None (close/clear) or the newly-switched game by the time this
+        handler runs.
+        """
+        if self._cached_game is None:
+            return False
+        try:
+            stored = ChessLogStorageService.load_tags(self._cached_game)
+        except Exception:
+            return bool(self._cached_paths_data)
+        return self._cached_paths_data != stored
+
+    def _prune_dirty_games_against_open_databases(self) -> None:
+        """Drop _dirty_games (and companion dicts) for games no longer in any
+        open database. Prevents stale GameData refs from being written to by
+        save_all_dirty_games and from being double-counted.
+        """
+        if self._database_controller is None:
+            return
+        panel_model = self._database_controller.get_panel_model()
+        if panel_model is None:
+            return
+        live_ids: set = set()
+        for db_model in panel_model.get_all_database_models():
+            for g in db_model.get_all_games():
+                live_ids.add(id(g))
+        for gid in list(self._dirty_games.keys()):
+            if gid not in live_ids:
+                del self._dirty_games[gid]
+                self._multi_cache.pop(gid, None)
+                self._nag_shown_by_game.pop(gid, None)
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:

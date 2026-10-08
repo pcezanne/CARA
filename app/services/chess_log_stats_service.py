@@ -117,7 +117,7 @@ def aggregate(
         if not game_matches_player_color(game, player_cf, color_filter):
             continue
 
-        paths_data = ChessLogStorageService.load_tags(game)
+        paths_data = ChessLogStorageService.load_resolved_paths(game)
         for entries in paths_data.values():
             for entry in entries:
                 preset = entry.get("preset", "")
@@ -164,7 +164,7 @@ def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
     for game in games:
         if not getattr(game, "has_chess_log_tags", False):
             continue
-        paths_data = ChessLogStorageService.load_tags(game)
+        paths_data = ChessLogStorageService.load_resolved_paths(game)
         if not paths_data:
             continue
 
@@ -219,7 +219,7 @@ def has_any_moments(
             continue
         if not game_matches_player_color(game, player_cf, color_filter):
             continue
-        paths_data = ChessLogStorageService.load_tags(game)
+        paths_data = ChessLogStorageService.load_resolved_paths(game)
         if paths_data:
             return True
     return False

@@ -471,12 +471,16 @@ class TestMultiGameCache(unittest.TestCase):
     # ------------------------------------------------------------------
 
     def test_get_tags_for_game_active_reads_from_single_cache(self):
+        """For the active game, get_tags_for_game reads the single-game cache
+        (resolved copy — not the raw dict reference)."""
         game = make_game(1)
         ctrl, _ = self._make_ctrl(game)
         entry = ChessLogStorageService.make_entry("CLAMP", "C")
         ctrl._cached_paths_data = {"0": [entry]}
         result = ctrl.get_tags_for_game(game)
-        self.assertIs(result, ctrl._cached_paths_data)
+        # Returns a resolved copy; verify the expected entry is present.
+        self.assertIn("0", result)
+        self.assertEqual(result["0"][0]["cat"], "C")
 
     def test_get_tags_for_game_inactive_loads_and_caches(self):
         game_a = make_game(1)
@@ -1057,11 +1061,13 @@ class TestIdentityKeyingCrossDatabase(unittest.TestCase):
         must occupy separate cache slots and never return each other's tags."""
         pgn_a = (
             '[Event "DB-A"]\n[Site "?"]\n[Date "2026.01.01"]\n'
-            '[Round "?"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n*\n'
+            '[Round "?"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 Nc6 *\n'
         )
         pgn_b = (
             '[Event "DB-B"]\n[Site "?"]\n[Date "2026.02.01"]\n'
-            '[Round "?"]\n[White "C"]\n[Black "D"]\n[Result "*"]\n\n*\n'
+            '[Round "?"]\n[White "C"]\n[Black "D"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 Nc6 *\n'
         )
         game_a = GameData(game_number=5, pgn=pgn_a)
         game_b = GameData(game_number=5, pgn=pgn_b)
@@ -1111,11 +1117,13 @@ class TestIdentityKeyingCrossDatabase(unittest.TestCase):
         data to game_b even when both have game_number=5."""
         pgn_a = (
             '[Event "DB-A"]\n[Site "?"]\n[Date "2026.01.01"]\n'
-            '[Round "?"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n*\n'
+            '[Round "?"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 Nc6 *\n'
         )
         pgn_b = (
             '[Event "DB-B"]\n[Site "?"]\n[Date "2026.02.01"]\n'
-            '[Round "?"]\n[White "C"]\n[Black "D"]\n[Result "*"]\n\n*\n'
+            '[Round "?"]\n[White "C"]\n[Black "D"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 Nc6 *\n'
         )
         game_a = GameData(game_number=5, pgn=pgn_a)
         game_b = GameData(game_number=5, pgn=pgn_b)
@@ -1541,6 +1549,147 @@ class TestSaveOrphanGuard(unittest.TestCase):
         self.assertIn(orphan_key, loaded)
         self.assertIn("0", loaded)
         self.assertEqual(loaded["0"][0]["why"], "new")
+
+
+# ---------------------------------------------------------------------------
+# Resolved view — orphans excluded from feature code (tests 14–16, amendments 22–23)
+# ---------------------------------------------------------------------------
+
+class TestResolvedView(unittest.TestCase):
+    """_resolved_view filters orphan path_keys; get_tags_for_current_game returns the
+    filtered copy; memoization prevents redundant PGN re-parsing."""
+
+    def _make_ctrl_with_orphan_game(self):
+        """Return (ctrl, game) where game has one resolvable + one orphan path key."""
+        game = make_game()
+        orphan_key = "99999"
+        resolvable_key = "0"
+        ChessLogStorageService.store_tags(game, {
+            resolvable_key: [ChessLogStorageService.make_entry("CLAMP", "C", "real note")],
+            orphan_key: [ChessLogStorageService.make_entry("CLAMP", "M", "ghost note")],
+        })
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+        return ctrl, game
+
+    def test_get_tags_for_current_game_returns_resolved_view(self):
+        """get_tags_for_current_game must exclude orphan path_keys.
+
+        has_unsaved_changes() must still return False immediately after load —
+        both sides of the full-dict comparison include the orphan, so cache==disk.
+        """
+        ctrl, game = self._make_ctrl_with_orphan_game()
+        result = ctrl.get_tags_for_current_game()
+        self.assertIn("0", result)
+        self.assertNotIn("99999", result)
+        # Full-dict comparison: cached == stored (both include the orphan)
+        self.assertFalse(ctrl.has_unsaved_changes())
+
+    def test_should_confirm_extra_moment_ignores_on_disk_orphans(self):
+        """On-disk orphans must not count toward the 3-moment nag threshold.
+
+        2 resolvable + 2 orphan moments in the PGN.  Tagging a 3rd resolvable
+        path must not trigger the nag (resolved count = 2 < 3).
+        """
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {
+            "0":     [ChessLogStorageService.make_entry("CLAMP", "C", "note1")],
+            "0.0":   [ChessLogStorageService.make_entry("CLAMP", "L", "note2")],
+            "99997": [ChessLogStorageService.make_entry("CLAMP", "A", "orphan1")],
+            "99998": [ChessLogStorageService.make_entry("CLAMP", "M", "orphan2")],
+        })
+        # active path is "0.0.0" — a new, not-yet-tagged move
+        ctrl, gm = make_controller(game, active_path=(0, 0, 0))
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+
+        with patch.object(ctrl, "_confirm_extra_moment", return_value=True) as mock_nag:
+            result = ctrl.should_confirm_extra_moment()
+        # Resolved count = 2 < 3, so no nag should fire; confirm returns True
+        self.assertTrue(result)
+        mock_nag.assert_not_called()
+
+    def test_resolved_view_memoized_across_calls(self):
+        """Calling get_tags_for_current_game 100× must parse the PGN exactly once.
+
+        After add_moment_at_active_path bumps the version, the next call parses
+        the PGN exactly once more (total 2 times).
+        """
+        import chess.pgn as _chess_pgn
+
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "C", "memo test")],
+        })
+        ctrl, gm = make_controller(game, active_path=(0,))
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+
+        with patch.object(_chess_pgn, "read_game", wraps=_chess_pgn.read_game) as spy:
+            for _ in range(100):
+                ctrl.get_tags_for_current_game()
+            self.assertEqual(spy.call_count, 1, "PGN parsed more than once despite stable version")
+
+            # Bump version via add_moment_at_active_path
+            with patch("app.controllers.chess_log_controller.encode_path", return_value="0.0"):
+                ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "L", "why": "new"}])
+
+            # Exactly one more parse
+            ctrl.get_tags_for_current_game()
+            self.assertEqual(spy.call_count, 2, "Cache not invalidated after version bump")
+
+    def test_resolved_view_invalidates_on_same_length_pgn_change(self):
+        """Blake2b-16 content hash, not len(), drives cache invalidation.
+
+        Replacing Nf3 with Nc3 produces a PGN of identical byte length but
+        a different content hash.  The resolved cache must recompute.
+        """
+        import chess.pgn as _chess_pgn
+
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "C", "hash test")],
+        })
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+
+        with patch.object(_chess_pgn, "read_game", wraps=_chess_pgn.read_game) as spy:
+            ctrl.get_tags_for_current_game()
+            self.assertEqual(spy.call_count, 1)
+
+            # Substitute Nf3 → Nc3 — same byte length, different content
+            before = game.pgn
+            modified = before.replace("Nf3", "Nc3")
+            self.assertEqual(len(before), len(modified), "Precondition: byte length must be identical")
+            self.assertNotEqual(before, modified, "Precondition: content must differ")
+            game.pgn = modified
+
+            ctrl.get_tags_for_current_game()
+            self.assertEqual(spy.call_count, 2, "Cache not invalidated on same-length PGN content change")
+
+    def test_resolved_view_returns_copy_not_reference(self):
+        """Mutating the returned dict must not corrupt the memoized resolved view."""
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {
+            "0": [ChessLogStorageService.make_entry("CLAMP", "C", "copy test")],
+        })
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+
+        result1 = ctrl.get_tags_for_current_game()
+        self.assertIn("0", result1)
+
+        # Mutate the returned dict: add a bogus key and remove the real one
+        result1["bogus_key"] = []
+        del result1["0"]
+
+        # Second call must return the unmutated view
+        result2 = ctrl.get_tags_for_current_game()
+        self.assertNotIn("bogus_key", result2)
+        self.assertIn("0", result2)
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ _BASE_PGN = (
     '[White "{white}"]\n'
     '[Black "{black}"]\n'
     '[Result "*"]\n'
-    '\n1. e4 *\n'
+    '\n1. e4 e5 2. Nf3 Nc6 *\n'
 )
 
 
@@ -254,8 +254,8 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
     def test_uncategorized_always_last_in_canonical_order(self):
         paths = {
             "0": [_clamp_entry("P")],
-            "1": [_clamp_entry("")],
-            "2": [_clamp_entry("C")],
+            "0.0": [_clamp_entry("")],
+            "0.0.0": [_clamp_entry("C")],
         }
         game = _make_game(white="Alice", black="Bob", date="2025.06.01",
                           entries_per_path=paths)
@@ -756,6 +756,31 @@ class TestSeriesDateExtent(unittest.TestCase):
         series = result["CLAMP"]
         self.assertEqual(series.t_min, date.fromisoformat("2026-01-01").toordinal())
         self.assertEqual(series.t_max, date.fromisoformat("2026-12-31").toordinal())
+
+
+# ---------------------------------------------------------------------------
+# Orphan exclusion (test 17)
+# ---------------------------------------------------------------------------
+
+class TestAggregateExcludesOrphans(unittest.TestCase):
+    """aggregate() uses load_resolved_paths — orphan path_keys must not be counted."""
+
+    def test_aggregate_excludes_orphan_path_keys(self):
+        """A game with one resolvable CLAMP entry and one orphan CLAMP entry must
+        produce a series with exactly 1 moment, not 2."""
+        game = _make_game(
+            white="Alice",
+            black="Bob",
+            date="2025.06.01",
+            entries_per_path={
+                "0":     [_clamp_entry("C")],
+                "99999": [_clamp_entry("M")],   # orphan
+            },
+        )
+        result = aggregate([game], player="Alice")
+        self.assertIn("CLAMP", result)
+        total_moments = sum(b.total for b in result["CLAMP"].bins)
+        self.assertEqual(total_moments, 1)
 
 
 if __name__ == "__main__":

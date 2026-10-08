@@ -1138,5 +1138,73 @@ class TestChessLogChartsControllerGetAvailableModels(unittest.TestCase):
         )
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowIterationOrphanExclusion(unittest.TestCase):
+    """request_flag_shallow_notes() must skip orphan path_keys (test 20).
+
+    get_tags_for_game() routes through load_resolved_paths (or the resolved
+    view), so orphan keys are already absent from the returned dict.  This
+    test verifies that orphan why-notes never reach the shallow notes thread.
+    """
+
+    def _make_controller_with_resolvable_and_orphan(self):
+        resolvable_entry = ChessLogStorageService.make_entry(
+            "CLAMP", "C", "real note", ignore_shallow=False
+        )
+        orphan_entry = ChessLogStorageService.make_entry(
+            "CLAMP", "M", "ghost note", ignore_shallow=False
+        )
+        # Store both keys in the PGN (guard off — no original_paths arg).
+        game = _make_game(entries_per_path={
+            "0":     [resolvable_entry],
+            "99999": [orphan_entry],
+        })
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({
+            "ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}
+        })
+        return ctrl
+
+    def test_shallow_iteration_skips_orphan_entries(self):
+        """Orphan why-notes must not appear in notes list passed to the shallow thread."""
+        ctrl = self._make_controller_with_resolvable_and_orphan()
+
+        thread_kwargs: list = []
+
+        class FakeThread:
+            def __init__(self, **kwargs):
+                thread_kwargs.append(kwargs)
+                self.shallow_ready = MagicMock()
+                self.shallow_ready.connect = MagicMock()
+                self.shallow_failed = MagicMock()
+                self.shallow_failed.connect = MagicMock()
+                self.shallow_partial = MagicMock()
+                self.shallow_partial.connect = MagicMock()
+                self.finished = MagicMock()
+                self.finished.connect = MagicMock()
+
+            def start(self):
+                pass
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+            side_effect=FakeThread,
+        ):
+            ctrl.request_flag_shallow_notes()
+
+        self.assertEqual(len(thread_kwargs), 1)
+        notes = thread_kwargs[0]["notes"]
+        why_texts = [n[4] for n in notes]
+        self.assertTrue(any("real note" in w for w in why_texts),
+                        "resolvable why-note missing from notes list")
+        self.assertFalse(any("ghost note" in w for w in why_texts),
+                         "orphan why-note must not reach shallow thread")
+
+
 if __name__ == "__main__":
     unittest.main()

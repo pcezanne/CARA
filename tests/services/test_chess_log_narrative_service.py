@@ -59,7 +59,7 @@ def _make_game(
         f'[White "{white}"]\n'
         f'[Black "{black}"]\n'
         f'[Result "*"]\n'
-        f'\n1. e4 *\n'
+        f'\n1. e4 e5 2. Nf3 Nc6 *\n'
     )
     game = GameData(game_number=1, pgn=pgn, white=white, black=black, date=date)
     if entries_per_path:
@@ -1181,6 +1181,29 @@ class TestPromptEnforcementClauses(unittest.TestCase):
     def test_narrative_step_reinforces_three_column_rule(self):
         self.assertIn("Strategic Impact", _NARRATIVE_STEP)
         self.assertIn("drop the row", _NARRATIVE_STEP)
+
+
+# ---------------------------------------------------------------------------
+# Orphan exclusion (test 18)
+# ---------------------------------------------------------------------------
+
+class TestBuildPromptExcludesOrphans(unittest.TestCase):
+    """build_prompt uses load_resolved_paths — why-notes from orphan entries must
+    not appear in the assembled prompt."""
+
+    def test_build_prompt_excludes_orphan_why_notes(self):
+        """A game with one resolvable entry (why='real note') and one orphan entry
+        (why='ghost note') must produce a prompt containing 'real note' but not
+        'ghost note'."""
+        game = _make_game(
+            entries_per_path={
+                "0":     [_clamp("C", "real note")],
+                "99999": [_clamp("M", "ghost note")],   # orphan
+            },
+        )
+        prompt = build_prompt([game], config=_CONFIG)
+        self.assertIn("real note", prompt)
+        self.assertNotIn("ghost note", prompt)
 
 
 if __name__ == "__main__":

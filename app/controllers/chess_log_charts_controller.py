@@ -404,7 +404,7 @@ class ChessLogChartsController(QObject):
         """Return Chess Log moments for *game* (delegates to ChessLogController)."""
         if self._chess_log_controller is None:
             from app.services.chess_log_storage_service import ChessLogStorageService
-            return ChessLogStorageService.load_tags(game)
+            return ChessLogStorageService.load_resolved_paths(game)
         return self._chess_log_controller.get_tags_for_game(game)
 
     def set_user_settings(self, user_settings: Dict[str, Any]) -> None:

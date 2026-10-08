@@ -118,7 +118,7 @@ def build_prompt(
             continue
 
         if getattr(game, "has_chess_log_tags", False):
-            paths_data = ChessLogStorageService.load_tags(game)
+            paths_data = ChessLogStorageService.load_resolved_paths(game)
             for entries in paths_data.values():
                 has_3x3_notes = any(
                     e.get("preset") == "3x3" and (e.get("why") or "").strip()

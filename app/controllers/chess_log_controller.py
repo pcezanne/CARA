@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import hashlib
+from io import StringIO
 from typing import Any, Dict, List, Optional, Tuple
+
+import chess.pgn
 
 from app.controllers.game_controller import GameController
 from app.services.chess_log_storage_service import ChessLogStorageService
-from app.utils.pgn_variation_path import encode_path
+from app.utils.pgn_variation_path import decode_path, encode_path, node_at_path
 
 
 class ChessLogController:
@@ -60,6 +64,15 @@ class ChessLogController:
         # byte-for-byte.
         self._cached_original_paths: Dict[int, Dict[str, List[Dict[str, Any]]]] = {}
 
+        # Memoized resolved view (orphan-filtered) per game, keyed by id(game).
+        # Value: (raw_version_int, pgn_blake2b_hex, resolved_dict).
+        # Invalidated when raw_version bumps (in-memory write) or the PGN
+        # content hash changes (e.g. analysis written to game.pgn).
+        self._resolved_cache: Dict[int, Tuple[int, str, Dict[str, List[Dict[str, Any]]]]] = {}
+        # Write-counter per game, bumped by every in-memory cache mutation.
+        # Keyed by id(game); reset to 0 on fresh load.
+        self._cache_version_by_game: Dict[int, int] = {}
+
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
         self._connect_to_database_panel_model()
@@ -76,13 +89,13 @@ class ChessLogController:
         return preset if preset in {"CLAMP", "CCT", "3x3"} else "CLAMP"
 
     def get_tags_for_current_game(self) -> Dict[str, List[Dict[str, Any]]]:
-        """Return in-memory moments for the active game (loading from PGN if needed)."""
+        """Return in-memory moments for the active game (orphan-filtered copy)."""
         game = self._game_controller.get_game_model().active_game
         if game is None:
             return {}
         if id(game) != self._cached_game_id:
             self._load_into_cache(game)
-        return self._cached_paths_data
+        return self._resolved_view(self._cached_paths_data, game)
 
     def get_entries_at_active_path(self) -> List[Dict[str, Any]]:
         """Return the entries stored at the current active path, or [] if none."""
@@ -124,6 +137,7 @@ class ChessLogController:
                 self._cached_paths_data[path_key].extend(tagged)
         else:
             self._cached_paths_data[path_key] = tagged
+        self._cache_version_by_game[id(game)] = self._cache_version_by_game.get(id(game), 0) + 1
         self._mark_database_unsaved(game)
         return True
 
@@ -144,6 +158,7 @@ class ChessLogController:
             # in — so a refused new orphan isn't recorded as pre-existing on the
             # next save, which would defeat the guard.
             self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
+            self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -162,6 +177,7 @@ class ChessLogController:
             self._dirty_games.pop(id(game), None)
             # On-disk tag is gone; refresh the snapshot to match.
             self._cached_original_paths[id(game)] = {}
+            self._cache_version_by_game[id(game)] = self._cache_version_by_game.get(id(game), 0) + 1
             self._game_controller.get_game_model().metadata_updated.emit()
             self._mark_database_unsaved(game)
         return ok
@@ -203,10 +219,12 @@ class ChessLogController:
         elif tagged:
             self._cached_paths_data[path_key] = tagged
         if self._cached_game is not None:
+            gid = id(self._cached_game)
+            self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
             self._mark_database_unsaved(self._cached_game)
 
     def get_tags_for_game(self, game) -> Dict[str, List[Dict[str, Any]]]:
-        """Return moments for any game, not just the active one.
+        """Return moments for any game (orphan-filtered copy).
 
         Checks the multi-cache first; falls back to disk.  The active game's
         moments are always read from the single-game cache to stay coherent with
@@ -214,13 +232,15 @@ class ChessLogController:
         """
         gid = id(game)
         if gid == self._cached_game_id:
-            return self._cached_paths_data
-        if gid not in self._multi_cache:
-            loaded = ChessLogStorageService.load_tags(game)
-            self._multi_cache[gid] = loaded
-            # Snapshot the disk state for the save-side orphan guard.
-            self._cached_original_paths[gid] = dict(loaded)
-        return self._multi_cache[gid]
+            raw = self._cached_paths_data
+        else:
+            if gid not in self._multi_cache:
+                loaded = ChessLogStorageService.load_tags(game)
+                self._multi_cache[gid] = loaded
+                # Snapshot the disk state for the save-side orphan guard.
+                self._cached_original_paths[gid] = dict(loaded)
+            raw = self._multi_cache[gid]
+        return self._resolved_view(raw, game)
 
     def replace_entries_at_path_for_game(
         self,
@@ -264,6 +284,7 @@ class ChessLogController:
             data[path_key] = tagged
 
         self._dirty_games[gid] = game
+        self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
         self._mark_database_unsaved(game)
 
     def save_all_dirty_games(self) -> Tuple[int, int]:
@@ -294,6 +315,7 @@ class ChessLogController:
                 if ok:
                     saved += 1
                     self._cached_original_paths[cur_gid] = ChessLogStorageService.load_tags(current_game)
+                    self._cache_version_by_game[cur_gid] = self._cache_version_by_game.get(cur_gid, 0) + 1
                     self._mark_database_unsaved(current_game)
                     self._game_controller.get_game_model().metadata_updated.emit()
                 else:
@@ -313,6 +335,7 @@ class ChessLogController:
             if ok:
                 saved += 1
                 self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
+                self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
                 self._mark_database_unsaved(game)
                 self._dirty_games.pop(gid, None)
             else:
@@ -380,6 +403,12 @@ class ChessLogController:
             for gid in list(self._cached_original_paths.keys()):
                 if gid not in self._dirty_games:
                     del self._cached_original_paths[gid]
+            for gid in list(self._resolved_cache.keys()):
+                if gid not in self._dirty_games:
+                    del self._resolved_cache[gid]
+            for gid in list(self._cache_version_by_game.keys()):
+                if gid not in self._dirty_games:
+                    del self._cache_version_by_game[gid]
         else:
             self._load_into_cache(game)
 
@@ -397,6 +426,10 @@ class ChessLogController:
         in-memory dict.
         """
         gid = id(game)
+        # Invalidate the resolved-view cache so the next call recomputes from
+        # the newly-loaded data rather than returning a stale entry.
+        self._resolved_cache.pop(gid, None)
+        self._cache_version_by_game[gid] = 0
         if gid in self._multi_cache:
             self._cached_paths_data = self._multi_cache.pop(gid)
             # Keep any in-session nag flag set for this game; don't overwrite from disk.
@@ -455,6 +488,12 @@ class ChessLogController:
         for gid in list(self._cached_original_paths.keys()):
             if gid not in self._dirty_games:
                 del self._cached_original_paths[gid]
+        for gid in list(self._resolved_cache.keys()):
+            if gid not in self._dirty_games:
+                del self._resolved_cache[gid]
+        for gid in list(self._cache_version_by_game.keys()):
+            if gid not in self._dirty_games:
+                del self._cache_version_by_game[gid]
 
     def _outgoing_has_real_edits(self) -> bool:
         """True iff the current outgoing-game cache differs from its on-disk tag.
@@ -492,6 +531,8 @@ class ChessLogController:
                 self._multi_cache.pop(gid, None)
                 self._nag_shown_by_game.pop(gid, None)
                 self._cached_original_paths.pop(gid, None)
+                self._resolved_cache.pop(gid, None)
+                self._cache_version_by_game.pop(gid, None)
 
     def _mark_database_unsaved(self, game) -> None:
         if self._database_controller is None or game is None:
@@ -502,6 +543,44 @@ class ChessLogController:
                 self._database_controller.mark_database_unsaved(db_model)
         except Exception:
             pass
+
+    def _resolved_view(
+        self,
+        raw: Dict[str, List[Dict[str, Any]]],
+        game,
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """Return an orphan-filtered copy of *raw*, memoized per game.
+
+        Memoization key: (write_counter, blake2b-16 of game.pgn).
+        Always returns a fresh shallow copy so callers can freely mutate the
+        top-level mapping without corrupting the internal cache.
+
+        Orphan detection uses the same logic as load_resolved_paths: a
+        path_key is an orphan if node_at_path returns None in the current
+        move tree.  Filtering is skipped (full copy returned) when *raw* is
+        empty or *game* has no PGN.
+        """
+        if not raw or not getattr(game, "pgn", None):
+            return dict(raw)
+        gid = id(game)
+        raw_ver = self._cache_version_by_game.get(gid, 0)
+        pgn_ver = hashlib.blake2b(game.pgn.encode("utf-8"), digest_size=16).hexdigest()
+        cached = self._resolved_cache.get(gid)
+        if cached and cached[0] == raw_ver and cached[1] == pgn_ver:
+            return dict(cached[2])
+        try:
+            chess_game = chess.pgn.read_game(StringIO(game.pgn))
+        except Exception:
+            return dict(raw)
+        if chess_game is None:
+            return dict(raw)
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        for pk, entries in raw.items():
+            path = decode_path(pk)
+            if path is not None and node_at_path(chess_game, path) is not None:
+                out[pk] = entries
+        self._resolved_cache[gid] = (raw_ver, pgn_ver, out)
+        return dict(out)
 
     def should_confirm_extra_moment(self, parent_widget=None) -> bool:
         """Return True if the caller should proceed with opening Tag This Moment.
@@ -525,7 +604,7 @@ class ChessLogController:
         )
         if not is_new_moment:
             return True
-        if ChessLogStorageService.count_tags(self._cached_paths_data) < 3:
+        if ChessLogStorageService.count_tags(self._resolved_view(self._cached_paths_data, game)) < 3:
             return True
         gid = id(game)
         if self._nag_shown_this_session:

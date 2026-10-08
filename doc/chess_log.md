@@ -141,7 +141,7 @@ Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correc
 
 ### Per-game cache keying
 
-`ChessLogController` maintains three in-memory caches, all keyed by **`id(game)`** (Python object identity), not by `game.game_number`:
+`ChessLogController` maintains several in-memory caches, all keyed by **`id(game)`** (Python object identity), not by `game.game_number`:
 
 | Field | Purpose |
 |---|---|
@@ -149,27 +149,33 @@ Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correc
 | `_multi_cache: Dict[int, Dict[str, List[Dict]]]` | Inactive games loaded for ShowTagsDialog / ShowShallowTagsDialog |
 | `_dirty_games: Dict[int, GameData]` | Games with in-memory edits pending `save_all_dirty_games()` |
 | `_nag_shown_by_game: Dict[int, bool]` | Per-game session flag for the "more than three moments?" nag |
+| `_cached_original_paths: Dict[int, Dict[str, List[Dict]]]` | On-disk snapshot captured at load; passed as `original_paths=` to the save-side orphan guard |
+| `_resolved_cache: Dict[int, Tuple[int, str, Dict]]` | Memoized orphan-filtered view — `(write_version, pgn_blake2b_hex, resolved_dict)` |
+| `_cache_version_by_game: Dict[int, int]` | Write counter per game; bumped by every in-memory mutation; reset to 0 on `_load_into_cache` |
 
 **Why `id(game)` and not `game.game_number`?** Each database assigns `game_number` as a sequential integer starting at 1. Two databases can (and do in practice) produce `GameData` objects with identical `game_number` values. Using `id(game)` (the Python object's memory address) is collision-impossible because different objects have different identities, and the cache dicts hold references so GC cannot reuse the address while the entry lives.
 
 ### Database-switch behaviour
 
-`ChessLogController` connects to `DatabasePanelModel.active_database_changed` via `_connect_to_database_panel_model()` (called at the end of `__init__`). On each switch, `_on_active_database_changed()` clears:
+`ChessLogController` connects to `DatabasePanelModel.active_database_changed` via `_connect_to_database_panel_model()` (called at the end of `__init__`). On each switch, `_on_active_database_changed()`:
 
-- `_cached_paths_data`, `_cached_game_id`, `_cached_game`
-- `_multi_cache`
-- `_dirty_games` — stale edits from the previous database must not be applied to the new one
-- `_nag_shown_by_game`
+1. **Flushes** the outgoing active game's real edits into `_multi_cache` + `_dirty_games` — but only if `_outgoing_has_real_edits()` returns True. This helper compares `_cached_paths_data` against `load_tags(_cached_game)` (the outgoing game's own disk snapshot), **not** against `has_unsaved_changes()` which reads the game model's current `active_game` — which may already be `None` or the newly-switched game by the time the handler runs.
+2. **Clears** the active-game pointers (`_cached_paths_data`, `_cached_game_id`, `_cached_game`).
+3. **Prunes** `_dirty_games` entries whose `GameData` is no longer in any open database (via `_prune_dirty_games_against_open_databases`). This handles reload (`reload_database_from_file`) and close events — stale object references cannot be written to by `save_all_dirty_games`.
+4. **Preserves** the rest of `_dirty_games` byte-for-byte; drops cache-only entries (`_multi_cache`, `_nag_shown_by_game`, `_cached_original_paths`, `_resolved_cache`, `_cache_version_by_game`) for gids no longer in `_dirty_games`.
 
-On reload (`DatabaseController.reload_database_from_file`): the active-game-changed signal fires with `game=None`, which triggers the same purge via the `game is None` branch of `_on_active_game_changed`.
+The same flush-and-prune logic runs in `_on_active_game_changed(game=None)` for clipboard-clear, database-close, and reload events.
+
+**Edit-time unsaved marking**: every Chess Log edit (`add_moment_at_active_path`, `replace_entries_at_path`, `replace_entries_at_path_for_game`) calls `_mark_database_unsaved(game)` immediately, so the tab's pulsing-dot indicator lights up at the moment of the edit. CARA does not currently show an unsaved-changes dialog on database close or reload — the tab pulse is the user's signal.
 
 ### Orphan path_keys
 
-A **path_key** in a game's `CARAChessLog` payload is an **orphan** if its decoded path (e.g. `(99, 0)`) cannot be walked to a node in that game's current move tree. Orphans arise legitimately when moves are edited after a moment was logged, and also from the historical `game_number` collision bug described above.
+A **path_key** in a game's `CARAChessLog` payload is an **orphan** if its decoded path (e.g. `(99, 0)`) cannot be walked to a node in that game's current move tree. Orphans arise legitimately when moves are edited after a moment was logged, and also from the historical `game_number` collision bug.
 
 Policy:
 - **Load side**: `ChessLogStorageService.load_resolved_paths(game)` returns only the path_keys that resolve in the parsed chess game; orphans are logged at WARNING and excluded. `load_tags(game)` still returns the full dict byte-for-byte for save-time round-trip preservation.
-- **Save side**: `ChessLogStorageService.store_tags(..., original_paths=...)` refuses to write **new** orphan path_keys (logged at ERROR) but passes through **pre-existing** orphan keys unchanged, so historical data is never silently destroyed. Callers that do not supply `original_paths` skip the guard (backward-compatible).
+- **Save side**: `ChessLogStorageService.store_tags(..., original_paths=...)` refuses to write **new** orphan path_keys (logged at ERROR) but passes through **pre-existing** orphan keys unchanged, so historical data is never silently destroyed. All three production save paths (`save_tags_for_current_game`, both `store_tags` calls in `save_all_dirty_games`) supply `original_paths=self._cached_original_paths.get(gid)`. After a successful save the snapshot is refreshed from disk via `load_tags(game)` — **not** from the `paths_data` dict just written — so a refused orphan stays "new" on the next save and is refused again.
+- **Feature code (resolved view)**: `get_tags_for_current_game()`, `get_tags_for_game()`, and `should_confirm_extra_moment()` consume `_resolved_view(raw, game)` — an orphan-filtered copy memoized per `id(game)`. The memoization key is `(write_version, blake2b-16 hash of game.pgn)`. The content hash (not `len(pgn)`) is used so same-length move substitutions (e.g. `Nf3` → `Nc3`) also invalidate the cache. The method always returns a **shallow copy** of the memoized dict so caller mutation cannot corrupt the cache. Background service callers (charts aggregation, narrative prompt, charts controller fallback) call `load_resolved_paths` directly — they read from disk and never see in-session edits, so the one-level disk filter is correct.
 - **Display**: `ShowTagsDialog` and `ShowShallowTagsDialog` detect orphan rows by checking `move_label == path_key` (the fallback when `node_at_path` returns `None` in `_tag_row_helpers.node_info`), skip them silently, and append a single notice at the bottom of the dialog listing the count of unreachable moments.
 
 ## Key files

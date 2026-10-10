@@ -126,6 +126,8 @@ Each `ChessLogCategoryChartWidget` and the narrative `QFrame` carry a `section_n
 
 **Shallow-tag freshness rule**: Copy Log and Export PDF include shallow tags only when fresh — `self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]]` on the view is non-None. Set in `_on_shallow_ready` (after Show Shallow Tags runs); cleared in `_on_source_changed` and `_on_player_changed`. When stale or not yet run, shallow tags are silently omitted. Color filter is not yet wired to a UI control in this view — when a Color combo is added, its change handler must also clear `_last_shallow_keys`.
 
+**Result cache across view rebuilds**: `ChessLogChartsController` caches the most recent successful narrative (`_cached_narrative`, `_cached_narrative_flags`, `_cached_narrative_usage`) and shallow result (`_cached_shallow_keys`, `_cached_shallow_usage`). `DetailChessLogChartsView.set_controller()` reads this cache and restores the display, so a theme change (which rebuilds the central widget) does not lose the narrative or shallow results. The cache is cleared on database switch, source change, and player change — events that genuinely invalidate the data — but not on cosmetic actions like theme switching or resizing.
+
 ## PDF export
 
 **Export PDF Report source label**: the PDF header reads `Source: <combo-text>: <pgn-stem>[, <pgn-stem>...]`. The filename list is built by `ChessLogChartsController.get_current_source_filenames()`, which mirrors the `_resolve_games` selection logic (active database → 1 name; all open → N names). `DatabaseModel.display_name` (Path stem or "Clipboard") is used for each entry.

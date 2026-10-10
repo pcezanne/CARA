@@ -58,6 +58,8 @@ def _make_stub_controller(ai_configured: bool = False, models=None, timeout: int
     ctrl.get_default_narrative_model.return_value = (models[0] if models else None)
     ctrl.get_narrative_timeout_seconds.return_value = timeout
     ctrl.get_narrative_model_override.return_value = None
+    ctrl.get_last_narrative_result.return_value = ("", [], None)
+    ctrl.get_last_shallow_result.return_value = (None, None)
     # Simulate signal attributes so connect() calls succeed
     for sig in (
         "charts_updated", "charts_unavailable", "charts_loading",

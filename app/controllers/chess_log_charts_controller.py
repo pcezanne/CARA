@@ -363,6 +363,16 @@ class ChessLogChartsController(QObject):
         self._narrative_model_override: Optional[str] = None
         self._chess_log_controller: Optional[Any] = None
 
+        # Result cache — survives view rebuilds (e.g. theme change) so the narrative
+        # and shallow-check results are re-displayed on the fresh view without
+        # requiring the user to regenerate them.  Cleared on data-context changes
+        # (database switch, source change) but NOT on cosmetic changes.
+        self._cached_narrative: str = ""
+        self._cached_narrative_flags: list = []
+        self._cached_narrative_usage: Optional[Any] = None
+        self._cached_shallow_keys: Optional[Any] = None
+        self._cached_shallow_usage: Optional[Any] = None
+
         self._selection_debounce = QTimer(self)
         self._selection_debounce.setSingleShot(True)
         self._selection_debounce.timeout.connect(self._on_selection_debounced)
@@ -445,6 +455,21 @@ class ChessLogChartsController(QObject):
 
     def is_ai_configured(self) -> bool:
         return resolve_default_provider(self._user_settings) is not None
+
+    def get_last_narrative_result(self) -> tuple:
+        """Return (narrative, flags, usage) from the most recent successful generation."""
+        return self._cached_narrative, self._cached_narrative_flags, self._cached_narrative_usage
+
+    def get_last_shallow_result(self) -> tuple:
+        """Return (shallow_keys, usage) from the most recent successful shallow check."""
+        return self._cached_shallow_keys, self._cached_shallow_usage
+
+    def _clear_result_cache(self) -> None:
+        self._cached_narrative = ""
+        self._cached_narrative_flags = []
+        self._cached_narrative_usage = None
+        self._cached_shallow_keys = None
+        self._cached_shallow_usage = None
 
     # --- narrative panel controls ---
 
@@ -550,6 +575,7 @@ class ChessLogChartsController(QObject):
         """Set the Data Source (0=None, 1=Active, 2=All, 3=SelectedActive, 4=SelectedAll)."""
         self._source_selection = source
         self._player_explicit_selected = False
+        self._clear_result_cache()
         if source == 0:
             self._cancel_agg_worker()
             self.charts_unavailable.emit("no_source")
@@ -563,6 +589,7 @@ class ChessLogChartsController(QObject):
     def set_player_selection(self, player: str) -> None:
         self._current_player = player or ""
         self._player_explicit_selected = True
+        self._clear_result_cache()
         self._kick_debounce()
 
     def set_color_filter(self, color_filter: str) -> None:
@@ -606,8 +633,8 @@ class ChessLogChartsController(QObject):
             timeout_seconds=self.get_narrative_timeout_seconds(),
             token_limit=self._narrative_token_limit,
         )
-        thread.narrative_ready.connect(self.narrative_ready)
-        thread.narrative_failed.connect(self.narrative_failed)
+        thread.narrative_ready.connect(self._on_narrative_thread_ready)
+        thread.narrative_failed.connect(self._on_narrative_thread_failed)
         thread.finished.connect(self._on_narrative_finished)
         self._narrative_thread = thread
         thread.start()
@@ -687,8 +714,22 @@ class ChessLogChartsController(QObject):
         self._shallow_thread = thread
         thread.start()
 
+    def _on_narrative_thread_ready(self, narrative: str, flags: list, usage) -> None:
+        self._cached_narrative = narrative
+        self._cached_narrative_flags = list(flags)
+        self._cached_narrative_usage = usage
+        self.narrative_ready.emit(narrative, flags, usage)
+
+    def _on_narrative_thread_failed(self, message: str) -> None:
+        self._cached_narrative = ""
+        self._cached_narrative_flags = []
+        self._cached_narrative_usage = None
+        self.narrative_failed.emit(message)
+
     def _on_shallow_thread_ready(self, shallow_keys, classified_keys, usage) -> None:
-        """Pass shallow verdicts to the view; the dialog's Save commits them."""
+        """Cache shallow results then pass to the view; the dialog's Save commits them."""
+        self._cached_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
+        self._cached_shallow_usage = usage
         self.shallow_ready.emit(shallow_keys, classified_keys, usage)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
@@ -918,6 +959,7 @@ class ChessLogChartsController(QObject):
         self._cancel_agg_worker()
         self._cancel_shallow_thread()
         self._player_explicit_selected = False
+        self._clear_result_cache()
         self.player_selection_cleared.emit()
         games = self._resolve_games()
         self._start_dropdown_worker(games)

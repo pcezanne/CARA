@@ -113,6 +113,17 @@ class DetailChessLogChartsView(QWidget):
 
         self._refresh_ai_state()
 
+        # Re-display any results cached in the controller (e.g. after a theme rebuild).
+        # Called after signal connections so _on_narrative_ready/_refresh_ai_state work.
+        narrative, flags, usage = controller.get_last_narrative_result()
+        if narrative:
+            self._on_narrative_ready(narrative, flags, usage)
+        shallow_keys, shallow_usage = controller.get_last_shallow_result()
+        if shallow_keys is not None:
+            self._last_shallow_keys = shallow_keys
+            self._shallow_token_label.setText(self._format_token_usage(shallow_usage))
+            self._refresh_ai_state()
+
     def refresh_ai_state(self) -> None:
         """Called externally when AI model settings change."""
         self._refresh_ai_state()

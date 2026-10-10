@@ -1350,6 +1350,8 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.dialogs.moment.layout.spacing",
     "ui.dialogs.moment.why.minimum_height",
     "ui.dialogs.moment.three_by_three.edit_minimum_height",
+    "ui.dialogs.show_tags.button_save",
+    "ui.dialogs.show_tags.button_cancel",
     "ui.dialogs.show_tags.label_font_family",
     "ui.dialogs.show_tags.label_font_size",
     "ui.dialogs.show_tags.inputs.font_family",
@@ -3227,6 +3229,8 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.dialogs.chess_log_messages.shallow_notes.partial.message_template",
     "ui.dialogs.chess_log_messages.shallow_notes.none_found.title",
     "ui.dialogs.chess_log_messages.shallow_notes.none_found.message_template",
+    "ui.dialogs.shallow.button_save",
+    "ui.dialogs.shallow.button_cancel",
     "prompts.ai_chat.system_preamble",
     "prompts.ai_chat.formatting_rules",
 )

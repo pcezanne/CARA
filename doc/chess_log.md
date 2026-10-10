@@ -135,7 +135,8 @@ Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correc
 
 - `game_has_any_tags() -> bool` — True iff `_cached_paths_data` has any non-empty entry list.
 - `replace_entries_at_path(path_key, preset, entries, view=None)` — replaces entries for the given preset at that path; preserves other presets. In-memory only.
-- `replace_entries_at_path_for_game(game, path_key, preset, entries)` — same but takes a `GameData` object; correctly routes to either the active single-game cache or the multi-game cache depending on which game is active. Used by both `ShowTagsDialog` (on OK) and `ShowShallowTagsDialog` (live edit). **This is the only method that explicitly marks a game dirty.**
+- `replace_entries_at_path_for_game(game, path_key, preset, entries)` — same but takes a `GameData` object; correctly routes to either the active single-game cache or the multi-game cache depending on which game is active. Used by `ShowTagsDialog._on_save` and `ShowShallowTagsDialog._on_save`. In-memory only; does not mark the DB unsaved. **This is the only method that explicitly marks a game dirty** (populates `_dirty_games`).
+- `save_games(games: Iterable) -> Tuple[int, int]` — writes `game.pgn` for each game via `_save_single_game`, marks the owning database unsaved, clears `_dirty_games` for each saved game. Returns `(n_saved, n_failed)`. Called by dialog Save handlers to commit all edits made in that dialog session. The commit granularity is the **game**: `save_games([game])` writes the full pending cache for that game — including any unsaved Log-this-Moment edits on the same game — in a single `store_tags` call. Chess Log edits on the same game cannot be committed selectively.
 
 ## Caching & Database-Switch
 
@@ -166,7 +167,25 @@ Font sizes use `QFont.setFont()` (not stylesheet px values) so they scale correc
 
 The same flush-and-prune logic runs in `_on_active_game_changed(game=None)` for clipboard-clear, database-close, and reload events.
 
-**Edit-time unsaved marking**: every Chess Log edit (`add_moment_at_active_path`, `replace_entries_at_path`, `replace_entries_at_path_for_game`) calls `_mark_database_unsaved(game)` immediately, so the tab's pulsing-dot indicator lights up at the moment of the edit. CARA does not currently show an unsaved-changes dialog on database close or reload — the tab pulse is the user's signal.
+### Save model
+
+Chess Log has two distinct commit layers:
+
+- **Cache edits** (`add_moment_at_active_path`, `replace_entries_at_path`, `replace_entries_at_path_for_game`) — in-memory only. No tab pulse. The edit lands in `_cached_paths_data` or `_multi_cache` and the game is added to `_dirty_games`.
+- **Save operations** — write `game.pgn` and mark the owning database unsaved (tab pulse):
+  - **Log this Moment → Save Chess Log for Current Game** (`save_tags_for_current_game`) — commits the active game's cache.
+  - **Save Chess Logs for All Games** (`save_all_dirty_games`) — commits every game in `_dirty_games`.
+  - **Dialog Save** (`save_games(games)`) — commits each game passed in. Called by `ShowTagsDialog._on_save` and `ShowShallowTagsDialog._on_save`.
+
+**Dialog Save/Cancel semantics:**
+
+- `ShowTagsDialog` (Show Logged Moments): **Save** applies every changed row by calling `replace_entries_at_path_for_game` for each, then calls `save_games(affected_games)`. **Cancel** (and the window close button) discards all row edits — nothing was written to the controller cache, so reject is a true no-op.
+- `ShowShallowTagsDialog` (Check Logs): **Save** writes `is_shallow=True` for every shown row, clears stale `is_shallow` flags on entries in `classified_keys` that were classified DEEP this run, then calls `save_games(affected_games)`. **Cancel** discards all pending shallow verdicts. The dialog's Save is the **only** place `is_shallow` is committed; `_on_shallow_thread_ready` now just emits the `shallow_ready` signal with `(shallow_keys, classified_keys, usage)` without writing to the cache.
+- The "touchable set" (`classified_keys`) is the authoritative scope for the shallow dialog's clear-stale-flag loop. Entries with `ignore_shallow=True`, entries the classifier could not parse, and entries with no `why`-note were excluded from the classifier run and are **never** touched by the dialog's Save — clearing them would silently violate the user's intent.
+
+**Dirty-marking**: databases are marked unsaved only from `_save_single_game` (called by `save_tags_for_current_game`, `save_all_dirty_games`, and `save_games`) and from `clear_tags_for_current_game`. The three edit methods do **not** mark the DB unsaved. Between a Log-this-Moment OK and the user running one of the Save commands, there is no visible indicator that Chess Log work is pending — the design deliberately defers the pulse to the explicit save step.
+
+**Commit granularity**: `save_games([game])` calls `store_tags(game, full_cache_for_game)` — the full pending cache for that game, not just the dialog's edits. If the user had a pending Log-this-Moment edit on game A and then edits game A's note in Show Logged Moments and clicks Save, both edits land in `game.pgn` in a single commit. This is intentional: Chess Log edits on the same game cannot be committed selectively.
 
 ### Orphan path_keys
 
@@ -174,7 +193,7 @@ A **path_key** in a game's `CARAChessLog` payload is an **orphan** if its decode
 
 Policy:
 - **Load side**: `ChessLogStorageService.load_resolved_paths(game)` returns only the path_keys that resolve in the parsed chess game; orphans are logged at WARNING and excluded. `load_tags(game)` still returns the full dict byte-for-byte for save-time round-trip preservation.
-- **Save side**: `ChessLogStorageService.store_tags(..., original_paths=...)` refuses to write **new** orphan path_keys (logged at ERROR) but passes through **pre-existing** orphan keys unchanged, so historical data is never silently destroyed. All three production save paths (`save_tags_for_current_game`, both `store_tags` calls in `save_all_dirty_games`) supply `original_paths=self._cached_original_paths.get(gid)`. After a successful save the snapshot is refreshed from disk via `load_tags(game)` — **not** from the `paths_data` dict just written — so a refused orphan stays "new" on the next save and is refused again.
+- **Save side**: `ChessLogStorageService.store_tags(..., original_paths=...)` refuses to write **new** orphan path_keys (logged at ERROR) but passes through **pre-existing** orphan keys unchanged, so historical data is never silently destroyed. All production save paths route through `_save_single_game`, which supplies `original_paths=self._cached_original_paths.get(gid)`. After a successful save the snapshot is refreshed from disk via `load_tags(game)` — **not** from the `paths_data` dict just written — so a refused orphan stays "new" on the next save and is refused again.
 - **Feature code (resolved view)**: `get_tags_for_current_game()`, `get_tags_for_game()`, and `should_confirm_extra_moment()` consume `_resolved_view(raw, game)` — an orphan-filtered copy memoized per `id(game)`. The memoization key is `(write_version, blake2b-16 hash of game.pgn)`. The content hash (not `len(pgn)`) is used so same-length move substitutions (e.g. `Nf3` → `Nc3`) also invalidate the cache. The method always returns a **shallow copy** of the memoized dict so caller mutation cannot corrupt the cache. Background service callers (charts aggregation, narrative prompt, charts controller fallback) call `load_resolved_paths` directly — they read from disk and never see in-session edits, so the one-level disk filter is correct.
 - **Display**: `ShowTagsDialog` and `ShowShallowTagsDialog` detect orphan rows by checking `move_label == path_key` (the fallback when `node_at_path` returns `None` in `_tag_row_helpers.node_info`), skip them silently, and append a single notice at the bottom of the dialog listing the count of unreachable moments.
 

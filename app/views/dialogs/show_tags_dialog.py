@@ -42,9 +42,12 @@ _MINI_BOARD_SCALE = 1.25
 _MINI_BOARD_PLACEHOLDER_PX = 204
 
 
-def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str]]:
-    """(cat, why) tuples sorted for change detection."""
-    return sorted((e.get("cat", ""), e.get("why", "")) for e in entries)
+def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str, bool, bool]]:
+    """(cat, why, ignore_shallow, is_shallow) tuples sorted for change detection."""
+    return sorted(
+        (e.get("cat", ""), e.get("why", ""), bool(e.get("ignore_shallow")), bool(e.get("is_shallow")))
+        for e in entries
+    )
 
 
 class _TagRowWidget(QFrame):
@@ -309,8 +312,10 @@ class ShowTagsDialog(QDialog):
     single-game (Show Tags) use case.  Multi-game usage inserts a game-header
     label between each game's rows.
 
-    OK persists changes via ``controller.replace_entries_at_path_for_game``;
-    Cancel discards all edits.
+    Save persists all changes: calls ``controller.replace_entries_at_path_for_game``
+    for each changed row then ``controller.save_games(affected_games)`` to write
+    game.pgn and mark each affected database unsaved.  Cancel and the window
+    close button discard all edits.
     """
 
     def __init__(
@@ -365,6 +370,9 @@ class ShowTagsDialog(QDialog):
         self._separator_rgb = dc.get("separator_color", [70, 70, 75])
         self._button_width = dc.get("button_width", 100)
         self._button_height = dc.get("button_height", 28)
+        st = self.config.get("ui", {}).get("dialogs", {}).get("show_tags", {})
+        self._btn_save_label = st.get("button_save", "Save")
+        self._btn_cancel_label = st.get("button_cancel", "Cancel")
 
     # ------------------------------------------------------------------
     # Data building
@@ -548,7 +556,7 @@ class ShowTagsDialog(QDialog):
             scroll.setMaximumHeight(max_h)
             root.addWidget(scroll)
 
-        # Button bar: [Export to PDF]  stretch  Cancel | OK
+        # Button bar: [Export to PDF]  stretch  Cancel | Save
         btn_row = QHBoxLayout()
 
         self._export_pdf_btn = QPushButton("Export to PDF")
@@ -560,24 +568,24 @@ class ShowTagsDialog(QDialog):
 
         btn_row.addStretch(1)
 
-        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn = QPushButton(self._btn_cancel_label)
         self._cancel_btn.setAutoDefault(False)
         self._cancel_btn.setFixedSize(self._button_width, self._button_height)
         self._cancel_btn.clicked.connect(self.reject)
 
-        self._ok_btn = QPushButton("OK")
-        self._ok_btn.setDefault(True)
-        self._ok_btn.setAutoDefault(True)
-        self._ok_btn.setFixedSize(self._button_width, self._button_height)
-        self._ok_btn.clicked.connect(self._on_ok)
+        self._save_btn = QPushButton(self._btn_save_label)
+        self._save_btn.setDefault(True)
+        self._save_btn.setAutoDefault(True)
+        self._save_btn.setFixedSize(self._button_width, self._button_height)
+        self._save_btn.clicked.connect(self._on_save)
 
         btn_row.addWidget(self._cancel_btn)
         btn_row.addSpacing(6)
-        btn_row.addWidget(self._ok_btn)
+        btn_row.addWidget(self._save_btn)
         root.addLayout(btn_row)
 
         StyleManager.style_buttons(
-            [self._export_pdf_btn, self._cancel_btn, self._ok_btn],
+            [self._export_pdf_btn, self._cancel_btn, self._save_btn],
             self.config,
             self._bg_rgb,
             self._border_rgb,
@@ -591,7 +599,8 @@ class ShowTagsDialog(QDialog):
     # Button handlers
     # ------------------------------------------------------------------
 
-    def _on_ok(self) -> None:
+    def _on_save(self) -> None:
+        affected_games = set()
         for i, ((path_key, preset, _), row_widget) in enumerate(
             zip(self._rows_data, self._row_widgets)
         ):
@@ -602,6 +611,9 @@ class ShowTagsDialog(QDialog):
                 self._controller.replace_entries_at_path_for_game(
                     game, path_key, preset, new_entries
                 )
+                affected_games.add(game)
+        if affected_games:
+            self._controller.save_games(affected_games)
         self.accept()
 
     def _on_export_pdf(self) -> None:

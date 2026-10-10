@@ -575,7 +575,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         synchronously without starting a thread or calling the AI."""
         ctrl = self._make_controller_with_note(ignore=True)
         received: list = []
-        ctrl.shallow_ready.connect(lambda k, u: received.append(k))
+        ctrl.shallow_ready.connect(lambda k, ck, u: received.append(k))
 
         ctrl.request_flag_shallow_notes()
 
@@ -713,7 +713,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
             ignore=True,
         )
         received: list = []
-        ctrl.shallow_ready.connect(lambda k, u: received.append(k))
+        ctrl.shallow_ready.connect(lambda k, ck, u: received.append(k))
         ctrl.request_flag_shallow_notes()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0], set())
@@ -950,7 +950,7 @@ class TestChessLogShallowThreadSignalShape(unittest.TestCase):
         failed, partial, ready = [], [], []
         thread.shallow_failed.connect(failed.append)
         thread.shallow_partial.connect(partial.append)
-        thread.shallow_ready.connect(lambda k, u: ready.append(k))
+        thread.shallow_ready.connect(lambda k, ck, u: ready.append(k))
         with patch(
             "app.services.chess_log_shallow_service.classify_notes",
             return_value=result,
@@ -1204,6 +1204,66 @@ class TestShallowIterationOrphanExclusion(unittest.TestCase):
                         "resolvable why-note missing from notes list")
         self.assertFalse(any("ghost note" in w for w in why_texts),
                          "orphan why-note must not reach shallow thread")
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThreadReadyNoWrite(unittest.TestCase):
+    """Test 21: _on_shallow_thread_ready emits signal but never writes is_shallow."""
+
+    def test_shallow_thread_ready_does_not_write_is_shallow(self):
+        """_on_shallow_thread_ready passes payload through; replace_entries_at_path_for_game
+        must NOT be called — writing is deferred to the dialog's Save."""
+        game = _make_game(entries_per_path={"0": [
+            ChessLogStorageService.make_entry("CLAMP", "C", "I blundered")
+        ]})
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+
+        mock_cl_ctrl = MagicMock()
+        ctrl._chess_log_controller = mock_cl_ctrl
+
+        received = []
+        ctrl.shallow_ready.connect(lambda k, ck, u: received.append((k, ck, u)))
+
+        shallow_keys = frozenset([(1, "0", "CLAMP")])
+        classified_keys = frozenset([(1, "0", "CLAMP")])
+        usage = None
+        ctrl._on_shallow_thread_ready(shallow_keys, classified_keys, usage)
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], (shallow_keys, classified_keys, usage))
+        mock_cl_ctrl.replace_entries_at_path_for_game.assert_not_called()
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
+    """Test 22: thread emits classified_keys excluding unparsed indices."""
+
+    def test_shallow_thread_ready_payload_includes_classified_keys(self):
+        """3 notes, index 1 in unparsed_indices → classified_keys has keys for
+        notes 0 and 2 only (not note 1)."""
+        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        thread = _make_shallow_thread(notes=notes)
+        result = _shallow_result(
+            shallow_keys=[(1, "path/0", "CLAMP")],
+            unparsed_indices=(1,),
+        )
+        received = []
+        thread.shallow_ready.connect(lambda k, ck, u: received.append((k, ck, u)))
+        with patch(
+            "app.services.chess_log_shallow_service.classify_notes",
+            return_value=result,
+        ):
+            thread.run()
+        self.assertEqual(len(received), 1, "shallow_ready must fire once")
+        _, classified_keys, _ = received[0]
+        # note 1: game_number=2, path_key="path/1" — must be absent (unparsed)
+        self.assertNotIn((2, "path/1", "CLAMP"), classified_keys)
+        # notes 0 and 2 must be present
+        self.assertIn((1, "path/0", "CLAMP"), classified_keys)
+        self.assertIn((3, "path/2", "CLAMP"), classified_keys)
+        self.assertEqual(len(classified_keys), 2)
 
 
 if __name__ == "__main__":

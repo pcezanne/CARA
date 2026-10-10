@@ -233,7 +233,7 @@ class TestPersistence(unittest.TestCase):
     def test_ok_with_no_changes_does_not_write(self):
         paths_data = {"0": [_make_entry("CLAMP", "C")]}
         dlg, ctrl = _make_dialog(paths_data)
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_not_called()
 
     def test_ok_after_edit_persists_changed_row(self):
@@ -242,7 +242,7 @@ class TestPersistence(unittest.TestCase):
         # Change the why text (fields always editable — no edit button needed)
         row = dlg._row_widgets[0]
         row._why_texts["why"].setPlainText("new why")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_called_once()
         call_args = ctrl.replace_entries_at_path_for_game.call_args
         _game, path_key, preset, new_entries = call_args[0]
@@ -258,7 +258,7 @@ class TestPersistence(unittest.TestCase):
         dlg, ctrl = _make_dialog(paths_data)
         # Modify only the second row
         dlg._row_widgets[1]._why_texts["why"].setPlainText("changed!")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 1)
         call_args = ctrl.replace_entries_at_path_for_game.call_args
         self.assertEqual(call_args[0][1], "0.0")
@@ -277,7 +277,7 @@ class TestPersistence(unittest.TestCase):
             i for i, r in enumerate(dlg._rows_data) if r[1] == "CLAMP"
         )
         dlg._row_widgets[clamp_row_idx]._why_texts["why"].setPlainText("new clamp")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         # Only one replace call (for CLAMP)
         self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 1)
         call_args = ctrl.replace_entries_at_path_for_game.call_args
@@ -349,7 +349,7 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         paths_data = {"0": [_make_entry("CLAMP", "", "original note")]}
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._why_texts["why"].setPlainText("updated note")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_called_once()
         _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(len(new_entries), 1)
@@ -361,7 +361,7 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_called_once()
         _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(len(new_entries), 1)
@@ -374,7 +374,7 @@ class TestZeroCategoryRoundtrip(unittest.TestCase):
         dlg, ctrl = _make_dialog(paths_data)
         dlg._row_widgets[0]._checkboxes["C"].setChecked(False)
         dlg._row_widgets[0]._why_texts["why"].setPlainText("")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_called_once()
         _, _, _, new_entries = ctrl.replace_entries_at_path_for_game.call_args[0]
         self.assertEqual(new_entries, [])
@@ -445,7 +445,7 @@ class TestMultiGameDialog(unittest.TestCase):
         dlg, ctrl, game1, game2 = self._make_multi_game_dialog()
         # Edit the second row (game2's row)
         dlg._row_widgets[1]._why_texts["why"].setPlainText("edited g2")
-        dlg._ok_btn.click()
+        dlg._save_btn.click()
         ctrl.replace_entries_at_path_for_game.assert_called_once()
         call_args = ctrl.replace_entries_at_path_for_game.call_args[0]
         # First arg should be game2
@@ -828,6 +828,89 @@ class TestOrphanRowSkipped(unittest.TestCase):
         notice_texts = [lbl.text() for lbl in labels if "could not be located" in lbl.text()]
         self.assertEqual(len(notice_texts), 1, "Expected exactly one orphan notice label")
         self.assertIn("1 tagged moment", notice_texts[0])
+
+
+# ---------------------------------------------------------------------------
+# Save model: plan tests 9-12
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestSaveModelShowTags(unittest.TestCase):
+    """Plan tests 9-12: ShowTagsDialog Save/Cancel model."""
+
+    def _make_two_game_dialog(self):
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        from app.models.database_model import GameData
+        game1 = GameData(game_number=1, pgn=MAINLINE_PGN)
+        game2 = GameData(game_number=2, pgn=SECOND_PGN)
+        paths1 = {"0": [_make_entry("CLAMP", "C", "note1")]}
+        paths2 = {"0": [_make_entry("CLAMP", "L", "note2")]}
+        ctrl = MagicMock()
+        ctrl.get_tags_for_game.side_effect = lambda g: paths1 if g is game1 else paths2
+        ctrl.replace_entries_at_path_for_game = MagicMock()
+        ctrl.save_games = MagicMock()
+        dlg = ShowTagsDialog({}, [game1, game2], ctrl)
+        return dlg, ctrl, game1, game2
+
+    def test_save_persists_edits_to_each_games_pgn(self):
+        """Plan test 9: Save writes both games and calls save_games with both."""
+        dlg, ctrl, game1, game2 = self._make_two_game_dialog()
+        dlg._row_widgets[0]._why_texts["why"].setPlainText("edited note1")
+        dlg._row_widgets[1]._why_texts["why"].setPlainText("edited note2")
+
+        dlg._on_save()
+
+        self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 2)
+        ctrl.save_games.assert_called_once()
+        saved_games = set(ctrl.save_games.call_args[0][0])
+        self.assertIn(game1, saved_games)
+        self.assertIn(game2, saved_games)
+
+    def test_cancel_discards_all_edits(self):
+        """Plan test 10: reject() makes no writes."""
+        dlg, ctrl, _, _ = self._make_two_game_dialog()
+        dlg._row_widgets[0]._why_texts["why"].setPlainText("changed")
+        dlg._row_widgets[1]._why_texts["why"].setPlainText("also changed")
+
+        dlg.reject()
+
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
+        ctrl.save_games.assert_not_called()
+
+    def test_close_button_equivalent_to_cancel(self):
+        """Plan test 11: close() routes to reject, no writes."""
+        dlg, ctrl, _, _ = self._make_two_game_dialog()
+        dlg._row_widgets[0]._why_texts["why"].setPlainText("will be closed")
+
+        dlg.close()
+
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
+        ctrl.save_games.assert_not_called()
+
+    def test_save_only_touches_rows_that_actually_changed(self):
+        """Plan test 12: only changed rows call replace; save_games covers only that game."""
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        from app.models.database_model import GameData
+        game = GameData(game_number=1, pgn=MAINLINE_PGN)
+        paths = {
+            "0": [_make_entry("CLAMP", "C", "row1")],
+            "0.0": [_make_entry("CLAMP", "L", "row2")],
+            "0.0.0": [_make_entry("CLAMP", "M", "row3")],
+        }
+        ctrl = MagicMock()
+        ctrl.get_tags_for_game.return_value = paths
+        ctrl.replace_entries_at_path_for_game = MagicMock()
+        ctrl.save_games = MagicMock()
+        dlg = ShowTagsDialog({}, [game], ctrl)
+
+        # Edit only the second row
+        dlg._row_widgets[1]._why_texts["why"].setPlainText("changed row2")
+        dlg._on_save()
+
+        self.assertEqual(ctrl.replace_entries_at_path_for_game.call_count, 1)
+        ctrl.save_games.assert_called_once()
+        saved_games = set(ctrl.save_games.call_args[0][0])
+        self.assertIn(game, saved_games)
 
 
 if __name__ == "__main__":

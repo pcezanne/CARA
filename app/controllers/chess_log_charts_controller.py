@@ -153,7 +153,7 @@ class ChessLogAggregationWorker(QThread):
 class ChessLogShallowThread(QThread):
     """Classify why-notes as SHALLOW or DEEP off the UI thread."""
 
-    shallow_ready = pyqtSignal(object, object)   # (Set[Tuple[int, str, str]], Optional[TokenUsage])
+    shallow_ready = pyqtSignal(object, object, object)  # (shallow_keys, classified_keys, Optional[TokenUsage])
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
 
@@ -236,7 +236,13 @@ class ChessLogShallowThread(QThread):
                     flagged=n_shallow,
                 )
                 self.shallow_partial.emit(msg)
-            self.shallow_ready.emit(result.shallow_keys, result.usage)
+            unparsed_set = frozenset(result.unparsed_indices)
+            classified_keys = frozenset(
+                (note[1], note[2], note[3])
+                for i, note in enumerate(self._notes)
+                if i not in unparsed_set
+            )
+            self.shallow_ready.emit(result.shallow_keys, classified_keys, result.usage)
         except Exception as exc:
             self.shallow_failed.emit(f"Unexpected error: {exc}")
 
@@ -318,7 +324,7 @@ class ChessLogChartsController(QObject):
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
     narrative_ready = pyqtSignal(str, list, object)  # narrative_text, shallow_flags, Optional[TokenUsage]
     narrative_failed = pyqtSignal(str)
-    shallow_ready = pyqtSignal(object, object)   # (Set[Tuple[int, str, str]], Optional[TokenUsage])
+    shallow_ready = pyqtSignal(object, object, object)  # (shallow_keys, classified_keys, Optional[TokenUsage])
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
@@ -660,7 +666,7 @@ class ChessLogChartsController(QObject):
                                 notes.append((len(notes), game.game_number, path_key, preset, why))
 
         if not notes:
-            self.shallow_ready.emit(set(), None)
+            self.shallow_ready.emit(set(), frozenset(), None)
             return
 
         self._cancel_shallow_thread()
@@ -681,28 +687,9 @@ class ChessLogChartsController(QObject):
         self._shallow_thread = thread
         thread.start()
 
-    def _on_shallow_thread_ready(self, shallow_keys: Set[Tuple[int, str, str]], usage: Optional[TokenUsage]) -> None:
-        """Write is_shallow onto every in-scope entry (full sync), then re-emit."""
-        games = self._resolve_games()
-        for game in games:
-            tags = self.get_tags_for_game(game)
-            for path_key, entries in list(tags.items()):
-                if not entries:
-                    continue
-                by_preset: Dict[str, list] = {}
-                for entry in entries:
-                    by_preset.setdefault(entry.get("preset", ""), []).append(entry)
-                for preset, preset_entries in by_preset.items():
-                    key = (game.game_number, path_key, preset)
-                    flag = key in shallow_keys
-                    updated = [dict(e, is_shallow=flag) if flag else
-                               {k: v for k, v in e.items() if k != "is_shallow"}
-                               for e in preset_entries]
-                    if self._chess_log_controller is not None:
-                        self._chess_log_controller.replace_entries_at_path_for_game(
-                            game, path_key, preset, updated
-                        )
-        self.shallow_ready.emit(shallow_keys, usage)
+    def _on_shallow_thread_ready(self, shallow_keys, classified_keys, usage) -> None:
+        """Pass shallow verdicts to the view; the dialog's Save commits them."""
+        self.shallow_ready.emit(shallow_keys, classified_keys, usage)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
         self.shallow_failed.emit(message)

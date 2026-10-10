@@ -731,6 +731,14 @@
         "why_placeholder": "Optional — why did this happen?",
         "width": 500
       },
+      "show_tags": {
+        "button_save": "Save",
+        "button_cancel": "Cancel"
+      },
+      "shallow": {
+        "button_save": "Save",
+        "button_cancel": "Cancel"
+      },
       "chess_log_settings": {
         "title": "Chess Log Settings",
         "width": 440,

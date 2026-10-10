@@ -592,7 +592,7 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_token_label.setText("")
         self._controller.request_flag_shallow_notes()
 
-    def _on_shallow_ready(self, shallow_keys, usage) -> None:
+    def _on_shallow_ready(self, shallow_keys, classified_keys, usage) -> None:
         self._shallow_spinner.stop()
         self._shallow_status_label.setVisible(False)
         self._shallow_token_label.setText(self._format_token_usage(usage))
@@ -619,6 +619,7 @@ class DetailChessLogChartsView(QWidget):
             games=games,
             controller=chess_log_ctrl,
             shallow_keys=shallow_keys,
+            classified_keys=classified_keys,
             parent=self,
         )
         dlg.exec()

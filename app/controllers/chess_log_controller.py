@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 from io import StringIO
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import chess.pgn
 
@@ -138,7 +138,6 @@ class ChessLogController:
         else:
             self._cached_paths_data[path_key] = tagged
         self._cache_version_by_game[id(game)] = self._cache_version_by_game.get(id(game), 0) + 1
-        self._mark_database_unsaved(game)
         return True
 
     def save_tags_for_current_game(self) -> bool:
@@ -221,7 +220,6 @@ class ChessLogController:
         if self._cached_game is not None:
             gid = id(self._cached_game)
             self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
-            self._mark_database_unsaved(self._cached_game)
 
     def get_tags_for_game(self, game) -> Dict[str, List[Dict[str, Any]]]:
         """Return moments for any game (orphan-filtered copy).
@@ -285,7 +283,25 @@ class ChessLogController:
 
         self._dirty_games[gid] = game
         self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
-        self._mark_database_unsaved(game)
+
+    def save_games(self, games: Iterable) -> Tuple[int, int]:
+        """Persist the given games' Chess Log data and mark each DB unsaved.
+
+        Writes the full in-memory cache for each game — including any pending
+        Log-this-Moment edits on the same game — then marks its database unsaved.
+        Commit granularity is the game, not the individual edit: all pending
+        changes for a game land in a single store_tags call.
+
+        Returns:
+            (n_saved, n_failed)
+        """
+        saved = failed = 0
+        for game in games:
+            if self._save_single_game(game):
+                saved += 1
+            else:
+                failed += 1
+        return saved, failed
 
     def save_all_dirty_games(self) -> Tuple[int, int]:
         """Persist every dirty game via ChessLogStorageService.store_tags.
@@ -306,41 +322,44 @@ class ChessLogController:
         current_game = self._game_controller.get_game_model().active_game
         if current_game is not None and id(current_game) not in self._dirty_games:
             if self.has_unsaved_changes():
-                cur_gid = id(current_game)
-                ok = ChessLogStorageService.store_tags(
-                    current_game, self._cached_paths_data, self.config,
-                    nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
-                    original_paths=self._cached_original_paths.get(cur_gid),
-                )
-                if ok:
+                if self._save_single_game(current_game):
                     saved += 1
-                    self._cached_original_paths[cur_gid] = ChessLogStorageService.load_tags(current_game)
-                    self._cache_version_by_game[cur_gid] = self._cache_version_by_game.get(cur_gid, 0) + 1
-                    self._mark_database_unsaved(current_game)
                     self._game_controller.get_game_model().metadata_updated.emit()
                 else:
                     failed += 1
 
         for gid, game in list(self._dirty_games.items()):
-            data = (
-                self._cached_paths_data
-                if gid == self._cached_game_id
-                else self._multi_cache.get(gid, {})
-            )
-            ok = ChessLogStorageService.store_tags(
-                game, data, self.config,
-                nag_shown=self._nag_shown_by_game.get(gid, False),
-                original_paths=self._cached_original_paths.get(gid),
-            )
-            if ok:
+            if self._save_single_game(game):
                 saved += 1
-                self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
-                self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
-                self._mark_database_unsaved(game)
-                self._dirty_games.pop(gid, None)
             else:
                 failed += 1
         return saved, failed
+
+    def _save_single_game(self, game) -> bool:
+        """Persist one game's Chess Log cache and mark its DB unsaved.
+
+        Resolves which store owns the game (single-game cache if it is the active
+        game, multi-cache otherwise), calls store_tags, refreshes the on-disk
+        snapshot, bumps the version counter, marks the DB unsaved, and removes
+        the game from _dirty_games.  Returns True on success.
+        """
+        gid = id(game)
+        data = (
+            self._cached_paths_data
+            if gid == self._cached_game_id
+            else self._multi_cache.get(gid, {})
+        )
+        ok = ChessLogStorageService.store_tags(
+            game, data, self.config,
+            nag_shown=self._nag_shown_by_game.get(gid, False),
+            original_paths=self._cached_original_paths.get(gid),
+        )
+        if ok:
+            self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)
+            self._cache_version_by_game[gid] = self._cache_version_by_game.get(gid, 0) + 1
+            self._mark_database_unsaved(game)
+            self._dirty_games.pop(gid, None)
+        return ok
 
     def has_dirty_games(self) -> bool:
         """Return True if any multi-game edits are pending a save."""

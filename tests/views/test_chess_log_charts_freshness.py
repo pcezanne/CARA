@@ -49,34 +49,34 @@ class TestShalowKeysFreshness(unittest.TestCase):
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_shallow_ready_caches_keys(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
         self.assertEqual(self._view._last_shallow_keys, _SHALLOW_KEYS)
 
     def test_on_shallow_ready_empty_set_stores_none(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, None)  # set first
-        self._view._on_shallow_ready(set(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)  # set first
+        self._view._on_shallow_ready(set(), frozenset(), None)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_source_changed_clears_cache(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
         self._view._on_source_changed(1)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_player_changed_clears_cache(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
         # _on_player_changed with index=-1 returns early without controller call
         # but still clears cache
         self._view._on_player_changed(-1)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_cache_survives_narrative_ready(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
         # Narrative update should not touch shallow cache
         self._view._on_narrative_ready("some narrative", [], None)
         self.assertEqual(self._view._last_shallow_keys, _SHALLOW_KEYS)
 
     def test_cache_type_is_frozenset(self):
-        self._view._on_shallow_ready({(1, "k", "CLAMP")}, None)
+        self._view._on_shallow_ready({(1, "k", "CLAMP")}, frozenset(), None)
         self.assertIsInstance(self._view._last_shallow_keys, frozenset)
 
 

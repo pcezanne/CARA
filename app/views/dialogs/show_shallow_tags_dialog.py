@@ -1,7 +1,11 @@
 """Dialog that shows only the shallow-noted rows from the current corpus.
 
-Live-edit: every change is immediately persisted to the multi-game cache via
-``controller.replace_entries_at_path_for_game``.  No Cancel/OK — just Close.
+Save/Cancel model: edits are buffered in the row widgets until the user clicks
+Save.  Save writes ``is_shallow=True`` on every shown row, clears stale
+``is_shallow`` on entries classified-DEEP this run (scoped to ``classified_keys``
+only — entries the classifier didn't touch this run are never modified), then
+calls ``controller.save_games(affected_games)`` to write game.pgn and mark each
+affected database unsaved.  Cancel and the window close button discard all edits.
 
 The Ignore checkbox (via ``_TagRowWidget(show_ignore_checkbox=True)``) lets
 the user dismiss rows from future ``flag_shallow_notes()`` runs.  The row
@@ -11,7 +15,7 @@ stays visible for the rest of this session; it disappears on the next open.
 from __future__ import annotations
 
 from io import StringIO
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, FrozenSet, List, Optional, Set, Tuple
 
 import chess.pgn
 
@@ -31,19 +35,24 @@ from PyQt6.QtWidgets import (
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
-from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER
+from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER, _normalize_entries
 from app.views.style.style_manager import StyleManager
 
 
 class ShowShallowTagsDialog(QDialog):
-    """Live-edit dialog listing only the shallow-flagged rows.
+    """Save/Cancel dialog listing only the shallow-flagged rows.
 
     Args:
         config: application config dict.
         games: list of GameData objects in scope (same list ``flag_shallow_notes`` used).
         controller: ChessLogController instance (not ChessLogChartsController).
-        shallow_keys: set of (game_number, path_key, preset) tuples returned by
-            ``flag_shallow_notes()``.
+        shallow_keys: set of (game_number, path_key, preset) tuples classified SHALLOW
+            this run.  Determines which rows are shown.
+        classified_keys: frozenset of (game_number, path_key, preset) tuples that were
+            sent to the classifier AND received a parsed verdict (SHALLOW or DEEP) this
+            run.  ``shallow_keys ⊆ classified_keys``.  Only entries in this set may be
+            modified by Save; entries outside it (unparsed, ignored, empty-why) are never
+            touched.
     """
 
     def __init__(
@@ -52,12 +61,15 @@ class ShowShallowTagsDialog(QDialog):
         games: List,
         controller,
         shallow_keys: Set[Tuple[int, str, str]],
+        classified_keys: FrozenSet[Tuple[int, str, str]] = frozenset(),
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._config = config
         self._controller = controller
         self._shallow_keys = shallow_keys
+        self._classified_keys = classified_keys
+        self._games_in_scope = list(games)
 
         self._load_config()
 
@@ -99,6 +111,14 @@ class ShowShallowTagsDialog(QDialog):
                 self._row_games.append(game)
                 self._row_pgn_games.append(pgn_game)
 
+        # Snapshot of the original entries for shown rows, keyed by
+        # (game.game_number, path_key, preset).  Used in _on_save to skip
+        # rows that haven't changed.
+        self._original_snapshot: Dict[Tuple[int, str, str], List[Dict[str, Any]]] = {
+            (self._row_games[i].game_number, pk, pr): list(entries)
+            for i, (pk, pr, entries) in enumerate(self._rows)
+        }
+
         self._row_widgets: List[_TagRowWidget] = []
         self._rows_layout = None
         self._setup_ui()
@@ -116,6 +136,9 @@ class ShowShallowTagsDialog(QDialog):
         self._separator_rgb = dc.get("separator_color", [70, 70, 75])
         self._button_width = dc.get("button_width", 100)
         self._button_height = dc.get("button_height", 28)
+        sh = self._config.get("ui", {}).get("dialogs", {}).get("shallow", {})
+        self._btn_save_label = sh.get("button_save", "Save")
+        self._btn_cancel_label = sh.get("button_cancel", "Cancel")
 
     @staticmethod
     def _parse_pgn(game_data):
@@ -223,10 +246,6 @@ class ShowShallowTagsDialog(QDialog):
                     best_move=best_move,
                     is_flipped=mover_is_black,
                 )
-                # Live edit: persist immediately on any change
-                row_widget.edited.connect(
-                    self._make_live_edit_handler(game, path_key, preset, row_widget)
-                )
                 rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)
                 row_count += 1
@@ -273,16 +292,24 @@ class ShowShallowTagsDialog(QDialog):
         btn_row.addWidget(self._export_pdf_btn)
 
         btn_row.addStretch(1)
-        self._close_btn = QPushButton("Close")
-        self._close_btn.setDefault(True)
-        self._close_btn.setAutoDefault(True)
-        self._close_btn.setFixedSize(self._button_width, self._button_height)
-        self._close_btn.clicked.connect(self.accept)
-        btn_row.addWidget(self._close_btn)
+        self._cancel_btn = QPushButton(self._btn_cancel_label)
+        self._cancel_btn.setAutoDefault(False)
+        self._cancel_btn.setFixedSize(self._button_width, self._button_height)
+        self._cancel_btn.clicked.connect(self.reject)
+
+        self._save_btn = QPushButton(self._btn_save_label)
+        self._save_btn.setDefault(True)
+        self._save_btn.setAutoDefault(True)
+        self._save_btn.setFixedSize(self._button_width, self._button_height)
+        self._save_btn.clicked.connect(self._on_save)
+
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addSpacing(6)
+        btn_row.addWidget(self._save_btn)
         root.addLayout(btn_row)
 
         StyleManager.style_buttons(
-            [self._export_pdf_btn, self._close_btn],
+            [self._export_pdf_btn, self._cancel_btn, self._save_btn],
             self._config,
             self._bg_rgb,
             self._border_rgb,
@@ -337,9 +364,51 @@ class ShowShallowTagsDialog(QDialog):
             Path(path), tag_groups, is_shallow_only=True
         )
 
-    def _make_live_edit_handler(self, game, path_key: str, preset: str, row: _TagRowWidget):
-        def _handler():
-            self._controller.replace_entries_at_path_for_game(
-                game, path_key, preset, row.get_current_entries()
+    def _on_save(self) -> None:
+        affected: set = set()
+
+        # a) Shown rows: write user edits + stamp is_shallow=True
+        for i, (path_key, preset, _) in enumerate(self._rows):
+            row_widget = self._row_widgets[i]
+            game = self._row_games[i]
+            user_entries = row_widget.get_current_entries()
+            new_entries = [dict(e, is_shallow=True) for e in user_entries]
+            original = self._original_snapshot.get(
+                (game.game_number, path_key, preset), []
             )
-        return _handler
+            orig_normalized = _normalize_entries([dict(e, is_shallow=True) for e in original])
+            if (_normalize_entries(new_entries) != orig_normalized
+                    or any(not e.get("is_shallow") for e in original)):
+                self._controller.replace_entries_at_path_for_game(
+                    game, path_key, preset, new_entries
+                )
+                affected.add(game)
+
+        # b) Classified-but-not-shown entries (parsed DEEP this run):
+        #    clear stale is_shallow=True.  Scoped to _classified_keys ONLY —
+        #    never touches unparsed, ignored, or empty-why entries.
+        for game in self._games_in_scope:
+            tags = self._controller.get_tags_for_game(game)
+            for path_key, entries in tags.items():
+                by_preset: Dict[str, List[Dict[str, Any]]] = {}
+                for e in entries:
+                    by_preset.setdefault(e.get("preset", ""), []).append(e)
+                for preset, preset_entries in by_preset.items():
+                    key = (game.game_number, path_key, preset)
+                    if key not in self._classified_keys:
+                        continue
+                    if key in self._shallow_keys:
+                        continue
+                    if any(e.get("is_shallow") for e in preset_entries):
+                        cleared = [
+                            {k: v for k, v in e.items() if k != "is_shallow"}
+                            for e in preset_entries
+                        ]
+                        self._controller.replace_entries_at_path_for_game(
+                            game, path_key, preset, cleared
+                        )
+                        affected.add(game)
+
+        if affected:
+            self._controller.save_games(affected)
+        self.accept()

@@ -11,16 +11,18 @@ Below is a summary of the moments I have tagged across my recent games in CARA's
 (Use the calendar label shown for each time period, e.g. "June-July 2025" — never "Bin N" or "period 3".)
 
 ### CCT
-Overall average: Checks 33%, Captures 50%, Threats 17%
-October 2024 (1 moments): Checks 100%
-Oct 2024-Feb 2025 (2 moments): Captures 100%
-February 2025 (1 moments): Threats 100%
+Overall average: Checks 38%, Captures 38%, Threats 25%
+October 2024 (2 moments): Checks 50%, Captures 50%
+November 2024 (2 moments): Checks 50%, Threats 50%
+February 2025 (2 moments): Captures 50%, Threats 50%
 April 2025 (2 moments): Checks 50%, Captures 50%
 
 ## My own notes on individual moments (why-notes)
 
 - [CCT/Checks] Didn't see the back rank check.
 - [CCT/Captures] My knight on e5 was hanging.
+- [CCT/Threats] Missed the fork threat on f7.
+- [CCT/Checks] Allowed a discovered check.
 - [CCT/Captures] Left a free piece on b4.
 - [CCT/Threats] Didn't see the queen-rook fork threat.
 - [CCT/Checks] Missed perpetual check resource.

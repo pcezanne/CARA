@@ -656,5 +656,80 @@ class TestNarrativeSanitizationOnScreen(unittest.TestCase):
         self.assertIn("King exposed", calls[0], "fully-populated rows should be preserved")
 
 
+# ---------------------------------------------------------------------------
+# Test 19: PDF export path excludes orphan entries
+# ---------------------------------------------------------------------------
+# These imports are unconditional — ChessLogController and friends are pure
+# Python and do not require a Qt application to instantiate.
+
+from app.controllers.chess_log_controller import ChessLogController
+from app.models.database_model import GameData as _GameData
+from app.services.chess_log_storage_service import ChessLogStorageService as _CLS
+
+
+def _make_ctrl_for_pdf_test(game) -> ChessLogController:
+    """Return a minimal ChessLogController with *game* loaded in the multi-cache
+    path (NOT as the active game), mimicking what the view's PDF export sees."""
+    from unittest.mock import MagicMock
+    gm = MagicMock()
+    gm.active_game = None          # game is inactive — forces multi-cache path
+    gm.get_active_path.return_value = ()
+    gm.active_game_changed = MagicMock()
+    gm.active_game_changed.connect = MagicMock()
+    gm.metadata_updated = MagicMock()
+    gm.metadata_updated.emit = MagicMock()
+    gc = MagicMock()
+    gc.get_game_model.return_value = gm
+    return ChessLogController({}, gc)
+
+
+class TestPdfExportOrphanExclusion(unittest.TestCase):
+    """Test 19: get_tags_for_game (the call the PDF export loop makes) must
+    exclude orphan path_keys so only resolvable rows reach the snapshot list."""
+
+    def test_pdf_export_path_excludes_orphan_entries(self):
+        """PDF export iterates chess_log_ctrl.get_tags_for_game(game).
+        With one resolvable and one orphan entry, only the resolvable path_key
+        must appear in the returned dict, so exactly one snapshot row is built."""
+        _PGN = (
+            '[Event "Test"]\n[Site "?"]\n[Date "2025.06.01"]\n'
+            '[Round "?"]\n[White "Alice"]\n[Black "Bob"]\n[Result "*"]\n\n'
+            '1. e4 e5 2. Nf3 *\n'
+        )
+        game = _GameData(game_number=1, pgn=_PGN, white="Alice", black="Bob", date="2025.06.01")
+        _CLS.store_tags(game, {
+            "0":     [_CLS.make_entry("CLAMP", "C", "real note")],
+            "99999": [_CLS.make_entry("CLAMP", "M", "ghost note")],   # orphan
+        })
+
+        ctrl = _make_ctrl_for_pdf_test(game)
+
+        # Call the exact method the view's PDF export uses (inactive game path).
+        tags = ctrl.get_tags_for_game(game)
+
+        self.assertIn("0", tags,      "resolvable path_key must appear in result")
+        self.assertNotIn("99999", tags, "orphan path_key must be excluded")
+
+        # Simulate the shallow_rows loop from _export_pdf_report (lines 831-851):
+        # only entries whose key is in _last_shallow_keys contribute a row.
+        _last_shallow_keys = {
+            (game.game_number, "0",     "CLAMP"),
+            (game.game_number, "99999", "CLAMP"),
+        }
+        rows_built = 0
+        for path_key, all_entries in tags.items():
+            if not all_entries:
+                continue
+            by_preset: dict = {}
+            for e in all_entries:
+                by_preset.setdefault(e.get("preset", ""), []).append(e)
+            for preset in by_preset:
+                k = (game.game_number, path_key, preset)
+                if k in _last_shallow_keys:
+                    rows_built += 1
+
+        self.assertEqual(rows_built, 1, "exactly one snapshot row must be built; orphan must not add a row")
+
+
 if __name__ == "__main__":
     unittest.main()

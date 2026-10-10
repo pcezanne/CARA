@@ -29,8 +29,12 @@ _BASE_PGN = (
     '[White "{white}"]\n'
     '[Black "{black}"]\n'
     '[Result "*"]\n'
-    '\n1. e4 e5 2. Nf3 Nc6 *\n'
+    '\n1. e4 e5 2. Nf3 Nc6 3. Bb5 *\n'
 )
+
+# Five path_keys that all resolve in _BASE_PGN (used by _game_with_cats helpers).
+# Avoids orphan warnings from str(i) integer keys that have no matching move.
+_DEEP_KEYS = ["0", "0.0", "0.0.0", "0.0.0.0", "0.0.0.0.0"]
 
 
 def _make_game(
@@ -227,7 +231,7 @@ class TestMixedPresetHistory(unittest.TestCase):
 class TestCanonicalCategoryOrder(unittest.TestCase):
 
     def _game_with_cats(self, preset: str, cats: list[str], make_entry_fn) -> GameData:
-        paths = {str(i): [make_entry_fn(c)] for i, c in enumerate(cats)}
+        paths = {_DEEP_KEYS[i]: [make_entry_fn(c)] for i, c in enumerate(cats)}
         return _make_game(white="Alice", black="Bob", date="2025.06.01",
                           entries_per_path=paths)
 
@@ -273,7 +277,7 @@ class TestCanonicalCategoryAlwaysPresent(unittest.TestCase):
     """CLAMP and CCT seed all canonical categories even if absent from data."""
 
     def _game_with_cats(self, preset: str, cats: list[str], make_entry_fn) -> GameData:
-        paths = {str(i): [make_entry_fn(c)] for i, c in enumerate(cats)}
+        paths = {_DEEP_KEYS[i]: [make_entry_fn(c)] for i, c in enumerate(cats)}
         return _make_game(white="Alice", black="Bob", date="2025.06.01",
                           entries_per_path=paths)
 

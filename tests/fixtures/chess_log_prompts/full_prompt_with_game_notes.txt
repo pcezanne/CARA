@@ -23,13 +23,15 @@ Overall average: Captures 50%, Threats 50%
 January 2025 (1 moments): Threats 100%
 January 2025 (1 moments): Captures 100%
 ### CLAMP
-Overall average: C 50%, L 50%
+Overall average: C 33%, L 33%, A 33%
 October 2024 (1 moments): C 100%
+October 2024 (1 moments): A 100%
 April 2025 (1 moments): L 100%
 
 ## My own notes on individual moments (why-notes)
 
 - [CLAMP/C] Missed a check that forked king and rook.
+- [CLAMP/A] Alignment on the d-file slipped by me.
 - [CCT/Threats] Missed a queen fork threat.
 - [CCT/Captures] Free pawn grab I walked past.
 - [CLAMP/L] Left my rook on a semi-open file.

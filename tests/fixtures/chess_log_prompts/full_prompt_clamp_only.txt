@@ -13,16 +13,18 @@ Below is a summary of the moments I have tagged across my recent games in CARA's
 (Use the calendar label shown for each time period, e.g. "June-July 2025" — never "Bin N" or "period 3".)
 
 ### CLAMP
-Overall average: C 33%, L 33%, M 17%, P 17%
-October 2024 (1 moments): C 100%
-Oct 2024-Feb 2025 (2 moments): L 50%, M 50%
-February 2025 (1 moments): L 100%
+Overall average: C 38%, L 25%, A 12%, M 12%, P 12%
+October 2024 (2 moments): C 50%, L 50%
+November 2024 (2 moments): C 50%, A 50%
+February 2025 (2 moments): L 50%, M 50%
 April 2025 (2 moments): C 50%, P 50%
 
 ## My own notes on individual moments (why-notes)
 
 - [CLAMP/C] I forgot to check if the queen could come in.
 - [CLAMP/L] My bishop on d3 was undefended.
+- [CLAMP/A] There was a pin I completely missed.
+- [CLAMP/C] Missed a back-rank check threat.
 - [CLAMP/M] I let my knight get trapped in the corner.
 - [CLAMP/L] Left my rook on an open file unguarded.
 - [CLAMP/P] Didn't advance my passed pawn quickly enough.

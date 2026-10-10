@@ -68,7 +68,7 @@ def _make_game(
         f'[White "{white}"]\n'
         f'[Black "{black}"]\n'
         f'[Result "*"]\n'
-        f'\n1. e4 e5 2. Nf3 *\n'
+        f'\n1. e4 ( 1. d4 ) ( 1. c4 ) e5 2. Nf3 *\n'
     )
     game = GameData(game_number=game_number, pgn=pgn, white=white, black=black, date=date)
     if entries_per_path:

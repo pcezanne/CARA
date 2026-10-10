@@ -3,6 +3,7 @@
 import json
 import requests
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Any, Optional, List, Tuple, Callable
@@ -347,8 +348,9 @@ class AIService:
                         json.dumps(debug_headers, indent=2) + "\nPayload: " + 
                         json.dumps(debug_payload, indent=2))
         self._debug_console(debug_message, "SEND")
-        
+        _endpoint_label = "openai" if chat_url is None else "custom"
         try:
+            _t0 = time.monotonic()
             response = requests.post(
                 url,
                 headers=headers,
@@ -356,6 +358,11 @@ class AIService:
                 timeout=timeout_seconds,
             )
         except requests.exceptions.Timeout:
+            _elapsed = time.monotonic() - _t0
+            LoggingService.get_instance().error(
+                f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
+                f"elapsed={_elapsed:.1f}s, endpoint={_endpoint_label}"
+            )
             return AIResult(
                 success=False, text="",
                 error=f"Request timed out after {timeout_seconds}s ({url})",
@@ -415,13 +422,26 @@ class AIService:
                 self._debug_console(debug_message_retry, "SEND")
                 
                 # Retry request
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    json=payload_retry,
-                    timeout=timeout_seconds
-                )
-                
+                try:
+                    _t0_retry = time.monotonic()
+                    response = requests.post(
+                        url,
+                        headers=headers,
+                        json=payload_retry,
+                        timeout=timeout_seconds
+                    )
+                except requests.exceptions.Timeout:
+                    _elapsed = time.monotonic() - _t0_retry
+                    LoggingService.get_instance().error(
+                        f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
+                        f"elapsed={_elapsed:.1f}s, endpoint={_endpoint_label}-retry"
+                    )
+                    return AIResult(
+                        success=False, text="",
+                        error=f"Request timed out after {timeout_seconds}s ({url})",
+                        usage=None, model=model,
+                    )
+
                 # Debug retry response
                 try:
                     response_data_retry = response.json() if response.content else {}
@@ -431,14 +451,14 @@ class AIService:
                             msg = choice.get("message", {})
                             if "content" in msg and len(msg["content"]) > 200:
                                 msg["content"] = msg["content"][:200] + "... (truncated)"
-                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + "\nResponse: " + 
+                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + "\nResponse: " +
                                           json.dumps(debug_response_retry, indent=2))
                     self._debug_console(debug_message_retry, "RECV")
                 except Exception:
-                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + 
+                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) +
                                           "\nResponse: (non-JSON or error)")
                     self._debug_console(debug_message_retry, "RECV")
-                
+
                 # If retry also failed, return the error
                 if response.status_code != 200:
                     return AIResult(
@@ -462,21 +482,34 @@ class AIService:
                 payload_retry = payload.copy()
                 if "temperature" in payload_retry:
                     del payload_retry["temperature"]
-                
+
                 # Debug retry
                 debug_payload_retry = payload_retry.copy()
                 debug_message_retry = ("POST (RETRY) " + str(url) + "\nPayload: " +
                                       json.dumps(debug_payload_retry, indent=2))
                 self._debug_console(debug_message_retry, "SEND")
-                
+
                 # Retry request
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    json=payload_retry,
-                    timeout=timeout_seconds
-                )
-                
+                try:
+                    _t0_retry2 = time.monotonic()
+                    response = requests.post(
+                        url,
+                        headers=headers,
+                        json=payload_retry,
+                        timeout=timeout_seconds
+                    )
+                except requests.exceptions.Timeout:
+                    _elapsed = time.monotonic() - _t0_retry2
+                    LoggingService.get_instance().error(
+                        f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
+                        f"elapsed={_elapsed:.1f}s, endpoint={_endpoint_label}-retry"
+                    )
+                    return AIResult(
+                        success=False, text="",
+                        error=f"Request timed out after {timeout_seconds}s ({url})",
+                        usage=None, model=model,
+                    )
+
                 # Debug retry response
                 try:
                     response_data_retry = response.json() if response.content else {}
@@ -486,14 +519,14 @@ class AIService:
                             msg = choice.get("message", {})
                             if "content" in msg and len(msg["content"]) > 200:
                                 msg["content"] = msg["content"][:200] + "... (truncated)"
-                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + "\nResponse: " + 
+                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + "\nResponse: " +
                                           json.dumps(debug_response_retry, indent=2))
                     self._debug_console(debug_message_retry, "RECV")
                 except Exception:
-                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) + 
+                    debug_message_retry = ("Status (RETRY): " + str(response.status_code) +
                                           "\nResponse: (non-JSON or error)")
                     self._debug_console(debug_message_retry, "RECV")
-                
+
                 # If retry also failed, return the error
                 if response.status_code != 200:
                     return AIResult(
@@ -665,14 +698,27 @@ class AIService:
                         json.dumps(debug_headers, indent=2) + "\nPayload: " + 
                         json.dumps(debug_payload, indent=2))
         self._debug_console(debug_message, "SEND")
-        
-        response = requests.post(
-            self.ANTHROPIC_MESSAGES_URL,
-            headers=headers,
-            json=payload,
-            timeout=timeout_seconds
-        )
-        
+
+        try:
+            _t0_anth = time.monotonic()
+            response = requests.post(
+                self.ANTHROPIC_MESSAGES_URL,
+                headers=headers,
+                json=payload,
+                timeout=timeout_seconds
+            )
+        except requests.exceptions.Timeout:
+            _elapsed = time.monotonic() - _t0_anth
+            LoggingService.get_instance().error(
+                f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
+                f"elapsed={_elapsed:.1f}s, endpoint=anthropic"
+            )
+            return AIResult(
+                success=False, text="",
+                error=f"Request timed out after {timeout_seconds}s",
+                usage=None, model=model,
+            )
+
         # Debug inbound: log response
         try:
             response_data = response.json() if response.content else {}
@@ -721,12 +767,25 @@ class AIService:
                 self._debug_console(
                     "POST (RETRY) " + str(self.ANTHROPIC_MESSAGES_URL) + "\nPayload: " +
                     json.dumps(payload_retry, indent=2), "SEND")
-                response = requests.post(
-                    self.ANTHROPIC_MESSAGES_URL,
-                    headers=headers,
-                    json=payload_retry,
-                    timeout=timeout_seconds,
-                )
+                try:
+                    _t0_anth_retry = time.monotonic()
+                    response = requests.post(
+                        self.ANTHROPIC_MESSAGES_URL,
+                        headers=headers,
+                        json=payload_retry,
+                        timeout=timeout_seconds,
+                    )
+                except requests.exceptions.Timeout:
+                    _elapsed = time.monotonic() - _t0_anth_retry
+                    LoggingService.get_instance().error(
+                        f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
+                        f"elapsed={_elapsed:.1f}s, endpoint=anthropic-retry"
+                    )
+                    return AIResult(
+                        success=False, text="",
+                        error=f"Request timed out after {timeout_seconds}s",
+                        usage=None, model=model,
+                    )
                 try:
                     response_data_retry = response.json() if response.content else {}
                     debug_response_retry = response_data_retry.copy()

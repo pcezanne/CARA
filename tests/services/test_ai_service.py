@@ -443,5 +443,143 @@ class TestDisableThinkingFor(unittest.TestCase):
         self.assertIsNone(AIService.disable_thinking_for(None))
 
 
+def _make_openai_400(message: str) -> MagicMock:
+    mock = MagicMock()
+    mock.status_code = 400
+    mock.content = b"x"
+    mock.json.return_value = {"error": {"message": message, "type": "invalid_request_error"}}
+    return mock
+
+
+def _make_openai_200(text: str = "ok") -> MagicMock:
+    mock = MagicMock()
+    mock.status_code = 200
+    mock.content = b"x"
+    mock.json.return_value = {
+        "choices": [{"message": {"role": "assistant", "content": text}}],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "model": "gpt-4o",
+    }
+    return mock
+
+
+class TestTimeoutLogging(unittest.TestCase):
+    """Timeout branches log at ERROR with model, configured timeout, elapsed, and endpoint."""
+
+    def _service(self) -> AIService:
+        return AIService()
+
+    def _patch_logging(self):
+        mock_logger = MagicMock()
+        patcher = patch("app.services.ai_service.LoggingService.get_instance",
+                        return_value=mock_logger)
+        return patcher, mock_logger
+
+    def test_openai_timeout_logs_error(self):
+        """Initial OpenAI request timeout → ERROR log with model, timeout=<n>s, elapsed=, endpoint=openai."""
+        svc = self._service()
+        patcher, mock_logger = self._patch_logging()
+        with patcher:
+            with patch("requests.post", side_effect=__import__("requests").exceptions.Timeout):
+                result = svc._send_openai_message(
+                    model="gpt-4o",
+                    api_key="sk-test",
+                    messages=[{"role": "user", "content": "hi"}],
+                    timeout_seconds=5,
+                )
+        self.assertFalse(result.success)
+        self.assertIn("timed out", result.error)
+        mock_logger.error.assert_called_once()
+        msg = mock_logger.error.call_args[0][0]
+        self.assertIn("gpt-4o", msg)
+        self.assertIn("timeout=5s", msg)
+        self.assertIn("elapsed=", msg)
+        self.assertIn("endpoint=openai", msg)
+
+    def test_anthropic_timeout_logs_error_and_returns_structured_error(self):
+        """Initial Anthropic timeout → ERROR log; AIResult.success=False, error contains 'timed out'."""
+        svc = self._service()
+        patcher, mock_logger = self._patch_logging()
+        with patcher:
+            with patch("requests.post", side_effect=__import__("requests").exceptions.Timeout):
+                result = svc._send_anthropic_message(
+                    model="claude-sonnet-4-6",
+                    api_key="ant-test",
+                    messages=[{"role": "user", "content": "hi"}],
+                    timeout_seconds=10,
+                )
+        self.assertFalse(result.success)
+        self.assertIn("timed out", result.error)
+        mock_logger.error.assert_called_once()
+        msg = mock_logger.error.call_args[0][0]
+        self.assertIn("claude-sonnet-4-6", msg)
+        self.assertIn("timeout=10s", msg)
+        self.assertIn("elapsed=", msg)
+        self.assertIn("endpoint=anthropic", msg)
+
+    def test_custom_endpoint_timeout_logs_error(self):
+        """Custom endpoint timeout → ERROR log with endpoint=custom."""
+        svc = self._service()
+        patcher, mock_logger = self._patch_logging()
+        with patcher:
+            with patch("requests.post", side_effect=__import__("requests").exceptions.Timeout):
+                result = svc._send_openai_message(
+                    model="llama3",
+                    api_key="",
+                    messages=[{"role": "user", "content": "hi"}],
+                    chat_url="http://localhost:11434/v1/chat/completions",
+                    timeout_seconds=3,
+                )
+        self.assertFalse(result.success)
+        mock_logger.error.assert_called_once()
+        msg = mock_logger.error.call_args[0][0]
+        self.assertIn("endpoint=custom", msg)
+
+    def test_openai_retry_timeout_logs_error_with_retry_label(self):
+        """OpenAI retry (temperature error → retry) times out → ERROR with endpoint=<label>-retry."""
+        import requests as req
+        svc = self._service()
+        patcher, mock_logger = self._patch_logging()
+        temp_error = "Unsupported value: 'temperature' does not support 0.7"
+        with patcher:
+            with patch("requests.post", side_effect=[
+                _make_openai_400(temp_error),
+                req.exceptions.Timeout(),
+            ]):
+                result = svc._send_openai_message(
+                    model="gpt-4o",
+                    api_key="sk-test",
+                    messages=[{"role": "user", "content": "hi"}],
+                    timeout_seconds=5,
+                )
+        self.assertFalse(result.success)
+        mock_logger.error.assert_called_once()
+        msg = mock_logger.error.call_args[0][0]
+        self.assertIn("endpoint=openai-retry", msg)
+
+    def test_anthropic_retry_timeout_logs_error_with_retry_label(self):
+        """Anthropic retry (thinking.type.disabled rejected → retry) times out → endpoint=anthropic-retry."""
+        import requests as req
+        svc = self._service()
+        patcher, mock_logger = self._patch_logging()
+        thinking_err = "thinking.type.disabled is not supported for this model"
+        with patcher:
+            with patch("requests.post", side_effect=[
+                _make_anthropic_400(thinking_err),
+                req.exceptions.Timeout(),
+            ]):
+                result = svc._send_anthropic_message(
+                    model="claude-sonnet-4-6",
+                    api_key="ant-test",
+                    messages=[{"role": "user", "content": "hi"}],
+                    timeout_seconds=5,
+                    thinking={"type": "disabled"},
+                )
+        self.assertFalse(result.success)
+        mock_logger.error.assert_called_once()
+        msg = mock_logger.error.call_args[0][0]
+        self.assertIn("endpoint=anthropic-retry", msg)
+
+
 if __name__ == "__main__":
     unittest.main()

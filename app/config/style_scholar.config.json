@@ -4274,6 +4274,18 @@
         "why_minimum_lines": 3,
         "three_by_three_edit_minimum_lines": 3
       },
+      "shallow": {
+        "labels": {
+          "shallow": {
+            "background_color": [185, 70, 70],
+            "text_color": [255, 255, 255]
+          },
+          "vague_lesson": {
+            "background_color": [195, 145, 55],
+            "text_color": [255, 255, 255]
+          }
+        }
+      },
       "chess_log_settings": {
         "background_color": {
           "$ref": "$_COLOR_PAPYRUS_PANEL"

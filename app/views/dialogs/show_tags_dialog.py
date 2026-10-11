@@ -110,6 +110,8 @@ class _TagRowWidget(QFrame):
         self._why_texts: Dict[str, QPlainTextEdit] = {}
         self._header_label: Optional[QLabel] = None
         self._ignore_check: Optional[QCheckBox] = None
+        self._shallow_chip: Optional[QLabel] = None
+        self._vague_chip: Optional[QLabel] = None
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -129,6 +131,32 @@ class _TagRowWidget(QFrame):
         self._input_font_size = int(scale_font_size(st_inp.get("font_size", 11)))
         self._why_min_lines = int(st.get("why_minimum_lines", 3))
         self._3x3_min_lines = int(st.get("three_by_three_edit_minimum_lines", 3))
+
+    def _make_chip(self, kind: str) -> QLabel:
+        """Return a styled QLabel chip for 'shallow' or 'vague_lesson'."""
+        defaults = {
+            "shallow": ([185, 70, 70], [255, 255, 255], "Shallow"),
+            "vague_lesson": ([195, 145, 55], [255, 255, 255], "Vague lesson"),
+        }
+        def_bg, def_tc, def_text = defaults.get(kind, ([128, 128, 128], [255, 255, 255], kind))
+        chip_cfg = (
+            self._config.get("ui", {}).get("dialogs", {})
+            .get("shallow", {}).get("labels", {}).get(kind, {})
+        )
+        bg = chip_cfg.get("background_color", def_bg)
+        tc = chip_cfg.get("text_color", def_tc)
+        text = chip_cfg.get("text", def_text)
+        tooltip = chip_cfg.get("tooltip", "")
+        lbl = QLabel(text)
+        lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
+        lbl.setStyleSheet(
+            f"background-color: rgb({bg[0]},{bg[1]},{bg[2]}); "
+            f"color: rgb({tc[0]},{tc[1]},{tc[2]}); "
+            f"border-radius: 3px; padding: 1px 5px; border: none;"
+        )
+        if tooltip:
+            lbl.setToolTip(tooltip)
+        return lbl
 
     def _setup(self, move_label: str, fen: Optional[str], played_move: Optional[chess.Move]) -> None:
         br, bg, bb = self._bg_rgb
@@ -150,6 +178,15 @@ class _TagRowWidget(QFrame):
         header.setStyleSheet(f"color: rgb({tr},{tg},{tb}); font-weight: bold;")
         header_row.addWidget(header, 1)
         self._header_label = header
+
+        if self._preserved_is_shallow:
+            chip = self._make_chip("shallow")
+            header_row.addWidget(chip)
+            self._shallow_chip = chip
+        if self._preserved_is_vague:
+            chip = self._make_chip("vague_lesson")
+            header_row.addWidget(chip)
+            self._vague_chip = chip
 
         if self._show_ignore_checkbox:
             warning_lbl = QLabel("⚠️")

@@ -409,6 +409,52 @@ class ChessLogPDFService(BasePDFReportService):
                 ignore_text,
             )
 
+        # Header: chips (Shallow / Vague lesson) — right-aligned, left of Ignore section
+        if row.is_shallow or row.is_vague:
+            labels_cfg = (
+                self._config.get("ui", {}).get("dialogs", {})
+                .get("shallow", {}).get("labels", {})
+            )
+            chip_pad = 3.0
+            chip_total_w = 0.0
+            chip_specs = []
+            for kind, flag in (("shallow", row.is_shallow), ("vague_lesson", row.is_vague)):
+                if not flag:
+                    continue
+                defaults = {"shallow": ([185, 70, 70], [255, 255, 255], "Shallow"),
+                            "vague_lesson": ([195, 145, 55], [255, 255, 255], "Vague lesson")}
+                def_bg, def_tc, def_txt = defaults[kind]
+                cfg = labels_cfg.get(kind, {})
+                bg = cfg.get("background_color", def_bg)
+                tc = cfg.get("text_color", def_tc)
+                txt = cfg.get("text", def_txt)
+                cw = float(fm_bold.horizontalAdvance(txt)) + chip_pad * 2
+                chip_specs.append((txt, bg, tc, cw))
+                chip_total_w += cw + 4.0
+            if chip_specs:
+                chip_total_w -= 4.0
+                ignore_section_w = 0.0
+                if row.show_ignore:
+                    is_ignored = any(e.get("ignore_shallow") for e in row.entries)
+                    ignore_text = f"Ignore: {'Yes' if is_ignored else 'No'}"
+                    ignore_section_w = float(fm_bold.horizontalAdvance(ignore_text)) + 4.0 + tri_size + 12.0
+                chip_x = x_inner + w_inner - ignore_section_w - chip_total_w
+                chip_y = y_inner + (header_h - bold_line_h) / 2
+                for chip_text, bg_rgb, tc_rgb, chip_w in chip_specs:
+                    painter.save()
+                    painter.setBrush(QColor(bg_rgb[0], bg_rgb[1], bg_rgb[2]))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(QRectF(chip_x, chip_y, chip_w, bold_line_h), 2, 2)
+                    painter.setFont(self._font_body_bold)
+                    painter.setPen(QColor(tc_rgb[0], tc_rgb[1], tc_rgb[2]))
+                    painter.drawText(
+                        QRectF(chip_x + chip_pad, chip_y, chip_w - chip_pad * 2, bold_line_h),
+                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                        chip_text,
+                    )
+                    painter.restore()
+                    chip_x += chip_w + 4.0
+
         y_inner += header_h + 4.0
 
         # Board miniature

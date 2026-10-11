@@ -528,5 +528,214 @@ class TestSaveModel(unittest.TestCase):
         self.assertIn(game_b, saved_games)
 
 
+# ---------------------------------------------------------------------------
+# Chip labels — Shallow / Vague lesson
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipLabels(unittest.TestCase):
+    """Row chips reflect the is_shallow / is_vague flags on entries."""
+
+    def _make_vague_dialog(self, shallow_keys, vague_keys, entries_by_path, classified_keys=None):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        ctrl = _make_controller({1: entries_by_path})
+        ck = frozenset(classified_keys) if classified_keys is not None else frozenset(shallow_keys | vague_keys)
+        return ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=shallow_keys,
+            vague_keys=vague_keys,
+            classified_keys=ck,
+        ), ctrl
+
+    def test_shallow_chip_present_when_is_shallow(self):
+        entries = {"0": [_make_entry("CLAMP", "C", "shallow one")]}
+        dlg, _ = self._make_vague_dialog(
+            shallow_keys={(1, "0", "CLAMP")},
+            vague_keys=frozenset(),
+            entries_by_path=entries,
+        )
+        row = dlg._row_widgets[0]
+        self.assertTrue(row._preserved_is_shallow)
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertIsNone(row._vague_chip)
+
+    def test_vague_chip_present_when_is_vague(self):
+        entries = {"0": [_make_entry("CLAMP", "C", "specific + filler lesson")]}
+        dlg, _ = self._make_vague_dialog(
+            shallow_keys=frozenset(),
+            vague_keys={(1, "0", "CLAMP")},
+            entries_by_path=entries,
+        )
+        row = dlg._row_widgets[0]
+        self.assertFalse(row._preserved_is_shallow)
+        self.assertTrue(row._preserved_is_vague)
+        self.assertIsNone(row._shallow_chip)
+        self.assertIsNotNone(row._vague_chip)
+
+    def test_both_chips_present_when_both_flags(self):
+        entries = {"0": [_make_entry("CLAMP", "C", "generic + filler")]}
+        dlg, _ = self._make_vague_dialog(
+            shallow_keys={(1, "0", "CLAMP")},
+            vague_keys={(1, "0", "CLAMP")},
+            entries_by_path=entries,
+        )
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertIsNotNone(row._vague_chip)
+
+    def test_no_chips_when_neither_flag(self):
+        entries = {"0": [_make_entry("CLAMP", "C", "deep specific real")]}
+        dlg, _ = self._make_vague_dialog(
+            shallow_keys={(1, "0", "CLAMP")},
+            vague_keys=frozenset(),
+            entries_by_path=entries,
+        )
+        row = dlg._row_widgets[0]
+        self.assertFalse(row._preserved_is_vague)
+        self.assertIsNone(row._vague_chip)
+
+    def test_chip_text_from_config(self):
+        from PyQt6.QtWidgets import QLabel
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        ctrl = _make_controller({1: entries})
+        config = {"ui": {"dialogs": {"shallow": {"labels": {
+            "shallow": {"text": "FLAGGED", "background_color": [100, 0, 0], "text_color": [255, 255, 255]},
+        }}}}}
+        dlg = ShowShallowTagsDialog(
+            config=config, games=[game], controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP")}, vague_keys=frozenset(),
+            classified_keys=frozenset({(1, "0", "CLAMP")}),
+        )
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertEqual(row._shallow_chip.text(), "FLAGGED")
+
+    def test_chip_tooltip_from_config(self):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        ctrl = _make_controller({1: entries})
+        config = {"ui": {"dialogs": {"shallow": {"labels": {
+            "shallow": {"text": "S", "tooltip": "Custom tip",
+                        "background_color": [100, 0, 0], "text_color": [255, 255, 255]},
+        }}}}}
+        dlg = ShowShallowTagsDialog(
+            config=config, games=[game], controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP")}, vague_keys=frozenset(),
+            classified_keys=frozenset({(1, "0", "CLAMP")}),
+        )
+        self.assertEqual(dlg._row_widgets[0]._shallow_chip.toolTip(), "Custom tip")
+
+
+# ---------------------------------------------------------------------------
+# Vague-keys: Save/Cancel model
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestVagueKeysSaveModel(unittest.TestCase):
+
+    def _vague_dialog(self, path_key, shallow=False, vague=True):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {path_key: [_make_entry("3x3", "Why1", "I wanted to trade queens")]}
+        ctrl = _make_controller({1: entries})
+        ctrl.save_games = MagicMock()
+        sk = frozenset({(1, path_key, "3x3")} if shallow else [])
+        vk = frozenset({(1, path_key, "3x3")} if vague else [])
+        ck = frozenset(sk | vk)
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=sk, vague_keys=vk, classified_keys=ck,
+        )
+        return dlg, ctrl, game
+
+    def test_save_writes_is_vague_true_for_vague_only_row(self):
+        dlg, ctrl, game = self._vague_dialog("0", shallow=False, vague=True)
+        dlg._on_save()
+        calls = ctrl.replace_entries_at_path_for_game.call_args_list
+        self.assertTrue(len(calls) > 0)
+        entries_written = calls[0][0][3]
+        self.assertTrue(any(e.get("is_vague") for e in entries_written))
+        self.assertFalse(any(e.get("is_shallow") for e in entries_written))
+
+    def test_save_writes_both_flags_for_shallow_and_vague_row(self):
+        dlg, ctrl, game = self._vague_dialog("0", shallow=True, vague=True)
+        dlg._on_save()
+        calls = ctrl.replace_entries_at_path_for_game.call_args_list
+        entries_written = calls[0][0][3]
+        self.assertTrue(any(e.get("is_shallow") for e in entries_written))
+        self.assertTrue(any(e.get("is_vague") for e in entries_written))
+
+    def test_cancel_writes_nothing_for_vague_row(self):
+        dlg, ctrl, game = self._vague_dialog("0", shallow=False, vague=True)
+        dlg.reject()
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
+        ctrl.save_games.assert_not_called()
+
+    def test_stale_clear_removes_is_vague_from_non_flagged_classified_entry(self):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        stale = dict(_make_entry("CLAMP", "C", "deep now"), is_vague=True)
+        tags = {
+            "0": [_make_entry("CLAMP", "L", "shallow")],
+            "0.0": [stale],
+        }
+        ctrl = _make_controller({1: tags})
+        ctrl.save_games = MagicMock()
+        sk = frozenset({(1, "0", "CLAMP")})
+        ck = frozenset({(1, "0", "CLAMP"), (1, "0.0", "CLAMP")})
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck,
+        )
+        dlg._on_save()
+        deep_call = None
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            if c[0][1] == "0.0":
+                deep_call = c
+        self.assertIsNotNone(deep_call, "Expected replace call for stale vague entry at 0.0")
+        self.assertFalse(any(e.get("is_vague") for e in deep_call[0][3]))
+
+    def test_blank_lesson_does_not_produce_vague_key(self):
+        """Vague-keys set is empty → no vague chip, no is_vague written."""
+        dlg, ctrl, game = self._vague_dialog("0", shallow=False, vague=False)
+        self.assertEqual(len(dlg._row_widgets), 0)
+
+
+# ---------------------------------------------------------------------------
+# Snapshot fields is_shallow / is_vague for PDF
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestSnapshotFlags(unittest.TestCase):
+
+    def test_snapshot_carries_is_shallow(self):
+        game = _make_game()
+        entry = dict(_make_entry("CLAMP", "C", "shallow"), is_shallow=True)
+        tags = {"0": [entry]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP")})
+        snap = dlg._row_widgets[0].snapshot()
+        self.assertTrue(snap.is_shallow)
+
+    def test_snapshot_carries_is_vague(self):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = dict(_make_entry("CLAMP", "C", "vague"), is_vague=True)
+        tags = {"0": [entry]}
+        ctrl = _make_controller({1: tags})
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=frozenset(), vague_keys={(1, "0", "CLAMP")},
+            classified_keys=frozenset({(1, "0", "CLAMP")}),
+        )
+        snap = dlg._row_widgets[0].snapshot()
+        self.assertTrue(snap.is_vague)
+
+
 if __name__ == "__main__":
     unittest.main()

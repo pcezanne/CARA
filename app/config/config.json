@@ -737,7 +737,17 @@
       },
       "shallow": {
         "button_save": "Save",
-        "button_cancel": "Cancel"
+        "button_cancel": "Cancel",
+        "labels": {
+          "shallow": {
+            "text": "Shallow",
+            "tooltip": "This note describes the board, not your thinking. Revisit why you played it — or what to take away from it — in your own words."
+          },
+          "vague_lesson": {
+            "text": "Vague lesson",
+            "tooltip": "Your analysis is real, but the takeaway names nothing specific to watch for. Try to name a pattern, piece, square, or checklist item."
+          }
+        }
       },
       "chess_log_settings": {
         "title": "Chess Log Settings",

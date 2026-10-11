@@ -239,10 +239,16 @@ class ShowShallowTagsDialog(QDialog):
                     rows_layout.addWidget(self._make_separator())
 
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
+                key = (game.game_number, path_key, preset)
+                stamped = list(entries)
+                if key in self._shallow_keys:
+                    stamped = [dict(e, is_shallow=True) for e in stamped]
+                if key in self._vague_keys:
+                    stamped = [dict(e, is_vague=True) for e in stamped]
                 row_widget = _TagRowWidget(
                     self._config,
                     preset,
-                    entries,
+                    stamped,
                     move_label,
                     fen or None,
                     played_move,

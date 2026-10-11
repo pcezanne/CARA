@@ -128,7 +128,7 @@ class ShowShallowTagsDialog(QDialog):
         self._row_widgets: List[_TagRowWidget] = []
         self._rows_layout = None
         self._setup_ui()
-        self.setWindowTitle("Show Shallow Notes")
+        self.setWindowTitle("Check Logs")
 
     # ------------------------------------------------------------------
     # Config
@@ -201,7 +201,7 @@ class ShowShallowTagsDialog(QDialog):
 
         if not self._rows:
             tr, tg, tb = self._text_color_rgb
-            lbl = QLabel("No shallow notes found.")
+            lbl = QLabel("No flagged notes found.")
             lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
             root.addWidget(lbl)
         else:

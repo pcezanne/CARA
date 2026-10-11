@@ -51,7 +51,7 @@ class TestFilenameHelpers(unittest.TestCase):
 
     def test_tags_filename_shallow_variant(self):
         name = default_chess_log_tags_pdf_filename(is_shallow_only=True)
-        self.assertIn("ShallowTags", name)
+        self.assertIn("CheckLogs", name)
 
     def test_charts_filename_has_pdf_extension(self):
         name = default_chess_log_charts_pdf_filename()

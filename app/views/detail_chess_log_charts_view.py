@@ -280,7 +280,7 @@ class DetailChessLogChartsView(QWidget):
         layout.addLayout(model_row)
 
         shallow_row = QHBoxLayout()
-        self._show_shallow_btn = QPushButton("Show Shallow Notes")
+        self._show_shallow_btn = QPushButton("Check Logs")
         self._show_shallow_btn.clicked.connect(self._on_show_shallow_clicked)
         self._show_shallow_btn.setEnabled(False)
         shallow_row.addWidget(self._show_shallow_btn)
@@ -291,7 +291,7 @@ class DetailChessLogChartsView(QWidget):
         )
         self._shallow_spinner = BusySpinner(color=QColor(*_spinner_rgb), size=18, line_width=2)
         shallow_row.addWidget(self._shallow_spinner)
-        self._shallow_status_label = QLabel("Generating Shallow Tags…")
+        self._shallow_status_label = QLabel("Checking logs…")
         self._shallow_status_label.setVisible(False)
         shallow_row.addWidget(self._shallow_status_label)
         shallow_row.addStretch()
@@ -616,8 +616,8 @@ class DetailChessLogChartsView(QWidget):
             msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
                 "chess_log_messages", {}
             ).get("shallow_notes", {}).get("none_found", {})
-            title = msgs.get("title", "No Shallow Notes")
-            message = msgs.get("message_template", "No shallow notes found — great job.")
+            title = msgs.get("title", "Nothing Flagged")
+            message = msgs.get("message_template", "No shallow notes or vague lessons found — great job.")
             QMessageBox.information(self, title, message)
             return
         games = self._controller.resolve_games()
@@ -642,11 +642,11 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_token_label.setText("")
         self._refresh_ai_state()
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.warning(self, "Shallow Tags Error", f"Could not classify notes:\n{message}")
+        QMessageBox.warning(self, "Check Logs Error", f"Could not classify notes:\n{message}")
 
     def _on_shallow_partial(self, message: str) -> None:
         from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Shallow Notes", message)
+        QMessageBox.information(self, "Check Logs", message)
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
@@ -658,14 +658,14 @@ class DetailChessLogChartsView(QWidget):
         self._ai_hint.setVisible(not configured)
         if not configured:
             self._shallow_hint.setText(
-                "Configure an AI provider in Chess Log → AI Model Settings to enable shallow tag analysis."
+                "Configure an AI provider in Chess Log → AI Model Settings to enable Check Logs."
             )
             self._shallow_hint.setVisible(True)
         elif not source_selected:
-            self._shallow_hint.setText("Select a Data Source to enable shallow tag analysis.")
+            self._shallow_hint.setText("Select a Data Source to enable Check Logs.")
             self._shallow_hint.setVisible(True)
         elif not player_selected:
-            self._shallow_hint.setText("Select a player to enable shallow tag analysis.")
+            self._shallow_hint.setText("Select a player to enable Check Logs.")
             self._shallow_hint.setVisible(True)
         else:
             self._shallow_hint.setText("")
@@ -772,7 +772,7 @@ class DetailChessLogChartsView(QWidget):
         if self._last_shallow_keys and self._controller:
             chess_log_ctrl = self._controller.get_chess_log_controller()
             if chess_log_ctrl:
-                lines.append("Shallow Notes:")
+                lines.append("Check Logs:")
                 games = self._controller.resolve_games()
                 seen: Set[Tuple[int, str, str]] = set()
                 for game in games:

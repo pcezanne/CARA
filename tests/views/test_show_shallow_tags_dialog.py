@@ -314,6 +314,19 @@ class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Window title is "Check Logs"
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestWindowTitle(unittest.TestCase):
+    def test_window_title_is_check_logs(self):
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP")})
+        self.assertEqual(dlg.windowTitle(), "Check Logs")
+
+
+# ---------------------------------------------------------------------------
 # Resize grip
 # ---------------------------------------------------------------------------
 

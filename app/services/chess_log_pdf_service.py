@@ -28,7 +28,7 @@ from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
 
 def default_chess_log_tags_pdf_filename(*, is_shallow_only: bool = False) -> str:
     ts = datetime.now().strftime("%Y-%m-%d-%H%M%S")
-    kind = "ShallowTags" if is_shallow_only else "AllGames"
+    kind = "CheckLogs" if is_shallow_only else "AllGames"
     return f"CARA-ChessLog-{kind}-{ts}.pdf"
 
 
@@ -87,7 +87,7 @@ class ChessLogPDFService(BasePDFReportService):
             content = self._content_rect(writer)
             self._page_number = 1
             self._draw_page_chrome(painter, content)
-            title = "Chess Log — Shallow Notes" if is_shallow_only else "Chess Log — Logged Moments"
+            title = "Chess Log — Check Logs" if is_shallow_only else "Chess Log — Logged Moments"
             y = self._draw_report_header(painter, content, title)
 
             for group in tag_groups:
@@ -181,7 +181,7 @@ class ChessLogPDFService(BasePDFReportService):
             if shallow_rows:
                 first_row_h = self._measure_tag_row_height(painter, content, shallow_rows[0])
                 y = self._section_heading(
-                    painter, writer, content, y, "Shallow Notes",
+                    painter, writer, content, y, "Check Logs",
                     keep_with=first_row_h + self._ROW_GAP,
                 )
                 for row in shallow_rows:

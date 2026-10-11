@@ -895,16 +895,16 @@ def _shallow_config():
                 "chess_log_messages": {
                     "shallow_notes": {
                         "all_failed": {
-                            "title": "Shallow Tags Error",
+                            "title": "Check Logs Error",
                             "message_template": "None of the {count} note{s_suffix} could be classified. Try again; the model's reply couldn't be read.",
                         },
                         "partial": {
-                            "title": "Shallow Notes",
-                            "message_template": "{unparsed} of {total} note{s_suffix} couldn't be classified — left unchanged. Marked {flagged} shallow.",
+                            "title": "Check Logs",
+                            "message_template": "{unparsed} of {total} note{s_suffix} couldn't be classified — left unchanged. Flagged {flagged}.",
                         },
                         "none_found": {
-                            "title": "No Shallow Notes",
-                            "message_template": "No shallow notes found — great job.",
+                            "title": "Nothing Flagged",
+                            "message_template": "No shallow notes or vague lessons found — great job.",
                         },
                     }
                 }

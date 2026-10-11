@@ -365,13 +365,17 @@ class TestDetailChessLogChartsViewNarrativeControls(unittest.TestCase):
         view = self._make_view()
         self.assertFalse(hasattr(view, "_flag_btn"))
 
-    # --- Show Shallow Tags button ---
+    # --- Check Logs button ---
 
     def test_show_shallow_btn_exists(self):
         from PyQt6.QtWidgets import QPushButton
         view = self._make_view()
         self.assertTrue(hasattr(view, "_show_shallow_btn"))
         self.assertIsInstance(view._show_shallow_btn, QPushButton)
+
+    def test_show_shallow_btn_text_is_check_logs(self):
+        view = self._make_view()
+        self.assertEqual(view._show_shallow_btn.text(), "Check Logs")
 
     def test_show_shallow_btn_disabled_when_unconfigured(self):
         view = self._make_view(ai=False)

@@ -1,15 +1,16 @@
-"""Dialog that shows only the shallow-noted rows from the current corpus.
+"""Dialog that shows rows flagged as shallow or vague-lesson from the current corpus.
 
 Save/Cancel model: edits are buffered in the row widgets until the user clicks
-Save.  Save writes ``is_shallow=True`` on every shown row, clears stale
-``is_shallow`` on entries classified-DEEP this run (scoped to ``classified_keys``
-only — entries the classifier didn't touch this run are never modified), then
-calls ``controller.save_games(affected_games)`` to write game.pgn and mark each
-affected database unsaved.  Cancel and the window close button discard all edits.
+Save.  Save writes ``is_shallow=True`` / ``is_vague=True`` on every shown row
+(per key membership), clears stale flags on entries classified-clean this run
+(scoped to ``classified_keys`` only — entries the classifier didn't touch this
+run are never modified), then calls ``controller.save_games(affected_games)``
+to write game.pgn and mark each affected database unsaved.  Cancel and the
+window close button discard all edits.
 
 The Ignore checkbox (via ``_TagRowWidget(show_ignore_checkbox=True)``) lets
-the user dismiss rows from future ``flag_shallow_notes()`` runs.  The row
-stays visible for the rest of this session; it disappears on the next open.
+the user dismiss rows from future runs.  The row stays visible for the rest of
+this session; it disappears on the next open.
 """
 
 from __future__ import annotations
@@ -40,19 +41,20 @@ from app.views.style.style_manager import StyleManager
 
 
 class ShowShallowTagsDialog(QDialog):
-    """Save/Cancel dialog listing only the shallow-flagged rows.
+    """Save/Cancel dialog listing rows flagged as shallow or vague-lesson.
 
     Args:
         config: application config dict.
-        games: list of GameData objects in scope (same list ``flag_shallow_notes`` used).
+        games: list of GameData objects in scope.
         controller: ChessLogController instance (not ChessLogChartsController).
         shallow_keys: set of (game_number, path_key, preset) tuples classified SHALLOW
-            this run.  Determines which rows are shown.
+            this run.
+        vague_keys: set of (game_number, path_key, preset) tuples with a vague lesson
+            this run (3x3 only).
         classified_keys: frozenset of (game_number, path_key, preset) tuples that were
-            sent to the classifier AND received a parsed verdict (SHALLOW or DEEP) this
-            run.  ``shallow_keys ⊆ classified_keys``.  Only entries in this set may be
-            modified by Save; entries outside it (unparsed, ignored, empty-why) are never
-            touched.
+            sent to the classifier AND received a parsed verdict this run.
+            ``shallow_keys ∪ vague_keys ⊆ classified_keys``.  Only entries in this set
+            may be modified by Save; entries outside it are never touched.
     """
 
     def __init__(
@@ -61,19 +63,22 @@ class ShowShallowTagsDialog(QDialog):
         games: List,
         controller,
         shallow_keys: Set[Tuple[int, str, str]],
+        vague_keys: Set[Tuple[int, str, str]] = frozenset(),
         classified_keys: FrozenSet[Tuple[int, str, str]] = frozenset(),
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._config = config
         self._controller = controller
-        self._shallow_keys = shallow_keys
+        self._shallow_keys = frozenset(shallow_keys)
+        self._vague_keys = frozenset(vague_keys)
         self._classified_keys = classified_keys
+        self._flagged_keys = self._shallow_keys | self._vague_keys
         self._games_in_scope = list(games)
 
         self._load_config()
 
-        # Build rows filtered to shallow_keys only.
+        # Build rows filtered to shallow_keys ∪ vague_keys.
         # Parallel lists: _rows (path_key, preset, entries), _row_games, _row_pgn_games.
         self._rows: List[Tuple[str, str, List[Dict[str, Any]]]] = []
         self._row_games: List = []
@@ -99,7 +104,8 @@ class ShowShallowTagsDialog(QDialog):
                     by_preset.setdefault(p, []).append(entry)
 
                 for preset, entries in by_preset.items():
-                    if (game.game_number, path_key, preset) not in shallow_keys:
+                    key = (game.game_number, path_key, preset)
+                    if key not in self._flagged_keys:
                         continue
                     ply = _ply_for_path_fn(pgn_game, path)
                     rank = preset_rank.get(preset, len(_PRESET_ORDER))
@@ -367,25 +373,35 @@ class ShowShallowTagsDialog(QDialog):
     def _on_save(self) -> None:
         affected: set = set()
 
-        # a) Shown rows: write user edits + stamp is_shallow=True
+        # a) Shown rows: stamp is_shallow / is_vague per key membership.
         for i, (path_key, preset, _) in enumerate(self._rows):
             row_widget = self._row_widgets[i]
             game = self._row_games[i]
+            key = (game.game_number, path_key, preset)
             user_entries = row_widget.get_current_entries()
-            new_entries = [dict(e, is_shallow=True) for e in user_entries]
-            original = self._original_snapshot.get(
-                (game.game_number, path_key, preset), []
+            new_entries = list(user_entries)
+            if key in self._shallow_keys:
+                new_entries = [dict(e, is_shallow=True) for e in new_entries]
+            if key in self._vague_keys:
+                new_entries = [dict(e, is_vague=True) for e in new_entries]
+            original = self._original_snapshot.get(key, [])
+            orig_with_flags = list(original)
+            if key in self._shallow_keys:
+                orig_with_flags = [dict(e, is_shallow=True) for e in orig_with_flags]
+            if key in self._vague_keys:
+                orig_with_flags = [dict(e, is_vague=True) for e in orig_with_flags]
+            flags_missing = (
+                (key in self._shallow_keys and any(not e.get("is_shallow") for e in original))
+                or (key in self._vague_keys and any(not e.get("is_vague") for e in original))
             )
-            orig_normalized = _normalize_entries([dict(e, is_shallow=True) for e in original])
-            if (_normalize_entries(new_entries) != orig_normalized
-                    or any(not e.get("is_shallow") for e in original)):
+            if _normalize_entries(new_entries) != _normalize_entries(orig_with_flags) or flags_missing:
                 self._controller.replace_entries_at_path_for_game(
                     game, path_key, preset, new_entries
                 )
                 affected.add(game)
 
-        # b) Classified-but-not-shown entries (parsed DEEP this run):
-        #    clear stale is_shallow=True.  Scoped to _classified_keys ONLY —
+        # b) Classified-but-not-shown entries (parsed DEEP/non-vague this run):
+        #    clear stale is_shallow / is_vague.  Scoped to _classified_keys ONLY —
         #    never touches unparsed, ignored, or empty-why entries.
         for game in self._games_in_scope:
             tags = self._controller.get_tags_for_game(game)
@@ -397,11 +413,11 @@ class ShowShallowTagsDialog(QDialog):
                     key = (game.game_number, path_key, preset)
                     if key not in self._classified_keys:
                         continue
-                    if key in self._shallow_keys:
+                    if key in self._flagged_keys:
                         continue
-                    if any(e.get("is_shallow") for e in preset_entries):
+                    if any(e.get("is_shallow") or e.get("is_vague") for e in preset_entries):
                         cleared = [
-                            {k: v for k, v in e.items() if k != "is_shallow"}
+                            {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
                             for e in preset_entries
                         ]
                         self._controller.replace_entries_at_path_for_game(

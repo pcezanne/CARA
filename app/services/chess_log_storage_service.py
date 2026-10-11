@@ -247,6 +247,7 @@ class ChessLogStorageService:
         why: str = "",
         ignore_shallow: bool = False,
         is_shallow: bool = False,
+        is_vague: bool = False,
     ) -> Dict[str, Any]:
         """Build a single moment entry dict with a new UUID and UTC timestamp."""
         entry: Dict[str, Any] = {
@@ -260,6 +261,8 @@ class ChessLogStorageService:
             entry["ignore_shallow"] = True
         if is_shallow:
             entry["is_shallow"] = True
+        if is_vague:
+            entry["is_vague"] = True
         return entry
 
     @staticmethod

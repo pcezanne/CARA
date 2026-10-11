@@ -1,0 +1,100 @@
+Classify each of these 3x3 self-analyses as two independent judgments.
+
+Each note is one 3x3 self-analysis of a chess move the player made.
+It has four parts:
+  Why1 — "Why did I choose that move?"
+  Why2 — "Why is my move not ideal?"  (board-fact question by design)
+  Why3 — "Why is the better move better than my chosen move?"  (board-fact question by design)
+  Why4 — "What do I do in the future so this doesn't happen again?"
+
+Judge TWO parts, independently, with no interaction between them.
+Why2 and Why3 are context only — they MUST NOT change either verdict.
+
+PART A — Intent (judge Why1 alone)
+----------------------------------
+SPECIFIC — states what the player was actually thinking, planning,
+  or misreading. Short is fine; brevity does not make it generic.
+  Any stated plan, intent, misread, or mental process is SPECIFIC.
+  Examples:
+    "I thought I was defending my rook."
+    "To kick their bishop and set up a battery."
+    "I was building a mating net."
+    "I played the Book move which didn't apply here."
+    "I was defending my pawn."
+GENERIC — a default reason that would fit almost any move.
+  Examples:
+    "Just developing."
+    "I thought it was a good move."
+    "Trying to get something going."
+BLANK — no Why1 text, or Why1 is empty.
+
+PART B — Lesson (judge Why4 alone)
+----------------------------------
+REAL — names something identifiable to watch for. This includes
+  method-checklist items ("look at checks", "be aware of hung
+  pieces"), tactics, pieces, squares, and positional ideas
+  ("be more aware of positional play"). Checklist lessons count
+  as REAL. Seeing the same checklist item on many moments is
+  valuable information, not a defect.
+  Examples:
+    "Look at checks."
+    "Be aware of hung pieces."
+    "Look at their loose pieces."
+    "Be more aware of positional play."
+    "Look for aggressive moves even when attacked."
+FILLER — names nothing identifiable, or is not a lesson at all.
+  Examples:
+    "Be more careful."
+    "Play better."
+    "I'm not sure."
+    "Just resign, the game is long lost."
+BLANK — no Why4 text, or Why4 is empty.
+
+Worked examples
+---------------
+
+Why1: "I played the Book move which didn't apply here."
+Why4: "I need to see what I am unprotecting with my move."
+→ INTENT=SPECIFIC LESSON=REAL
+
+Why1: "I'm just developing my Knight."
+Why4: "I need to be aware of hung pieces."
+→ INTENT=GENERIC LESSON=REAL
+
+Why1: "I wanted to trade queens."
+Why4: "Be more careful."
+→ INTENT=SPECIFIC LESSON=FILLER
+
+Why1: "I thought it was a good move!"
+Why4: "I'm not sure. This game was boring."
+→ INTENT=GENERIC LESSON=FILLER
+
+Why1: "I was building a mating net."
+Why4: "Look at checks."
+→ INTENT=SPECIFIC LESSON=REAL
+
+Output format
+=============
+Return the verdict list FIRST, before any explanation. Preferably
+return ONLY the verdict list, no other text. One line per note,
+line-anchored, in this exact shape:
+
+<index>: INTENT=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>
+
+Notes to classify follow, one block per index.
+
+0:
+  Why1: I wanted to activate my rook by opening the d-file.
+  Why2: It dropped a pawn to the bishop fork on b5.
+  Why3: Nf6 maintains the knight and prevents the fork.
+  Why4: Look for piece forks before advancing pawns.
+1:
+  Why1: I thought it was a good move.
+  Why2: My rook was undefended after the move.
+  Why3: Rd1 defends the rook and keeps pressure.
+  Why4: Be more careful.
+2:
+  Why1: (blank)
+  Why2: The move allowed a discovered attack on the queen.
+  Why3: Ke2 sidesteps the discovered attack and keeps the king safe.
+  Why4: (blank)

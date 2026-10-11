@@ -97,6 +97,33 @@ def _build_classifier_prompt(notes: list) -> str:
     return classifier_body + notes_text
 
 
+def _build_classifier_prompt_3x3(notes: list) -> str:
+    """Build the 3x3 classifier prompt mirroring classify_notes_3x3()."""
+    from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+    raw_body = _CONFIG["prompts"]["chess_log"]["classifier_3x3"]
+    classifier_body = raw_body.format(
+        why1_q=THREE_BY_THREE_PROMPTS["Why1"],
+        why2_q=THREE_BY_THREE_PROMPTS["Why2"],
+        why3_q=THREE_BY_THREE_PROMPTS["Why3"],
+        why4_q=THREE_BY_THREE_PROMPTS["Why4"],
+    )
+
+    def _fmt_why(text: str) -> str:
+        return text.strip() if text and text.strip() else "(blank)"
+
+    note_blocks = []
+    for (i, _gn, _pk, _pr, why1, why2, why3, why4) in notes:
+        block = (
+            f"{i}:\n"
+            f"  Why1: {_fmt_why(why1)}\n"
+            f"  Why2: {_fmt_why(why2)}\n"
+            f"  Why3: {_fmt_why(why3)}\n"
+            f"  Why4: {_fmt_why(why4)}"
+        )
+        note_blocks.append(block)
+    return classifier_body + "\n".join(note_blocks)
+
+
 def _assert_or_write(name: str, actual: str) -> None:
     path = FIXTURE_DIR / f"{name}.txt"
     if BOOTSTRAP:
@@ -398,3 +425,34 @@ class TestClassifierPromptMixed(unittest.TestCase):
         notes = self._make_notes()
         prompt = _build_classifier_prompt(notes)
         _assert_or_write("classifier_prompt_mixed", prompt)
+
+
+# ---------------------------------------------------------------------------
+# Classifier prompt — 3x3 notes (new classifier body)
+# ---------------------------------------------------------------------------
+
+class TestClassifierPrompt3x3(unittest.TestCase):
+
+    def _make_notes(self):
+        return [
+            (0, 1, "path/0", "3x3",
+             "I wanted to activate my rook by opening the d-file.",
+             "It dropped a pawn to the bishop fork on b5.",
+             "Nf6 maintains the knight and prevents the fork.",
+             "Look for piece forks before advancing pawns."),
+            (1, 2, "path/0", "3x3",
+             "I thought it was a good move.",
+             "My rook was undefended after the move.",
+             "Rd1 defends the rook and keeps pressure.",
+             "Be more careful."),
+            (2, 3, "path/0", "3x3",
+             "",
+             "The move allowed a discovered attack on the queen.",
+             "Ke2 sidesteps the discovered attack and keeps the king safe.",
+             ""),
+        ]
+
+    def test_classifier_prompt_3x3(self):
+        notes = self._make_notes()
+        prompt = _build_classifier_prompt_3x3(notes)
+        _assert_or_write("classifier_prompt_3x3", prompt)

@@ -42,10 +42,13 @@ _MINI_BOARD_SCALE = 1.25
 _MINI_BOARD_PLACEHOLDER_PX = 204
 
 
-def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str, bool, bool]]:
-    """(cat, why, ignore_shallow, is_shallow) tuples sorted for change detection."""
+def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str, bool, bool, bool]]:
+    """(cat, why, ignore_shallow, is_shallow, is_vague) tuples sorted for change detection."""
     return sorted(
-        (e.get("cat", ""), e.get("why", ""), bool(e.get("ignore_shallow")), bool(e.get("is_shallow")))
+        (
+            e.get("cat", ""), e.get("why", ""),
+            bool(e.get("ignore_shallow")), bool(e.get("is_shallow")), bool(e.get("is_vague")),
+        )
         for e in entries
     )
 
@@ -93,6 +96,9 @@ class _TagRowWidget(QFrame):
         )
         self._preserved_is_shallow: bool = any(
             bool(e.get("is_shallow")) for e in entries
+        )
+        self._preserved_is_vague: bool = any(
+            bool(e.get("is_vague")) for e in entries
         )
 
         self._fen: Optional[str] = fen
@@ -274,6 +280,8 @@ class _TagRowWidget(QFrame):
                 d["ignore_shallow"] = True
             if self._preserved_is_shallow:
                 d["is_shallow"] = True
+            if self._preserved_is_vague:
+                d["is_vague"] = True
             return d
 
         if self._preset == "3x3":
@@ -302,6 +310,8 @@ class _TagRowWidget(QFrame):
             best_move=self._best_move,
             show_ignore=self._show_ignore_checkbox,
             is_flipped=self._is_flipped,
+            is_shallow=self._preserved_is_shallow,
+            is_vague=self._preserved_is_vague,
         )
 
 
@@ -504,7 +514,7 @@ class ShowTagsDialog(QDialog):
                     self._rows_layout.addWidget(self._make_separator())
 
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
-                row_is_shallow = any(e.get("is_shallow") for e in entries)
+                row_is_shallow = any(e.get("is_shallow") or e.get("is_vague") for e in entries)
                 row_widget = _TagRowWidget(
                     self.config,
                     preset,

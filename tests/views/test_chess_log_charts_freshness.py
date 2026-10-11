@@ -51,34 +51,34 @@ class TestShalowKeysFreshness(unittest.TestCase):
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_shallow_ready_caches_keys(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
         self.assertEqual(self._view._last_shallow_keys, _SHALLOW_KEYS)
 
     def test_on_shallow_ready_empty_set_stores_none(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)  # set first
-        self._view._on_shallow_ready(set(), frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)  # set first
+        self._view._on_shallow_ready(set(), frozenset(), frozenset(), None)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_source_changed_clears_cache(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
         self._view._on_source_changed(1)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_on_player_changed_clears_cache(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
         # _on_player_changed with index=-1 returns early without controller call
         # but still clears cache
         self._view._on_player_changed(-1)
         self.assertIsNone(self._view._last_shallow_keys)
 
     def test_cache_survives_narrative_ready(self):
-        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
         # Narrative update should not touch shallow cache
         self._view._on_narrative_ready("some narrative", [], None)
         self.assertEqual(self._view._last_shallow_keys, _SHALLOW_KEYS)
 
     def test_cache_type_is_frozenset(self):
-        self._view._on_shallow_ready({(1, "k", "CLAMP")}, frozenset(), None)
+        self._view._on_shallow_ready({(1, "k", "CLAMP")}, frozenset(), frozenset(), None)
         self.assertIsInstance(self._view._last_shallow_keys, frozenset)
 
 
@@ -123,7 +123,7 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
 
     def test_shallow_keys_survive_theme_rebuild(self):
         ctrl = _make_ctrl()
-        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), None)
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
 
         view = self._simulate_theme_rebuild(ctrl)
 
@@ -133,7 +133,7 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
         from app.services.ai_service import TokenUsage
         ctrl = _make_ctrl()
         usage = TokenUsage(input_tokens=80, output_tokens=30, reasoning_tokens=None, reported=True)
-        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), usage)
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), frozenset(), usage)
 
         view = self._simulate_theme_rebuild(ctrl)
 
@@ -156,7 +156,7 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
 
     def test_database_switch_clears_shallow_before_rebuild(self):
         ctrl = _make_ctrl()
-        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), None)
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
         ctrl._source_selection = 1
 
         with patch.object(ctrl, "_start_dropdown_worker"), \
@@ -171,7 +171,7 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
     def test_player_change_clears_both_before_rebuild(self):
         ctrl = _make_ctrl()
         ctrl._on_narrative_thread_ready("Player A narrative.", [], None)
-        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), None)
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
 
         with patch.object(ctrl, "_kick_debounce"):
             ctrl.set_player_selection("Player B")
@@ -184,7 +184,7 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
     def test_source_change_clears_both_before_rebuild(self):
         ctrl = _make_ctrl()
         ctrl._on_narrative_thread_ready("Source A narrative.", [], None)
-        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), None)
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
 
         with patch.object(ctrl, "_start_dropdown_worker"), \
              patch.object(ctrl, "_cancel_agg_worker"):

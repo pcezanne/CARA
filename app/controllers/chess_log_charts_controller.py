@@ -151,9 +151,13 @@ class ChessLogAggregationWorker(QThread):
 
 
 class ChessLogShallowThread(QThread):
-    """Classify why-notes as SHALLOW or DEEP off the UI thread."""
+    """Classify why-notes as SHALLOW/DEEP (CLAMP/CCT) and INTENT/LESSON (3x3) off the UI thread.
 
-    shallow_ready = pyqtSignal(object, object, object)  # (shallow_keys, classified_keys, Optional[TokenUsage])
+    Makes up to two API calls: one for legacy (CLAMP/CCT) notes, one for 3x3 notes.
+    Emits a single shallow_ready with combined results when both complete.
+    """
+
+    shallow_ready = pyqtSignal(object, object, object, object)  # (shallow_keys, vague_keys, classified_keys, Optional[TokenUsage])
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
 
@@ -166,7 +170,8 @@ class ChessLogShallowThread(QThread):
         base_url_override: Optional[str],
         config: Optional[Dict[str, Any]],
         timeout_seconds: int,
-        notes: List[Tuple[int, int, str, str, str]],  # (idx, game_number, path_key, preset, why)
+        legacy_notes: List[Tuple[int, int, str, str, str]],           # (idx, gn, pk, preset, why) — CLAMP/CCT
+        three_notes: List[Tuple[int, int, str, str, str, str, str, str]],  # (idx, gn, pk, preset, w1, w2, w3, w4)
     ) -> None:
         super().__init__()
         self._games = games
@@ -176,7 +181,8 @@ class ChessLogShallowThread(QThread):
         self._base_url_override = base_url_override
         self._config = config
         self._timeout_seconds = timeout_seconds
-        self._notes = notes
+        self._legacy_notes = legacy_notes
+        self._three_notes = three_notes
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -184,65 +190,141 @@ class ChessLogShallowThread(QThread):
         with QMutexLocker(self._mutex):
             self._cancelled = True
 
-    def run(self) -> None:
+    def run(self) -> None:  # noqa: C901
         try:
             with QMutexLocker(self._mutex):
                 if self._cancelled:
                     return
-            from app.services.chess_log_shallow_service import classify_notes
-            result = classify_notes(
-                notes=self._notes,
-                provider=self._provider,
-                model=self._model,
-                api_key=self._api_key,
-                base_url_override=self._base_url_override,
-                config=self._config,
-                timeout_seconds=self._timeout_seconds,
-            )
-            with QMutexLocker(self._mutex):
-                if self._cancelled:
-                    return
-            if not result.success:
-                self.shallow_failed.emit(result.error or "Classification failed.")
+            from app.services.chess_log_shallow_service import classify_notes, classify_notes_3x3
+            from app.services.ai_service import TokenUsage
+
+            legacy_result = None
+            three_result = None
+
+            if self._legacy_notes:
+                legacy_result = classify_notes(
+                    notes=self._legacy_notes,
+                    provider=self._provider,
+                    model=self._model,
+                    api_key=self._api_key,
+                    base_url_override=self._base_url_override,
+                    config=self._config,
+                    timeout_seconds=self._timeout_seconds,
+                )
+                with QMutexLocker(self._mutex):
+                    if self._cancelled:
+                        return
+
+            if self._three_notes:
+                three_result = classify_notes_3x3(
+                    notes=self._three_notes,
+                    provider=self._provider,
+                    model=self._model,
+                    api_key=self._api_key,
+                    base_url_override=self._base_url_override,
+                    config=self._config,
+                    timeout_seconds=self._timeout_seconds,
+                )
+                with QMutexLocker(self._mutex):
+                    if self._cancelled:
+                        return
+
+            # Both failed (or both empty) → hard failure.
+            if legacy_result is not None and not legacy_result.success and three_result is None:
+                self.shallow_failed.emit(legacy_result.error or "Classification failed.")
                 return
+            if three_result is not None and not three_result.success and legacy_result is None:
+                self.shallow_failed.emit(three_result.error or "3x3 classification failed.")
+                return
+            if (legacy_result is not None and not legacy_result.success
+                    and three_result is not None and not three_result.success):
+                err = legacy_result.error or three_result.error or "Classification failed."
+                self.shallow_failed.emit(err)
+                return
+
+            # Merge results.
+            all_notes = list(self._legacy_notes) + [
+                (n[0], n[1], n[2], n[3]) + n[4:] for n in self._three_notes  # type: ignore[misc]
+            ]
+            merged_shallow: set = set()
+            merged_vague: set = set()
+            merged_unparsed_legacy: tuple = ()
+            merged_unparsed_three: tuple = ()
+            merged_usage: Optional[Any] = None
+            merged_model: str = self._model
+
+            if legacy_result is not None and legacy_result.success:
+                merged_shallow.update(legacy_result.shallow_keys)
+                merged_unparsed_legacy = legacy_result.unparsed_indices
+                merged_model = legacy_result.model
+                if legacy_result.usage:
+                    merged_usage = legacy_result.usage
+
+            if three_result is not None and three_result.success:
+                merged_shallow.update(three_result.shallow_keys)
+                merged_vague.update(three_result.vague_keys)
+                merged_unparsed_three = three_result.unparsed_indices
+                merged_model = three_result.model
+                if three_result.usage and merged_usage:
+                    merged_usage = TokenUsage(
+                        input_tokens=(merged_usage.input_tokens or 0) + (three_result.usage.input_tokens or 0),
+                        output_tokens=(merged_usage.output_tokens or 0) + (three_result.usage.output_tokens or 0),
+                        reported=merged_usage.reported and three_result.usage.reported,
+                    )
+                elif three_result.usage:
+                    merged_usage = three_result.usage
+
             msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
                 "chess_log_messages", {}
             ).get("shallow_notes", {})
-            n_unparsed = len(result.unparsed_indices)
-            n_shallow = len(result.shallow_keys)
             s = lambda n: "" if n == 1 else "s"
-            if n_unparsed > 0 and n_shallow == 0:
-                # Every note failed — single failure message, no results shown.
+
+            total_unparsed = len(merged_unparsed_legacy) + len(merged_unparsed_three)
+            total_flagged = len(merged_shallow) + len(merged_vague)
+            total_input = len(self._legacy_notes) + len(self._three_notes)
+
+            if total_unparsed > 0 and total_flagged == 0:
                 tmpl = msgs.get("all_failed", {}).get(
                     "message_template",
                     "None of the {count} note{s_suffix} could be classified. "
                     "Try again; the model's reply couldn't be read.",
                 )
-                msg = tmpl.format(count=n_unparsed, s_suffix=s(n_unparsed))
+                msg = tmpl.format(count=total_unparsed, s_suffix=s(total_unparsed))
                 self.shallow_failed.emit(msg)
                 return
-            if n_unparsed > 0:
-                # Partial failure — informational notice, then results.
-                total = n_unparsed + n_shallow
+            if total_unparsed > 0:
                 tmpl = msgs.get("partial", {}).get(
                     "message_template",
                     "{unparsed} of {total} note{s_suffix} couldn't be classified "
-                    "— left unchanged. Marked {flagged} shallow.",
+                    "— left unchanged. Flagged {flagged}.",
                 )
                 msg = tmpl.format(
-                    unparsed=n_unparsed,
-                    total=total,
-                    s_suffix=s(n_unparsed),
-                    flagged=n_shallow,
+                    unparsed=total_unparsed,
+                    total=total_input,
+                    s_suffix=s(total_unparsed),
+                    flagged=total_flagged,
                 )
                 self.shallow_partial.emit(msg)
-            unparsed_set = frozenset(result.unparsed_indices)
+
+            # Build classified_keys — notes that received a parsed verdict this run.
+            legacy_unparsed_set = frozenset(merged_unparsed_legacy)
+            three_unparsed_set = frozenset(merged_unparsed_three)
             classified_keys = frozenset(
-                (note[1], note[2], note[3])
-                for i, note in enumerate(self._notes)
-                if i not in unparsed_set
+                (n[1], n[2], n[3])
+                for i, n in enumerate(self._legacy_notes)
+                if i not in legacy_unparsed_set
+            ) | frozenset(
+                (n[1], n[2], n[3])
+                for i, n in enumerate(self._three_notes)
+                if i not in three_unparsed_set
             )
-            self.shallow_ready.emit(result.shallow_keys, classified_keys, result.usage)
+
+            self.shallow_ready.emit(
+                frozenset(merged_shallow),
+                frozenset(merged_vague),
+                classified_keys,
+                merged_usage,
+            )
         except Exception as exc:
             self.shallow_failed.emit(f"Unexpected error: {exc}")
 
@@ -324,7 +406,7 @@ class ChessLogChartsController(QObject):
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
     narrative_ready = pyqtSignal(str, list, object)  # narrative_text, shallow_flags, Optional[TokenUsage]
     narrative_failed = pyqtSignal(str)
-    shallow_ready = pyqtSignal(object, object, object)  # (shallow_keys, classified_keys, Optional[TokenUsage])
+    shallow_ready = pyqtSignal(object, object, object, object)  # (shallow_keys, vague_keys, classified_keys, Optional[TokenUsage])
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
@@ -371,6 +453,7 @@ class ChessLogChartsController(QObject):
         self._cached_narrative_flags: list = []
         self._cached_narrative_usage: Optional[Any] = None
         self._cached_shallow_keys: Optional[Any] = None
+        self._cached_vague_keys: Optional[Any] = None
         self._cached_shallow_usage: Optional[Any] = None
 
         self._selection_debounce = QTimer(self)
@@ -461,14 +544,15 @@ class ChessLogChartsController(QObject):
         return self._cached_narrative, self._cached_narrative_flags, self._cached_narrative_usage
 
     def get_last_shallow_result(self) -> tuple:
-        """Return (shallow_keys, usage) from the most recent successful shallow check."""
-        return self._cached_shallow_keys, self._cached_shallow_usage
+        """Return (shallow_keys, vague_keys, usage) from the most recent successful shallow check."""
+        return self._cached_shallow_keys, self._cached_vague_keys, self._cached_shallow_usage
 
     def _clear_result_cache(self) -> None:
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
         self._cached_shallow_keys = None
+        self._cached_vague_keys = None
         self._cached_shallow_usage = None
 
     # --- narrative panel controls ---
@@ -656,8 +740,10 @@ class ChessLogChartsController(QObject):
         model = self._narrative_model_override or default_model
 
         games = self._resolve_games()
-        # (idx, game_number, path_key, preset, why) — skip ignore_shallow entries
-        notes: List[Tuple[int, int, str, str, str]] = []
+        # Build two separate note lists: legacy (CLAMP/CCT) and 3x3.
+        legacy_notes: List[Tuple[int, int, str, str, str]] = []
+        three_notes: List[Tuple[int, int, str, str, str, str, str, str]] = []
+
         for game in games:
             tags = self.get_tags_for_game(game)
             for path_key, entries in tags.items():
@@ -669,31 +755,30 @@ class ChessLogChartsController(QObject):
                     by_preset.setdefault(p, []).append(entry)
                 for preset, preset_entries in by_preset.items():
                     if preset == "3x3":
-                        # Group all four Why answers into one note so the
-                        # classifier judges the whole self-analysis, not
-                        # isolated fragments (Why2/Why3 are board-fact
-                        # questions by design and look shallow in isolation).
-                        parts: List[str] = []
-                        for entry in preset_entries:
-                            if entry.get("ignore_shallow"):
-                                continue
-                            cat = entry.get("cat", "")
-                            why = (entry.get("why") or "").strip()
-                            if why and cat in _3X3_SHORT_LABELS:
-                                parts.append(f"{_3X3_SHORT_LABELS[cat]}: {why}")
-                        if parts:
-                            combined = "[3x3] " + " | ".join(parts)
-                            notes.append((len(notes), game.game_number, path_key, preset, combined))
+                        # Skip whole moment if any entry has ignore_shallow.
+                        if any(e.get("ignore_shallow") for e in preset_entries):
+                            continue
+                        why_map = {e.get("cat", ""): (e.get("why") or "").strip() for e in preset_entries}
+                        why1 = why_map.get("Why1", "")
+                        why2 = why_map.get("Why2", "")
+                        why3 = why_map.get("Why3", "")
+                        why4 = why_map.get("Why4", "")
+                        # Skip moment if all four whys are empty.
+                        if not any([why1, why2, why3, why4]):
+                            continue
+                        idx = len(three_notes)
+                        three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
                     else:
                         for entry in preset_entries:
                             if entry.get("ignore_shallow"):
                                 continue
                             why = (entry.get("why") or "").strip()
                             if why:
-                                notes.append((len(notes), game.game_number, path_key, preset, why))
+                                idx = len(legacy_notes)
+                                legacy_notes.append((idx, game.game_number, path_key, preset, why))
 
-        if not notes:
-            self.shallow_ready.emit(set(), frozenset(), None)
+        if not legacy_notes and not three_notes:
+            self.shallow_ready.emit(set(), set(), frozenset(), None)
             return
 
         self._cancel_shallow_thread()
@@ -705,7 +790,8 @@ class ChessLogChartsController(QObject):
             base_url_override=base_url,
             config=self._config,
             timeout_seconds=self.get_narrative_timeout_seconds(),
-            notes=notes,
+            legacy_notes=legacy_notes,
+            three_notes=three_notes,
         )
         thread.shallow_ready.connect(self._on_shallow_thread_ready)
         thread.shallow_failed.connect(self._on_shallow_thread_failed)
@@ -726,11 +812,12 @@ class ChessLogChartsController(QObject):
         self._cached_narrative_usage = None
         self.narrative_failed.emit(message)
 
-    def _on_shallow_thread_ready(self, shallow_keys, classified_keys, usage) -> None:
-        """Cache shallow results then pass to the view; the dialog's Save commits them."""
+    def _on_shallow_thread_ready(self, shallow_keys, vague_keys, classified_keys, usage) -> None:
+        """Cache shallow/vague results then pass to the view; the dialog's Save commits them."""
         self._cached_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
+        self._cached_vague_keys = frozenset(vague_keys) if vague_keys else None
         self._cached_shallow_usage = usage
-        self.shallow_ready.emit(shallow_keys, classified_keys, usage)
+        self.shallow_ready.emit(shallow_keys, vague_keys, classified_keys, usage)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
         self.shallow_failed.emit(message)

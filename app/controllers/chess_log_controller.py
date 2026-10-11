@@ -205,6 +205,7 @@ class ChessLogController:
                 e["preset"], e["cat"], e.get("why", ""),
                 ignore_shallow=bool(e.get("ignore_shallow")),
                 is_shallow=bool(e.get("is_shallow")),
+                is_vague=bool(e.get("is_vague")),
             )
             for e in entries
         ]
@@ -259,6 +260,7 @@ class ChessLogController:
                 e["preset"], e["cat"], e.get("why", ""),
                 ignore_shallow=bool(e.get("ignore_shallow")),
                 is_shallow=bool(e.get("is_shallow")),
+                is_vague=bool(e.get("is_vague")),
             )
             for e in entries
         ]

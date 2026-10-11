@@ -575,7 +575,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         synchronously without starting a thread or calling the AI."""
         ctrl = self._make_controller_with_note(ignore=True)
         received: list = []
-        ctrl.shallow_ready.connect(lambda k, ck, u: received.append(k))
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
 
         ctrl.request_flag_shallow_notes()
 
@@ -614,7 +614,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
             ctrl.request_flag_shallow_notes()
 
         self.assertEqual(len(thread_kwargs), 1)
-        notes = thread_kwargs[0]["notes"]
+        notes = thread_kwargs[0]["legacy_notes"]
         self.assertTrue(any("I blundered" in n[4] for n in notes))
 
     def _make_controller_with_3x3(
@@ -662,7 +662,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         ):
             ctrl.request_flag_shallow_notes()
 
-        return thread_kwargs[0]["notes"] if thread_kwargs else []
+        return thread_kwargs[0]["three_notes"] if thread_kwargs else []
 
     def test_3x3_moment_grouped_into_one_note(self):
         """Four Why entries for one moment produce ONE note, not four."""
@@ -675,13 +675,13 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
         notes = self._capture_notes(ctrl)
         self.assertEqual(len(notes), 1)
 
-    def test_3x3_note_starts_with_marker(self):
+    def test_3x3_note_has_3x3_preset(self):
         ctrl = self._make_controller_with_3x3(
             why1="I saw the free pawn",
             why2="My rook was undefended",
         )
         notes = self._capture_notes(ctrl)
-        self.assertTrue(notes[0][4].startswith("[3x3]"))
+        self.assertEqual(notes[0][3], "3x3")
 
     def test_3x3_note_contains_all_why_text(self):
         ctrl = self._make_controller_with_3x3(
@@ -690,21 +690,21 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
             why4="Check piece safety first",
         )
         notes = self._capture_notes(ctrl)
-        note_text = notes[0][4]
-        self.assertIn("I wanted tempo", note_text)
-        self.assertIn("The pawn was poisoned", note_text)
-        self.assertIn("Check piece safety first", note_text)
+        self.assertEqual(notes[0][4], "I wanted tempo")         # why1
+        self.assertEqual(notes[0][5], "The pawn was poisoned")  # why2
+        self.assertEqual(notes[0][7], "Check piece safety first")  # why4
 
-    def test_3x3_blank_why_omitted_from_note(self):
+    def test_3x3_blank_why_stored_as_empty_string(self):
         ctrl = self._make_controller_with_3x3(
             why1="I was focused on attack",
             why4="Defend before attacking",
         )
         notes = self._capture_notes(ctrl)
         self.assertEqual(len(notes), 1)
-        note_text = notes[0][4]
-        self.assertIn("I was focused on attack", note_text)
-        self.assertIn("Defend before attacking", note_text)
+        self.assertEqual(notes[0][4], "I was focused on attack")  # why1
+        self.assertEqual(notes[0][5], "")                          # why2 blank
+        self.assertEqual(notes[0][6], "")                          # why3 blank
+        self.assertEqual(notes[0][7], "Defend before attacking")   # why4
 
     def test_3x3_all_ignored_emits_empty_immediately(self):
         ctrl = self._make_controller_with_3x3(
@@ -713,7 +713,7 @@ class TestChessLogChartsControllerFlagShallowNotes(unittest.TestCase):
             ignore=True,
         )
         received: list = []
-        ctrl.shallow_ready.connect(lambda k, ck, u: received.append(k))
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
         ctrl.request_flag_shallow_notes()
         self.assertEqual(len(received), 1)
         self.assertEqual(received[0], set())
@@ -872,7 +872,8 @@ class TestChessLogShallowThreadExceptionHandling(unittest.TestCase):
             base_url_override=None,
             config={},
             timeout_seconds=30,
-            notes=notes,
+            legacy_notes=notes,
+            three_notes=[],
         )
         failed: list = []
         thread.shallow_failed.connect(failed.append)
@@ -924,7 +925,8 @@ def _make_shallow_thread(notes=None, config=None):
         base_url_override=None,
         config=config if config is not None else _shallow_config(),
         timeout_seconds=30,
-        notes=notes,
+        legacy_notes=notes,
+        three_notes=[],
     )
 
 
@@ -950,7 +952,7 @@ class TestChessLogShallowThreadSignalShape(unittest.TestCase):
         failed, partial, ready = [], [], []
         thread.shallow_failed.connect(failed.append)
         thread.shallow_partial.connect(partial.append)
-        thread.shallow_ready.connect(lambda k, ck, u: ready.append(k))
+        thread.shallow_ready.connect(lambda k, vk, ck, u: ready.append(k))
         with patch(
             "app.services.chess_log_shallow_service.classify_notes",
             return_value=result,
@@ -1198,7 +1200,7 @@ class TestShallowIterationOrphanExclusion(unittest.TestCase):
             ctrl.request_flag_shallow_notes()
 
         self.assertEqual(len(thread_kwargs), 1)
-        notes = thread_kwargs[0]["notes"]
+        notes = thread_kwargs[0]["legacy_notes"]
         why_texts = [n[4] for n in notes]
         self.assertTrue(any("real note" in w for w in why_texts),
                         "resolvable why-note missing from notes list")
@@ -1224,15 +1226,15 @@ class TestShallowThreadReadyNoWrite(unittest.TestCase):
         ctrl._chess_log_controller = mock_cl_ctrl
 
         received = []
-        ctrl.shallow_ready.connect(lambda k, ck, u: received.append((k, ck, u)))
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append((k, vk, ck, u)))
 
         shallow_keys = frozenset([(1, "0", "CLAMP")])
         classified_keys = frozenset([(1, "0", "CLAMP")])
         usage = None
-        ctrl._on_shallow_thread_ready(shallow_keys, classified_keys, usage)
+        ctrl._on_shallow_thread_ready(shallow_keys, frozenset(), classified_keys, usage)
 
         self.assertEqual(len(received), 1)
-        self.assertEqual(received[0], (shallow_keys, classified_keys, usage))
+        self.assertEqual(received[0], (shallow_keys, frozenset(), classified_keys, usage))
         mock_cl_ctrl.replace_entries_at_path_for_game.assert_not_called()
 
 
@@ -1250,14 +1252,14 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
             unparsed_indices=(1,),
         )
         received = []
-        thread.shallow_ready.connect(lambda k, ck, u: received.append((k, ck, u)))
+        thread.shallow_ready.connect(lambda k, vk, ck, u: received.append((k, vk, ck, u)))
         with patch(
             "app.services.chess_log_shallow_service.classify_notes",
             return_value=result,
         ):
             thread.run()
         self.assertEqual(len(received), 1, "shallow_ready must fire once")
-        _, classified_keys, _ = received[0]
+        _, _, classified_keys, _ = received[0]
         # note 1: game_number=2, path_key="path/1" — must be absent (unparsed)
         self.assertNotIn((2, "path/1", "CLAMP"), classified_keys)
         # notes 0 and 2 must be present

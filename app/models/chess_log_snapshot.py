@@ -20,3 +20,5 @@ class TagRowSnapshot:
     show_ignore: bool
     best_move: Optional[chess.Move] = field(default=None)
     is_flipped: bool = field(default=False)
+    is_shallow: bool = field(default=False)
+    is_vague: bool = field(default=False)

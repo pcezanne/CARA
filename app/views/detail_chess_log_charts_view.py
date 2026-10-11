@@ -118,7 +118,7 @@ class DetailChessLogChartsView(QWidget):
         narrative, flags, usage = controller.get_last_narrative_result()
         if narrative:
             self._on_narrative_ready(narrative, flags, usage)
-        shallow_keys, shallow_usage = controller.get_last_shallow_result()
+        shallow_keys, _vague_keys, shallow_usage = controller.get_last_shallow_result()
         if shallow_keys is not None:
             self._last_shallow_keys = shallow_keys
             self._shallow_token_label.setText(self._format_token_usage(shallow_usage))
@@ -603,7 +603,7 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_token_label.setText("")
         self._controller.request_flag_shallow_notes()
 
-    def _on_shallow_ready(self, shallow_keys, classified_keys, usage) -> None:
+    def _on_shallow_ready(self, shallow_keys, vague_keys, classified_keys, usage) -> None:
         self._shallow_spinner.stop()
         self._shallow_status_label.setVisible(False)
         self._shallow_token_label.setText(self._format_token_usage(usage))
@@ -611,7 +611,7 @@ class DetailChessLogChartsView(QWidget):
         self._last_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         if not self._controller:
             return
-        if not shallow_keys:
+        if not shallow_keys and not vague_keys:
             from PyQt6.QtWidgets import QMessageBox
             msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
                 "chess_log_messages", {}
@@ -630,6 +630,7 @@ class DetailChessLogChartsView(QWidget):
             games=games,
             controller=chess_log_ctrl,
             shallow_keys=shallow_keys,
+            vague_keys=vague_keys,
             classified_keys=classified_keys,
             parent=self,
         )

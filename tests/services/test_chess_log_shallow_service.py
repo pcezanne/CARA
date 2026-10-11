@@ -44,13 +44,18 @@ def _mock_anthropic_response(text: str, include_usage: bool = True) -> MagicMock
     mock = MagicMock()
     mock.status_code = 200
     mock.content = b"x"
-    body = {
-        "content": [{"type": "text", "text": text}],
-        "stop_reason": "end_turn",
-    }
-    if include_usage:
-        body["usage"] = {"input_tokens": 100, "output_tokens": 50}
-    mock.json.return_value = body
+    # Use side_effect so each call returns a fresh dict — the AIService debug path
+    # does a shallow copy and then mutates item["text"] in place; a shared
+    # return_value dict would be corrupted on the second json() call.
+    def _make_body():
+        body = {
+            "content": [{"type": "text", "text": text}],
+            "stop_reason": "end_turn",
+        }
+        if include_usage:
+            body["usage"] = {"input_tokens": 100, "output_tokens": 50}
+        return body
+    mock.json.side_effect = _make_body
     return mock
 
 
@@ -629,6 +634,204 @@ class TestClassifyNotesTokenBudget(unittest.TestCase):
         _, kwargs = mock_post.call_args
         payload = kwargs.get("json") or {}
         self.assertEqual(payload.get("max_tokens"), 2000)
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — helpers
+# ---------------------------------------------------------------------------
+
+def _make_notes_3x3(
+    why_tuples: list,
+    game_number: int = 1,
+) -> list:
+    """Build 3x3 note list: [(idx, gn, pk, "3x3", why1, why2, why3, why4), ...]."""
+    return [
+        (i, game_number, f"path/{i}", "3x3", w1, w2, w3, w4)
+        for i, (w1, w2, w3, w4) in enumerate(why_tuples)
+    ]
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — reply parsing
+# ---------------------------------------------------------------------------
+
+class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
+    """classify_notes_3x3() parses INTENT=X LESSON=Y lines correctly."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clean_specific_real_is_deep_not_vague(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=REAL")
+        notes = _make_notes_3x3([("I wanted to activate my rook.", "Rook was hanging.", "Re1 defends.", "Check rook safety.")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clean_generic_filler_is_shallow_and_vague(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=GENERIC LESSON=FILLER")
+        notes = _make_notes_3x3([("I thought it was a good move.", "My knight was attacked.", "Nd5 forks the queen.", "Be more careful.")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_specific_filler_is_deep_and_vague(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=FILLER")
+        notes = _make_notes_3x3([("I wanted to trade queens.", "My queen was exposed.", "Qd1 retreats safely.", "Play better.")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_prose_preamble_skipped(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "Here are the verdicts:\n\n"
+            "0: INTENT=SPECIFIC LESSON=REAL\n"
+            "1: INTENT=GENERIC LESSON=FILLER\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([
+            ("Active rook.", "Hanging.", "Re1.", "Check safety."),
+            ("Good move.", "Attacked.", "Nd5.", "Be careful."),
+        ])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertIn((1, "path/1", "3x3"), result.shallow_keys)
+        self.assertIn((1, "path/1", "3x3"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_malformed_intent_unparsed(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=WRONG LESSON=REAL")
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_malformed_lesson_unparsed(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=WRONG")
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_missing_lesson_part_unparsed(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC")
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_missing_intent_part_unparsed(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: LESSON=FILLER")
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_mixed_case_accepted(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response("0: intent=specific lesson=real")
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_prose_mid_sentence_verdict_rejected(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "The INTENT=SPECIFIC choice was wrong and the LESSON=FILLER is obvious.\n"
+            "0: INTENT=GENERIC LESSON=REAL\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_missing_config_returns_failure(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, {}, 30)
+        self.assertFalse(result.success)
+        self.assertIn("config.json", result.error)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_vague_keys_empty_for_clamp(self, mock_post):
+        """CLAMP/CCT classify_notes never populates vague_keys."""
+        mock_post.return_value = _mock_anthropic_response("0: SHALLOW")
+        notes = _make_notes(["note A"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.vague_keys, frozenset())
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — combining rule (all 9 INTENT × LESSON cells)
+# ---------------------------------------------------------------------------
+
+class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
+    """Every INTENT × LESSON combination produces the correct shallow/vague flags."""
+
+    # (intent, lesson, expect_shallow, expect_vague)
+    _CELLS = [
+        ("SPECIFIC", "REAL",   False, False),
+        ("SPECIFIC", "FILLER", False, True),
+        ("SPECIFIC", "BLANK",  False, False),
+        ("GENERIC",  "REAL",   False, False),
+        ("GENERIC",  "FILLER", True,  True),
+        ("GENERIC",  "BLANK",  True,  False),
+        ("BLANK",    "REAL",   False, False),
+        ("BLANK",    "FILLER", True,  True),
+        ("BLANK",    "BLANK",  True,  False),
+    ]
+
+    @patch("app.services.ai_service.requests.post")
+    def test_all_nine_cells(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "\n".join(
+            f"{i}: INTENT={intent} LESSON={lesson}"
+            for i, (intent, lesson, _s, _v) in enumerate(self._CELLS)
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("w1", "w2", "w3", "w4")] * len(self._CELLS))
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        for i, (intent, lesson, exp_shallow, exp_vague) in enumerate(self._CELLS):
+            key = (1, f"path/{i}", "3x3")
+            label = f"idx {i} ({intent}+{lesson})"
+            if exp_shallow:
+                self.assertIn(key, result.shallow_keys, f"{label} should be shallow")
+            else:
+                self.assertNotIn(key, result.shallow_keys, f"{label} should be deep")
+            if exp_vague:
+                self.assertIn(key, result.vague_keys, f"{label} should be vague")
+            else:
+                self.assertNotIn(key, result.vague_keys, f"{label} should not be vague")
 
 
 if __name__ == "__main__":

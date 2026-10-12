@@ -143,7 +143,7 @@ Classification logic in `app/services/chess_log_shallow_service.py`. `ChessLogSh
 
 **Token budget**: `max(2000, n_notes * 60 + 500)` per call — ~2× the observed output rate; applied separately to each classifier call.
 
-**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. WARNING for all-fail, DEBUG for partial-fail.
+**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail.
 
 ## Right-click context menu
 

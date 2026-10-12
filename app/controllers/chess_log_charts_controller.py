@@ -318,16 +318,20 @@ class ChessLogShallowThread(QThread):
                 self.shallow_partial.emit(msg)
 
             # Build classified_keys — notes that received a parsed verdict this run.
+            # Keys are 4-tuples (game_number, path_key, preset, cat):
+            #   CLAMP/CCT: cat="" (one entry per note)
+            #   3x3: cat in {"Why1","Why2","Why3","Why4"} (four keys per parsed note)
             legacy_unparsed_set = frozenset(merged_unparsed_legacy)
             three_unparsed_set = frozenset(merged_unparsed_three)
             classified_keys = frozenset(
-                (n[1], n[2], n[3])
+                (n[1], n[2], n[3], "")
                 for i, n in enumerate(self._legacy_notes)
                 if i not in legacy_unparsed_set
             ) | frozenset(
-                (n[1], n[2], n[3])
+                (n[1], n[2], "3x3", cat)
                 for i, n in enumerate(self._three_notes)
                 if i not in three_unparsed_set
+                for cat in ("Why1", "Why2", "Why3", "Why4")
             )
 
             self.shallow_ready.emit(

@@ -1,85 +1,77 @@
-Classify each of these 3x3 self-analyses as two independent judgments.
+Classify each 3x3 self-analysis of a chess move. You give FOUR independent
+verdicts per note: one for each Why answer. The answers DO NOT rescue each
+other — judge every answer on its own words.
 
-Each note is one 3x3 self-analysis of a chess move the player made.
-It has four parts:
+A 3x3 self-analysis answers four questions:
   Why1 — "Why did I choose that move?"
-  Why2 — "Why is my move not ideal?"  (board-fact question by design)
-  Why3 — "Why is the better move better than my chosen move?"  (board-fact question by design)
+  Why2 — "Why is my move not ideal?"
+  Why3 — "Why is the better move better than my chosen move?"
   Why4 — "What do I do in the future so this doesn't happen again?"
 
-Judge TWO parts, independently, with no interaction between them.
-Why2 and Why3 are context only — they MUST NOT change either verdict.
+Judge Why1, Why2, Why3 as INTENT (one of SPECIFIC, GENERIC, BLANK).
+Judge Why4 as LESSON (one of REAL, FILLER, BLANK).
 
-PART A — Intent (judge Why1 alone)
-----------------------------------
-SPECIFIC — states what the player was actually thinking, planning,
-  or misreading. Short is fine; brevity does not make it generic.
-  Any stated plan, intent, misread, or mental process is SPECIFIC.
+Do NOT let one answer change the verdict for another. A specific Why1 does
+not make a filler Lesson real. A real Lesson does not make a generic Why1
+specific. Each answer is scored on its own text.
+
+INTENT (for Why1, Why2, Why3)
+=============================
+SPECIFIC — Names something concrete about the position, the move, or the
+  player's own thinking. "Concrete" means: a piece, a square, a plan, a
+  tactic, a mental process, a misread, or an intent tied to this position.
+  Short is fine. Overlap with another answer is fine. Repeating a point
+  in different words is fine.
   Examples:
-    "I thought I was defending my rook."
-    "To kick their bishop and set up a battery."
-    "I was building a mating net."
-    "I played the Book move which didn't apply here."
-    "I was defending my pawn."
-GENERIC — a default reason that would fit almost any move.
+    "Clearing the e-file for my rook."
+    "To stop ...Bb4 before I castled."
+    "Doubling rooks before opening the c-file."
+    "It left my f2 pawn without a defender."
+    "The other move wins the h-pawn because their rook is overloaded."
+GENERIC — Could fit almost any move at almost any point in any game.
+  No piece, square, plan, or intent you could point to.
   Examples:
-    "Just developing."
-    "I thought it was a good move."
-    "Trying to get something going."
-BLANK — no Why1 text, or Why1 is empty.
+    "Just a good-looking move."
+    "Trying to improve my position."
+    "Developing."
+    "It was a mistake."
+    "The other move was stronger."
+BLANK — No text, whitespace only, or `(blank)`.
 
-PART B — Lesson (judge Why4 alone)
-----------------------------------
-REAL — names something identifiable to watch for. This includes
-  method-checklist items ("look at checks", "be aware of hung
-  pieces"), tactics, pieces, squares, and positional ideas
-  ("be more aware of positional play"). Checklist lessons count
-  as REAL. Seeing the same checklist item on many moments is
-  valuable information, not a defect.
+LESSON (for Why4)
+=================
+When in doubt, choose REAL. FILLER is reserved for text that names NOTHING
+you could watch for next time.
+
+REAL — Names something identifiable to watch for next game: a pattern, a
+  piece, a square, a mental habit, a method step, or a checklist item.
+  Short counts. Repeated across many moments counts (seeing "look at
+  checks" on ten moments is useful information, not a defect). Prescriptive
+  phrasing counts. Negative lessons count. Any takeaway that you could
+  sincerely use as a to-do item on your next move is REAL.
   Examples:
-    "Look at checks."
-    "Be aware of hung pieces."
-    "Look at their loose pieces."
-    "Be more aware of positional play."
-    "Look for aggressive moves even when attacked."
-FILLER — names nothing identifiable, or is not a lesson at all.
+    "Count attackers and defenders on every capture square."
+    "When attacked, list every retreat and every counter-attack."
+    "Watch for discovered attacks when my queen moves."
+    "Before every move, ask what my opponent's last move threatens."
+    "Sit on my hands for ten seconds and recheck the board."
+FILLER — Names nothing you could watch for. Vague encouragement, defeatist
+  remarks, "I don't know" shrugs, or restated outcomes. If a reasonable
+  reader could not derive a single checklist item from it, it is FILLER.
   Examples:
-    "Be more careful."
-    "Play better."
-    "I'm not sure."
-    "Just resign, the game is long lost."
-BLANK — no Why4 text, or Why4 is empty.
-
-Worked examples
----------------
-
-Why1: "I played the Book move which didn't apply here."
-Why4: "I need to see what I am unprotecting with my move."
-→ INTENT=SPECIFIC LESSON=REAL
-
-Why1: "I'm just developing my Knight."
-Why4: "I need to be aware of hung pieces."
-→ INTENT=GENERIC LESSON=REAL
-
-Why1: "I wanted to trade queens."
-Why4: "Be more careful."
-→ INTENT=SPECIFIC LESSON=FILLER
-
-Why1: "I thought it was a good move!"
-Why4: "I'm not sure. This game was boring."
-→ INTENT=GENERIC LESSON=FILLER
-
-Why1: "I was building a mating net."
-Why4: "Look at checks."
-→ INTENT=SPECIFIC LESSON=REAL
+    "Try harder."
+    "Just play better chess."
+    "Bad day at the board."
+    "Who knows."
+BLANK — No text, whitespace only, or `(blank)`.
 
 Output format
 =============
-Return the verdict list FIRST, before any explanation. Preferably
-return ONLY the verdict list, no other text. One line per note,
-line-anchored, in this exact shape:
+Return the verdict list FIRST, before any explanation. Preferably return
+ONLY the verdict list.
+One line per note, exactly this shape (keep ordering WHY1 → WHY2 → WHY3 → LESSON):
 
-<index>: INTENT=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>
+<index>: WHY1=<SPECIFIC|GENERIC|BLANK> WHY2=<SPECIFIC|GENERIC|BLANK> WHY3=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>
 
 Notes to classify follow, one block per index.
 

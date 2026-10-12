@@ -9,24 +9,31 @@ Previously, any line the parser couldn't understand was silently dropped —
 the corresponding note stayed DEEP but there was no record that the model
 failed to classify it.  Now every input index is accounted for:
 
-- An index is "parsed" when the reply contains a ``<idx>: SHALLOW`` or
-  ``<idx>: DEEP`` line for it.
+- An index is "parsed" when the reply contains a verdict line for it.
 - Unparsed indices are returned in ``ShallowResult.unparsed_indices``.
 - An unparsed index is NEVER marked SHALLOW — it stays DEEP unchanged.
 - The caller (ChessLogShallowThread) surfaces a notice to the user when
   ``unparsed_indices`` is non-empty.
 
+Key tuples
+----------
+All key sets use a uniform 4-tuple ``(game_number, path_key, preset, cat)``:
+
+- CLAMP/CCT: ``cat=""`` (empty string) — one entry per path per preset.
+- 3x3: ``cat`` is one of ``"Why1"``, ``"Why2"``, ``"Why3"``, ``"Why4"`` —
+  each answer is judged independently.
+
 3x3 classifier
 --------------
-``classify_notes_3x3`` accepts notes where each note carries all four Why
-fields separately and classifies them with an independent INTENT / LESSON
-judgment.  The combining rule (shallow / vague) is applied in Python, not
-by the model, so the result is model-independent:
+``classify_notes_3x3`` classifies all four Why answers independently.
 
-    shallow = (intent != SPECIFIC) and (lesson != REAL)
-    vague   = (lesson == FILLER)   # BLANK is never vague
+  WHY1/WHY2/WHY3 → SPECIFIC, GENERIC, or BLANK
+      GENERIC → ``(gn, pk, "3x3", cat)`` in ``shallow_keys``
+  WHY4 (Lesson) → REAL, FILLER, or BLANK
+      FILLER → ``(gn, pk, "3x3", "Why4")`` in ``vague_keys``
 
-Results are returned as ``vague_keys`` alongside ``shallow_keys``.
+The old "a real lesson rescues a generic Why1" combining rule is removed.
+Each answer stands alone.
 """
 
 from __future__ import annotations
@@ -49,17 +56,18 @@ class ShallowResult:
     """Result of classify_notes() or classify_notes_3x3()."""
 
     success: bool
-    # (game_number, path_key, preset) tuples judged SHALLOW
-    shallow_keys: FrozenSet[Tuple[int, str, str]]
+    # (game_number, path_key, preset, cat) 4-tuples judged SHALLOW.
+    # CLAMP/CCT: cat="" (empty).  3x3: cat in {"Why1","Why2","Why3"}.
+    shallow_keys: FrozenSet[Tuple[int, str, str, str]]
     error: Optional[str]
     usage: Optional[TokenUsage]
     model: str
-    # Input indices for which the model returned neither SHALLOW nor DEEP.
+    # Input indices for which the model returned no parsable verdict.
     # These notes are left unchanged (not marked shallow).
     unparsed_indices: Tuple[int, ...]
-    # (game_number, path_key, preset) tuples with a vague lesson (3x3 only).
+    # (game_number, path_key, "3x3", "Why4") 4-tuples with a vague lesson.
     # Always empty for CLAMP/CCT notes.
-    vague_keys: FrozenSet[Tuple[int, str, str]] = field(default_factory=frozenset)
+    vague_keys: FrozenSet[Tuple[int, str, str, str]] = field(default_factory=frozenset)
 
 
 # ---------------------------------------------------------------------------
@@ -110,49 +118,54 @@ def _parse_verdicts(reply_text: str, note_count: int) -> dict:
 # 3x3 verdict parsing
 # ---------------------------------------------------------------------------
 
-# Matches a 3x3 verdict line: <idx>: INTENT=<X> LESSON=<Y>
-# Both fields must be present on the same line.  Prose lines that mention
-# INTENT or LESSON without the enum values (e.g. "the INTENT would have
-# been clearer") never match because the enum gate requires an = sign
+# Matches a 3x3 verdict line: <idx>: WHY1=<X> WHY2=<X> WHY3=<X> LESSON=<Y>
+# All four fields must be present on the same line, in order.  Prose lines
+# that mention WHY1/LESSON without the enum values (e.g. "the WHY1 would
+# have been clearer") never match because each field requires an = sign
 # immediately followed by a valid enum value.
 _LINE_RE_3X3 = re.compile(
     r'^[\s|*>_\-\[]*'                               # leading decoration
     r'(\d+)\s*'                                      # index
     r'[-\]:.)|]\s*'                                  # separator
     r'[*_`]*\s*'                                     # optional decoration
-    r'INTENT\s*=\s*'                                 # INTENT= tag
-    r'(SPECIFIC|GENERIC|BLANK)'                      # intent verdict
-    r'\s+'                                           # whitespace between fields
-    r'LESSON\s*=\s*'                                 # LESSON= tag
-    r'(REAL|FILLER|BLANK)'                           # lesson verdict
+    r'WHY1\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY1 verdict + whitespace
+    r'WHY2\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY2 verdict + whitespace
+    r'WHY3\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY3 verdict + whitespace
+    r'LESSON\s*=\s*(REAL|FILLER|BLANK)'             # LESSON verdict
     r'\s*[*_`|.,!;]*\s*$',                           # trailing decoration
     re.IGNORECASE | re.MULTILINE,
 )
 
 
 def _parse_3x3_verdicts(reply_text: str, note_count: int) -> dict:
-    """Return {idx: (intent_upper, lesson_upper)} from a 3x3 classifier reply.
+    """Return {idx: (why1_upper, why2_upper, why3_upper, lesson_upper)}.
 
-    Preprocessing: insert a newline when a lesson verdict (REAL/FILLER/BLANK) is
-    immediately followed by a digit, matching the glued-block fix in _parse_verdicts.
+    Preprocessing: insert a newline when any enum value is immediately followed
+    by a digit, covering glued reply blocks from all five vocabulary words.
 
     Last occurrence wins for duplicate indices.
     """
-    text = re.sub(r'\b(REAL|FILLER|BLANK)(\d)', r'\1\n\2', reply_text, flags=re.IGNORECASE)
+    text = re.sub(r'\b(SPECIFIC|GENERIC|BLANK|REAL|FILLER)(\d)', r'\1\n\2', reply_text, flags=re.IGNORECASE)
     parsed: dict = {}
     for m in _LINE_RE_3X3.finditer(text):
         try:
             idx = int(m.group(1))
         except ValueError:
             continue
-        intent = m.group(2).upper()
-        lesson = m.group(3).upper()
-        if intent not in ("SPECIFIC", "GENERIC", "BLANK"):
+        why1 = m.group(2).upper()
+        why2 = m.group(3).upper()
+        why3 = m.group(4).upper()
+        lesson = m.group(5).upper()
+        if why1 not in ("SPECIFIC", "GENERIC", "BLANK"):
+            continue
+        if why2 not in ("SPECIFIC", "GENERIC", "BLANK"):
+            continue
+        if why3 not in ("SPECIFIC", "GENERIC", "BLANK"):
             continue
         if lesson not in ("REAL", "FILLER", "BLANK"):
             continue
         if 0 <= idx < note_count:
-            parsed[idx] = (intent, lesson)
+            parsed[idx] = (why1, why2, why3, lesson)
     return parsed
 
 
@@ -160,15 +173,17 @@ def _parse_3x3_verdicts(reply_text: str, note_count: int) -> dict:
 # Token budget
 # ---------------------------------------------------------------------------
 
-def _classifier_token_limit(note_count: int) -> int:
+def _classifier_token_limit(note_count: int, per_note: int = 60) -> int:
     """Conservative output-token budget for the classifier.
 
-    Measured at ~31 tokens/note on a 62-note CLAMP library.  Using 60/note
-    (~2× observed) plus 500 for preamble avoids truncation before the verdict
-    list on large libraries.  Floor of 2000 matches the former default so no
-    small-library regression.
+    CLAMP/CCT (two-verdict format): ~31 tokens/note observed; 60/note (~2×)
+    used here.  3x3 (four-verdict format): extrapolated conservatively to
+    ~55 tokens/note worst-case; 90/note (~1.6×) gives adequate headroom.
+
+    Pass ``per_note=90`` for the 3x3 classifier.  Floor of 2000 matches the
+    former default so no small-library regression.
     """
-    return max(2000, note_count * 60 + 500)
+    return max(2000, note_count * per_note + 500)
 
 
 # ---------------------------------------------------------------------------
@@ -220,6 +235,10 @@ def classify_notes(
 
     token_limit = _classifier_token_limit(len(notes))
     service = AIService(config=config)
+    LoggingService.get_instance().debug(
+        "chess_log classifier dispatch: model=%s, thinking=%r, temperature=0, notes=%d, max_tokens=%d"
+        % (model, thinking, len(notes), token_limit)
+    )
     result = service.send_message(
         provider=provider,
         model=model,
@@ -229,6 +248,7 @@ def classify_notes(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
+        temperature=0,
     )
 
     if not result.success:
@@ -243,8 +263,8 @@ def classify_notes(
 
     parsed = _parse_verdicts(result.text, len(notes))
 
-    shallow_keys: FrozenSet[Tuple[int, str, str]] = frozenset(
-        (notes[i][1], notes[i][2], notes[i][3])
+    shallow_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(
+        (notes[i][1], notes[i][2], notes[i][3], "")
         for i, verdict in parsed.items()
         if verdict == "SHALLOW"
     )
@@ -342,8 +362,12 @@ def classify_notes_3x3(
     prompt = classifier_body + "\n".join(note_blocks)
 
     thinking = AIService.disable_thinking_for(model)
-    token_limit = _classifier_token_limit(len(notes))
+    token_limit = _classifier_token_limit(len(notes), per_note=90)
     service = AIService(config=config)
+    LoggingService.get_instance().debug(
+        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, temperature=0, notes=%d, max_tokens=%d"
+        % (model, thinking, len(notes), token_limit)
+    )
     result = service.send_message(
         provider=provider,
         model=model,
@@ -353,6 +377,7 @@ def classify_notes_3x3(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
+        temperature=0,
     )
 
     if not result.success:
@@ -367,18 +392,19 @@ def classify_notes_3x3(
 
     parsed = _parse_3x3_verdicts(result.text, len(notes))
 
-    shallow_keys: FrozenSet[Tuple[int, str, str]] = frozenset()
-    vague_keys: FrozenSet[Tuple[int, str, str]] = frozenset()
     s_keys = []
     v_keys = []
-    for i, (intent, lesson) in parsed.items():
-        key = (notes[i][1], notes[i][2], notes[i][3])
-        if intent != "SPECIFIC" and lesson != "REAL":
-            s_keys.append(key)
+    for i, (why1, why2, why3, lesson) in parsed.items():
+        gn, pk = notes[i][1], notes[i][2]
+        # Each Why1/Why2/Why3 answer is judged independently: GENERIC → shallow.
+        for cat, verdict in (("Why1", why1), ("Why2", why2), ("Why3", why3)):
+            if verdict == "GENERIC":
+                s_keys.append((gn, pk, "3x3", cat))
+        # Why4 (Lesson): FILLER → vague lesson.
         if lesson == "FILLER":
-            v_keys.append(key)
-    shallow_keys = frozenset(s_keys)
-    vague_keys = frozenset(v_keys)
+            v_keys.append((gn, pk, "3x3", "Why4"))
+    shallow_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(s_keys)
+    vague_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(v_keys)
 
     unparsed = tuple(i for i in range(len(notes)) if i not in parsed)
 

@@ -78,9 +78,9 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertIn((1, "path/2", "CLAMP"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((1, "path/2", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_preamble_skipped(self, mock_post):
@@ -95,8 +95,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_markdown_fences_skipped(self, mock_post):
@@ -107,8 +107,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_trailing_period_parsed(self, mock_post):
@@ -120,8 +120,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_bold_markdown_parsed(self, mock_post):
@@ -133,8 +133,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_backtick_markdown_parsed(self, mock_post):
@@ -145,7 +145,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_underscore_markdown_parsed(self, mock_post):
@@ -156,7 +156,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_trailing_comma_parsed(self, mock_post):
@@ -167,7 +167,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_space_padded_bold_parsed(self, mock_post):
@@ -180,7 +180,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     # Index decoration forms --------------------------------------------------
 
@@ -194,8 +194,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_paren_separator_parsed(self, mock_post):
@@ -206,7 +206,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_leading_dash_parsed(self, mock_post):
@@ -218,7 +218,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_bracket_decoration_parsed(self, mock_post):
@@ -230,7 +230,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_digit_not_parsed(self, mock_post):
@@ -256,8 +256,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_missing_indices_reported_as_unparsed(self, mock_post):
@@ -270,7 +270,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (1,))
         # Index 1 is NOT marked shallow despite being absent
-        self.assertNotIn((1, "path/1", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_out_of_range_index_ignored(self, mock_post):
@@ -282,7 +282,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
         # No key for index 99 added
         self.assertEqual(len(result.shallow_keys), 1)
 
@@ -296,7 +296,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_extra_text_after_verdict_not_parsed(self, mock_post):
@@ -310,7 +310,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         # Index 0 is unparsed (extra text), index 1 is parsed as DEEP
         self.assertIn(0, result.unparsed_indices)
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
 
 class TestClassifyNotesEmptyReply(unittest.TestCase):
@@ -391,7 +391,7 @@ class TestClassifyNotesUsageReporting(unittest.TestCase):
         self.assertFalse(result.usage.reported)
         # unparsed count is still correct when usage is missing
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
 
 class TestClassifyNotesThinkingDisabled(unittest.TestCase):
@@ -530,7 +530,7 @@ class TestClassifyNotesParserRobustness(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_parse_rejects_trailing_prose_after_verdict(self, mock_post):
@@ -605,8 +605,12 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
         ):
             result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertEqual(result.unparsed_indices, (1,))
-        mock_logger.debug.assert_called_once()
+        # The dispatch DEBUG log fires first, then the parse-result DEBUG log
+        self.assertGreaterEqual(mock_logger.debug.call_count, 1)
         mock_logger.warning.assert_not_called()
+        # The parse-result debug message must mention the partial-fail context
+        debug_calls = [str(c) for c in mock_logger.debug.call_args_list]
+        self.assertTrue(any("parsed" in msg for msg in debug_calls))
 
 
 class TestClassifyNotesTokenBudget(unittest.TestCase):
@@ -652,52 +656,64 @@ def _make_notes_3x3(
 
 
 # ---------------------------------------------------------------------------
-# 3x3 classifier — reply parsing
+# 3x3 classifier — reply parsing (new 4-field WHY1/WHY2/WHY3/LESSON format)
 # ---------------------------------------------------------------------------
 
 class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
-    """classify_notes_3x3() parses INTENT=X LESSON=Y lines correctly."""
+    """classify_notes_3x3() parses WHY1=X WHY2=X WHY3=X LESSON=Y lines correctly."""
 
     @patch("app.services.ai_service.requests.post")
-    def test_clean_specific_real_is_deep_not_vague(self, mock_post):
+    def test_clean_specific_real_no_flags(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=REAL")
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("I wanted to activate my rook.", "Rook was hanging.", "Re1 defends.", "Check rook safety.")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3"), result.vague_keys)
+        # SPECIFIC → not shallow; REAL → not vague
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
-    def test_clean_generic_filler_is_shallow_and_vague(self, mock_post):
+    def test_clean_generic_filler_flags_all_whys_and_vague(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=GENERIC LESSON=FILLER")
+        reply = "0: WHY1=GENERIC WHY2=GENERIC WHY3=GENERIC LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("I thought it was a good move.", "My knight was attacked.", "Nd5 forks the queen.", "Be more careful.")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3"), result.vague_keys)
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
-    def test_specific_filler_is_deep_and_vague(self, mock_post):
+    def test_specific_filler_only_vague_no_shallow(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=FILLER")
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("I wanted to trade queens.", "My queen was exposed.", "Qd1 retreats safely.", "Play better.")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3"), result.vague_keys)
+        # SPECIFIC → no shallow keys
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
+        # FILLER → vague
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_preamble_skipped(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
         reply = (
             "Here are the verdicts:\n\n"
-            "0: INTENT=SPECIFIC LESSON=REAL\n"
-            "1: INTENT=GENERIC LESSON=FILLER\n"
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+            "1: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER\n"
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([
@@ -707,14 +723,19 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
-        self.assertIn((1, "path/1", "3x3"), result.shallow_keys)
-        self.assertIn((1, "path/1", "3x3"), result.vague_keys)
+        # Note 0: all SPECIFIC+REAL → no flags
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        # Note 1: WHY1=GENERIC → shallow on Why1; LESSON=FILLER → vague on Why4
+        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/1", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((1, "path/1", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
-    def test_malformed_intent_unparsed(self, mock_post):
+    def test_malformed_why1_unparsed(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=WRONG LESSON=REAL")
+        reply = "0: WHY1=WRONG WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
@@ -723,7 +744,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
     @patch("app.services.ai_service.requests.post")
     def test_malformed_lesson_unparsed(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC LESSON=WRONG")
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=WRONG"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
@@ -732,16 +754,52 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
     @patch("app.services.ai_service.requests.post")
     def test_missing_lesson_part_unparsed(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: INTENT=SPECIFIC")
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (0,))
 
     @patch("app.services.ai_service.requests.post")
-    def test_missing_intent_part_unparsed(self, mock_post):
+    def test_old_two_field_format_unparsed(self, mock_post):
+        """Old INTENT=X LESSON=Y format (3 fields) is rejected by the 4-field regex."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: LESSON=FILLER")
+        reply = "0: INTENT=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_three_why_fields_without_lesson_unparsed(self, mock_post):
+        """Three WHY fields but no LESSON= part → unparsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_missing_why1_field_unparsed(self, mock_post):
+        """WHY2/WHY3/LESSON present but WHY1 missing → unparsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_out_of_order_fields_unparsed(self, mock_post):
+        """Fields in wrong order (LESSON before WHY3) → unparsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC LESSON=REAL WHY2=SPECIFIC WHY3=SPECIFIC"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
@@ -750,26 +808,30 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
     @patch("app.services.ai_service.requests.post")
     def test_mixed_case_accepted(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        mock_post.return_value = _mock_anthropic_response("0: intent=specific lesson=real")
+        reply = "0: why1=specific why2=specific why3=specific lesson=real"
+        mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_mid_sentence_verdict_rejected(self, mock_post):
+        """A verdict embedded in mid-sentence prose is not parsed as an index verdict."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
         reply = (
-            "The INTENT=SPECIFIC choice was wrong and the LESSON=FILLER is obvious.\n"
-            "0: INTENT=GENERIC LESSON=REAL\n"
+            "The WHY1=SPECIFIC choice was wrong and the LESSON=REAL is obvious.\n"
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        # SPECIFIC → no shallow keys; REAL → no vague
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_missing_config_returns_failure(self, mock_post):
@@ -790,151 +852,589 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3x3 classifier — combining rule (all 9 INTENT × LESSON cells)
+# 3x3 classifier — combining rule: per-cat, no cross-answer rescue
 # ---------------------------------------------------------------------------
 
 class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
-    """Every INTENT × LESSON combination produces the correct shallow/vague flags."""
+    """Per-answer combining: GENERIC→shallow on that Why; FILLER→vague on Why4; no rescue."""
 
-    # (intent, lesson, expect_shallow, expect_vague)
+    # (why1, why2, why3, lesson, expect_shallow_cats, expect_vague)
     _CELLS = [
-        ("SPECIFIC", "REAL",   False, False),
-        ("SPECIFIC", "FILLER", False, True),
-        ("SPECIFIC", "BLANK",  False, False),
-        ("GENERIC",  "REAL",   False, False),
-        ("GENERIC",  "FILLER", True,  True),
-        ("GENERIC",  "BLANK",  True,  False),
-        ("BLANK",    "REAL",   False, False),
-        ("BLANK",    "FILLER", True,  True),
-        ("BLANK",    "BLANK",  True,  False),
+        ("SPECIFIC", "SPECIFIC", "SPECIFIC", "REAL",   [],                         False),
+        ("GENERIC",  "SPECIFIC", "SPECIFIC", "REAL",   ["Why1"],                   False),
+        ("SPECIFIC", "GENERIC",  "SPECIFIC", "REAL",   ["Why2"],                   False),
+        ("SPECIFIC", "SPECIFIC", "GENERIC",  "REAL",   ["Why3"],                   False),
+        ("SPECIFIC", "SPECIFIC", "SPECIFIC", "FILLER", [],                         True),
+        ("GENERIC",  "GENERIC",  "GENERIC",  "FILLER", ["Why1", "Why2", "Why3"],   True),
+        ("BLANK",    "BLANK",    "BLANK",    "BLANK",  [],                         False),
+        ("GENERIC",  "BLANK",    "SPECIFIC", "REAL",   ["Why1"],                   False),
+        ("SPECIFIC", "BLANK",    "GENERIC",  "FILLER", ["Why3"],                   True),
     ]
 
     @patch("app.services.ai_service.requests.post")
-    def test_all_nine_cells(self, mock_post):
+    def test_all_cells(self, mock_post):
         from app.services.chess_log_shallow_service import classify_notes_3x3
         reply = "\n".join(
-            f"{i}: INTENT={intent} LESSON={lesson}"
-            for i, (intent, lesson, _s, _v) in enumerate(self._CELLS)
+            f"{i}: WHY1={w1} WHY2={w2} WHY3={w3} LESSON={lsn}"
+            for i, (w1, w2, w3, lsn, _sc, _sv) in enumerate(self._CELLS)
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("w1", "w2", "w3", "w4")] * len(self._CELLS))
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        for i, (intent, lesson, exp_shallow, exp_vague) in enumerate(self._CELLS):
-            key = (1, f"path/{i}", "3x3")
-            label = f"idx {i} ({intent}+{lesson})"
-            if exp_shallow:
-                self.assertIn(key, result.shallow_keys, f"{label} should be shallow")
-            else:
-                self.assertNotIn(key, result.shallow_keys, f"{label} should be deep")
+        for i, (w1, w2, w3, lsn, exp_shallow_cats, exp_vague) in enumerate(self._CELLS):
+            gn, pk = 1, f"path/{i}"
+            label = f"idx {i} ({w1},{w2},{w3},{lsn})"
+            for cat in ("Why1", "Why2", "Why3"):
+                key = (gn, pk, "3x3", cat)
+                if cat in exp_shallow_cats:
+                    self.assertIn(key, result.shallow_keys, f"{label} {cat} should be shallow")
+                else:
+                    self.assertNotIn(key, result.shallow_keys, f"{label} {cat} should not be shallow")
+            vague_key = (gn, pk, "3x3", "Why4")
             if exp_vague:
-                self.assertIn(key, result.vague_keys, f"{label} should be vague")
+                self.assertIn(vague_key, result.vague_keys, f"{label} Why4 should be vague")
             else:
-                self.assertNotIn(key, result.vague_keys, f"{label} should not be vague")
-
-
-class TestClassifyNotes3x3GluedReplies(unittest.TestCase):
-    """B3: Glued 3x3 reply blocks (no newline between verdicts) must be handled."""
+                self.assertNotIn(vague_key, result.vague_keys, f"{label} Why4 should not be vague")
 
     @patch("app.services.ai_service.requests.post")
-    def test_glued_lesson_verdict_followed_by_next_index(self, mock_post):
-        """'REAL1:' glued reply: both indices must be parsed (never crash)."""
+    def test_generic_why1_real_lesson_no_rescue(self, mock_post):
+        """REAL lesson does NOT rescue a GENERIC Why1 — per-answer, no cross-rescue."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        # Simulates upstream joining two text blocks without a separator.
-        # Block 1 ends with LESSON=REAL, block 2 starts immediately with '1:'.
-        reply = "0: INTENT=SPECIFIC LESSON=REAL1: INTENT=GENERIC LESSON=FILLER"
+        reply = "0: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+                      "GENERIC Why1 is shallow even when lesson is REAL")
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_specific_why1_filler_lesson_no_taint(self, mock_post):
+        """FILLER lesson does NOT taint a SPECIFIC Why1 — per-answer, no cross-taint."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+                         "SPECIFIC Why1 is not shallow even when lesson is FILLER")
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_blank_why_not_shallow(self, mock_post):
+        """BLANK Why answer is NOT flagged as shallow (only GENERIC triggers shallow)."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=BLANK WHY2=BLANK WHY3=BLANK LESSON=BLANK"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("", "", "", "")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — partial reply, failure, token budget
+# ---------------------------------------------------------------------------
+
+class TestClassifyNotes3x3PartialReply(unittest.TestCase):
+    """Some indices parsed, others missing → unparsed_indices correct."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_partial_reply_missing_index_reported(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        # Three notes but reply only covers indices 0 and 2
+        reply = (
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+            "2: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")] * 3)
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (1,))
+        self.assertNotIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/2", "3x3", "Why1"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_partial_reply_out_of_range_index_ignored(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "0: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+            "99: WHY1=GENERIC WHY2=GENERIC WHY3=GENERIC LESSON=FILLER\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertEqual(len(result.shallow_keys), 1)
+
+
+class TestClassifyNotes3x3Failure(unittest.TestCase):
+    """API failure returns success=False with all indices in unparsed_indices."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_api_error_success_false_all_unparsed(self, mock_post):
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_error(500, "Internal Server Error")
+        notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertFalse(result.success)
+        self.assertEqual(result.unparsed_indices, (0, 1))
+        self.assertEqual(len(result.shallow_keys), 0)
+        self.assertEqual(len(result.vague_keys), 0)
+
+
+class TestClassifyNotes3x3TokenBudget(unittest.TestCase):
+    """classify_notes_3x3 uses per_note=90 for a larger token budget."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_3x3_token_budget_uses_90_per_note(self, mock_post):
+        """50 notes → token_limit = max(2000, 50*90+500) = 5000."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        replies = "\n".join(
+            f"{i}: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+            for i in range(50)
+        )
+        mock_post.return_value = _mock_anthropic_response(replies)
+        notes = _make_notes_3x3([("a", "b", "c", "d")] * 50)
+        classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("max_tokens"), 5000)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_3x3_small_library_respects_floor(self, mock_post):
+        """1 note → token_limit = max(2000, 1*90+500) = 2000 (floor)."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_post.return_value = _mock_anthropic_response(
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        )
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("max_tokens"), 2000)
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — glued reply blocks
+# ---------------------------------------------------------------------------
+
+class TestClassifyNotes3x3GluedReplies(unittest.TestCase):
+    """Glued 3x3 reply blocks (no newline between verdicts) must be handled."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_glued_real_verdict_followed_by_next_index(self, mock_post):
+        """'REAL1:' glued reply: both indices parsed after preprocessing."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+            "1: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER"
+        )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        # Both indices must be parsed — neither should remain unparsed.
         self.assertEqual(result.unparsed_indices, (),
-                         f"Unparsed indices: {result.unparsed_indices}; "
-                         "glued reply must be split before parsing")
-        # Index 0: SPECIFIC+REAL → not shallow, not vague
-        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3"), result.vague_keys)
-        # Index 1: GENERIC+FILLER → shallow and vague
-        self.assertIn((1, "path/1", "3x3"), result.shallow_keys)
-        self.assertIn((1, "path/1", "3x3"), result.vague_keys)
+                         f"Unparsed: {result.unparsed_indices}; glued reply must be split")
+        # Note 0: all SPECIFIC+REAL → no flags
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        # Note 1: WHY1=GENERIC → shallow on Why1; FILLER → vague on Why4
+        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/1", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_glued_filler_verdict_followed_by_next_index(self, mock_post):
-        """'FILLER1:' glued reply: both indices must be parsed."""
+        """'FILLER1:' glued reply: both indices parsed."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        reply = "0: INTENT=GENERIC LESSON=FILLER1: INTENT=SPECIFIC LESSON=REAL"
+        reply = (
+            "0: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER"
+            "1: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (),
-                         f"Unparsed indices: {result.unparsed_indices}")
+                         f"Unparsed: {result.unparsed_indices}")
 
     @patch("app.services.ai_service.requests.post")
     def test_glued_blank_verdict_followed_by_next_index(self, mock_post):
-        """'BLANK1:' glued reply: both indices must be parsed."""
+        """'BLANK1:' glued reply: both indices parsed."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        reply = "0: INTENT=BLANK LESSON=BLANK1: INTENT=GENERIC LESSON=FILLER"
+        reply = (
+            "0: WHY1=BLANK WHY2=BLANK WHY3=BLANK LESSON=BLANK"
+            "1: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER"
+        )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (),
-                         f"Unparsed indices: {result.unparsed_indices}")
+                         f"Unparsed: {result.unparsed_indices}")
 
+    @patch("app.services.ai_service.requests.post")
+    def test_glued_specific_verdict_followed_by_next_index(self, mock_post):
+        """'SPECIFIC1:' glued reply: preprocessing splits on SPECIFIC too."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+            "1: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (),
+                         f"Unparsed: {result.unparsed_indices}")
+
+
+# ---------------------------------------------------------------------------
+# 3x3 classifier — duplicate indices
+# ---------------------------------------------------------------------------
 
 class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
-    """B4: Duplicate indices in 3x3 replies — behavior must match CLAMP (last wins)."""
+    """Duplicate indices in 3x3 replies — last wins, same as CLAMP."""
 
     @patch("app.services.ai_service.requests.post")
     def test_duplicate_index_last_verdict_wins(self, mock_post):
-        """When index 0 appears twice, the last verdict overwrites the first — same as CLAMP."""
+        """Last verdict wins: first GENERIC+FILLER then SPECIFIC+REAL → no flags."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
-        # First: GENERIC+FILLER (shallow+vague), Second: SPECIFIC+REAL (deep, not vague)
-        # Last wins → SPECIFIC+REAL → not shallow, not vague
         reply = (
-            "0: INTENT=GENERIC LESSON=FILLER\n"
-            "0: INTENT=SPECIFIC LESSON=REAL\n"
+            "0: WHY1=GENERIC WHY2=GENERIC WHY3=GENERIC LESSON=FILLER\n"
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        key = (1, "path/0", "3x3")
-        self.assertNotIn(key, result.shallow_keys, "last verdict SPECIFIC+REAL → not shallow")
-        self.assertNotIn(key, result.vague_keys, "last verdict SPECIFIC+REAL → not vague")
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+                         "last verdict SPECIFIC → not shallow")
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+                         "last verdict REAL → not vague")
 
     @patch("app.services.ai_service.requests.post")
     def test_duplicate_index_last_verdict_wins_reversed(self, mock_post):
-        """Reversed order: first SPECIFIC+REAL, second GENERIC+FILLER → shallow+vague."""
+        """Reversed order: first SPECIFIC+REAL, second GENERIC+FILLER → flags on all."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
         reply = (
-            "0: INTENT=SPECIFIC LESSON=REAL\n"
-            "0: INTENT=GENERIC LESSON=FILLER\n"
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+            "0: WHY1=GENERIC WHY2=GENERIC WHY3=GENERIC LESSON=FILLER\n"
         )
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        key = (1, "path/0", "3x3")
-        self.assertIn(key, result.shallow_keys, "last verdict GENERIC+FILLER → shallow")
-        self.assertIn(key, result.vague_keys, "last verdict GENERIC+FILLER → vague")
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+                      "last verdict GENERIC → shallow")
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+                      "last verdict FILLER → vague")
 
     @patch("app.services.ai_service.requests.post")
     def test_clamp_duplicate_last_wins_matches_3x3_behavior(self, mock_post):
-        """CLAMP and 3x3 must agree: last occurrence wins (not first, not error)."""
+        """CLAMP and 3x3 must agree: last occurrence wins."""
         from app.services.chess_log_shallow_service import classify_notes
-        # CLAMP: first SHALLOW, second DEEP → last wins → DEEP → not in shallow_keys
         reply = "0: SHALLOW\n0: DEEP\n"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes(["note"])
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+
+
+# ---------------------------------------------------------------------------
+# temperature kwarg: AIService.send_message plumbing
+# ---------------------------------------------------------------------------
+
+class TestTemperatureDefaults(unittest.TestCase):
+    """Without temperature kwarg: OpenAI sends 0.7; Anthropic sends no temperature key."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_openai_default_temperature_0_7(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"x"
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+        mock_post.return_value = mock_response
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+        )
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("temperature"), 0.7)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_anthropic_default_no_temperature_key(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_post.return_value = _mock_anthropic_response("hi")
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+        )
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertNotIn("temperature", payload)
+
+
+class TestTemperatureZeroExplicit(unittest.TestCase):
+    """temperature=0 is forwarded to both providers."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_openai_explicit_temperature_zero(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"x"
+        mock_response.json.return_value = {
+            "choices": [{"message": {"content": "hi"}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 5},
+        }
+        mock_post.return_value = mock_response
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="openai",
+            model="gpt-4o",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+            temperature=0,
+        )
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("temperature"), 0)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_anthropic_explicit_temperature_zero(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_post.return_value = _mock_anthropic_response("hi")
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+            temperature=0,
+        )
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        self.assertEqual(payload.get("temperature"), 0)
+
+
+class TestTemperatureSentWhenThinkingDisabled(unittest.TestCase):
+    """temperature=0 is sent even when thinking={type:disabled} — disabled is not live."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_sonnet5_thinking_disabled_temperature_sent(self, mock_post):
+        from app.services.ai_service import AIService
+        mock_post.return_value = _mock_anthropic_response("hi")
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-20251101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+            temperature=0,
+            thinking={"type": "disabled"},
+        )
+        _, kwargs = mock_post.call_args
+        payload = kwargs.get("json") or {}
+        # thinking=disabled is NOT a live thinking mode → temperature must be present
+        self.assertEqual(payload.get("thinking"), {"type": "disabled"})
+        self.assertEqual(payload.get("temperature"), 0)
+
+
+class TestTemperatureDroppedOnThinkingLive(unittest.TestCase):
+    """temperature is dropped when a live thinking mode is active."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_temperature_dropped_on_between_tools_retry(self, mock_post):
+        """Sonnet-5.5 retry uses between_tools → temperature must be absent."""
+        from app.services.ai_service import AIService
+
+        # First call: return 400 with "between_tools … instead of" to trigger between_tools retry
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        error_resp.content = b"x"
+        error_resp.json.return_value = {
+            "error": {"message": "Use thinking.type.between_tools instead of disabled for this model"}
+        }
+
+        # Second call (retry): succeed
+        retry_resp = _mock_anthropic_response("hi")
+
+        mock_post.side_effect = [error_resp, retry_resp]
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="anthropic",
+            model="claude-sonnet-5-5-20260101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+            temperature=0,
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 2)
+        # Second call is the retry
+        _, kwargs = mock_post.call_args_list[1]
+        payload = kwargs.get("json") or {}
+        # between_tools is live → temperature must be absent
+        thinking = payload.get("thinking", {})
+        self.assertEqual(thinking.get("type"), "between_tools")
+        self.assertNotIn("temperature", payload)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_temperature_dropped_on_adaptive_retry(self, mock_post):
+        """Opus-5.5 retry uses adaptive+low → temperature must be absent."""
+        from app.services.ai_service import AIService
+
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        error_resp.content = b"x"
+        error_resp.json.return_value = {
+            "error": {"message": "thinking.type.disabled is not supported for this model; use adaptive instead"}
+        }
+
+        retry_resp = _mock_anthropic_response("hi")
+        mock_post.side_effect = [error_resp, retry_resp]
+        svc = AIService(config=_CONFIG)
+        svc.send_message(
+            provider="anthropic",
+            model="claude-opus-5-5-20260101",
+            api_key="sk-test",
+            messages=[{"role": "user", "content": "hi"}],
+            token_limit=100,
+            temperature=0,
+            thinking={"type": "disabled"},
+        )
+        self.assertEqual(mock_post.call_count, 2)
+        _, kwargs = mock_post.call_args_list[1]
+        payload = kwargs.get("json") or {}
+        # adaptive is live (or output_config present) → temperature must be absent
+        has_adaptive = payload.get("thinking", {}).get("type") == "adaptive"
+        has_output_config = "output_config" in payload
+        self.assertTrue(has_adaptive or has_output_config,
+                        "Opus-5.5 retry should use adaptive thinking or output_config")
+        self.assertNotIn("temperature", payload)
+
+
+class TestTemperatureFallbackRetry(unittest.TestCase):
+    """If Anthropic rejects temperature on an unexpected 400, one retry without it is made."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_temperature_retry_on_unexpected_400(self, mock_post):
+        from app.services.ai_service import AIService
+
+        # First response: 400 mentioning "temperature"
+        error_resp = MagicMock()
+        error_resp.status_code = 400
+        error_resp.content = b"x"
+        error_resp.json.return_value = {
+            "error": {"message": "temperature is not supported for this model configuration"}
+        }
+        # Second response: success after dropping temperature
+        ok_resp = _mock_anthropic_response("hi")
+        mock_post.side_effect = [error_resp, ok_resp]
+
+        mock_logger = MagicMock()
+        svc = AIService(config=_CONFIG)
+        with patch(
+            "app.services.ai_service.LoggingService.get_instance",
+            return_value=mock_logger,
+        ):
+            result = svc.send_message(
+                provider="anthropic",
+                model="claude-sonnet-4-6",
+                api_key="sk-test",
+                messages=[{"role": "user", "content": "hi"}],
+                token_limit=100,
+                temperature=0,
+            )
+        # Exactly one retry — two total calls
+        self.assertEqual(mock_post.call_count, 2)
+        # WARNING logged via LoggingService with model id
+        mock_logger.warning.assert_called_once()
+        warning_text = mock_logger.warning.call_args.args[0]
+        self.assertIn("claude-sonnet-4-6", warning_text)
+        # Second call must have no temperature key
+        _, kwargs = mock_post.call_args_list[1]
+        payload = kwargs.get("json") or {}
+        self.assertNotIn("temperature", payload)
+        # Result should succeed
+        self.assertTrue(result.success)
+
+
+class TestTemperatureZeroPassed(unittest.TestCase):
+    """Classifier call sites pass temperature=0 to send_message."""
+
+    @patch("app.services.chess_log_shallow_service.AIService")
+    def test_classify_notes_passes_temperature_zero(self, MockAIService):
+        """classify_notes calls send_message with temperature=0."""
+        from app.services.chess_log_shallow_service import classify_notes
+        mock_instance = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.text = "0: DEEP"
+        mock_result.stop_reason = "end_turn"
+        mock_result.content_block_count = 1
+        mock_result.content_block_types = ["text"]
+        mock_result.usage = None
+        mock_instance.send_message.return_value = mock_result
+        MockAIService.return_value = mock_instance
+
+        notes = _make_notes(["note A"])
+        classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        mock_instance.send_message.assert_called_once()
+        _, kwargs = mock_instance.send_message.call_args
+        self.assertEqual(kwargs.get("temperature"), 0)
+
+    @patch("app.services.chess_log_shallow_service.AIService")
+    def test_classify_notes_3x3_passes_temperature_zero(self, MockAIService):
+        """classify_notes_3x3 calls send_message with temperature=0."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        mock_instance = MagicMock()
+        mock_result = MagicMock()
+        mock_result.success = True
+        mock_result.text = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_result.stop_reason = "end_turn"
+        mock_result.content_block_count = 1
+        mock_result.content_block_types = ["text"]
+        mock_result.usage = None
+        mock_instance.send_message.return_value = mock_result
+        MockAIService.return_value = mock_instance
+
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        mock_instance.send_message.assert_called_once()
+        _, kwargs = mock_instance.send_message.call_args
+        self.assertEqual(kwargs.get("temperature"), 0)
 
 
 if __name__ == "__main__":

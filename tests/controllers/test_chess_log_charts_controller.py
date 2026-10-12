@@ -1248,7 +1248,7 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
         notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
         thread = _make_shallow_thread(notes=notes)
         result = _shallow_result(
-            shallow_keys=[(1, "path/0", "CLAMP")],
+            shallow_keys=[(1, "path/0", "CLAMP", "")],
             unparsed_indices=(1,),
         )
         received = []
@@ -1261,10 +1261,10 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
         self.assertEqual(len(received), 1, "shallow_ready must fire once")
         _, _, classified_keys, _ = received[0]
         # note 1: game_number=2, path_key="path/1" — must be absent (unparsed)
-        self.assertNotIn((2, "path/1", "CLAMP"), classified_keys)
+        self.assertNotIn((2, "path/1", "CLAMP", ""), classified_keys)
         # notes 0 and 2 must be present
-        self.assertIn((1, "path/0", "CLAMP"), classified_keys)
-        self.assertIn((3, "path/2", "CLAMP"), classified_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), classified_keys)
+        self.assertIn((3, "path/2", "CLAMP", ""), classified_keys)
         self.assertEqual(len(classified_keys), 2)
 
 
@@ -1323,7 +1323,7 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
         three_ok = self._shallow_result_3x3(
             success=True,
-            shallow_keys=[(10, "path3/0", "3x3")],
+            shallow_keys=[(10, "path3/0", "3x3", "Why1")],
         )
         failed, partial, ready = self._run(legacy_fail, three_ok)
         # Must not be a hard failure (3x3 call succeeded)
@@ -1332,17 +1332,17 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         self.assertEqual(len(ready), 1)
         _, _, classified_keys, _ = ready[0]
         # Legacy notes (game_numbers 1, 2) must NOT be in classified_keys
-        self.assertNotIn((1, "path/0", "CLAMP"), classified_keys)
-        self.assertNotIn((2, "path/1", "CLAMP"), classified_keys)
-        # 3x3 notes (game_numbers 10, 11) must be in classified_keys
-        self.assertIn((10, "path3/0", "3x3"), classified_keys)
-        self.assertIn((11, "path3/1", "3x3"), classified_keys)
+        self.assertNotIn((1, "path/0", "CLAMP", ""), classified_keys)
+        self.assertNotIn((2, "path/1", "CLAMP", ""), classified_keys)
+        # 3x3 notes (game_numbers 10, 11) must be in classified_keys — check one cat each
+        self.assertIn((10, "path3/0", "3x3", "Why1"), classified_keys)
+        self.assertIn((11, "path3/1", "3x3", "Why1"), classified_keys)
 
     def test_three_fails_legacy_succeeds_three_notes_absent_from_classified(self):
         """When 3x3 call fails and legacy succeeds, 3x3 notes must not be in classified_keys."""
         legacy_ok = _shallow_result(
             success=True,
-            shallow_keys=[(1, "path/0", "CLAMP")],
+            shallow_keys=[(1, "path/0", "CLAMP", "")],
         )
         three_fail = self._shallow_result_3x3(success=False, error="API timeout")
         failed, partial, ready = self._run(legacy_ok, three_fail)
@@ -1350,18 +1350,18 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         self.assertEqual(len(ready), 1)
         _, _, classified_keys, _ = ready[0]
         # 3x3 notes must NOT be in classified_keys
-        self.assertNotIn((10, "path3/0", "3x3"), classified_keys)
-        self.assertNotIn((11, "path3/1", "3x3"), classified_keys)
+        self.assertNotIn((10, "path3/0", "3x3", "Why1"), classified_keys)
+        self.assertNotIn((11, "path3/1", "3x3", "Why1"), classified_keys)
         # Legacy notes must be in classified_keys
-        self.assertIn((1, "path/0", "CLAMP"), classified_keys)
-        self.assertIn((2, "path/1", "CLAMP"), classified_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), classified_keys)
+        self.assertIn((2, "path/1", "CLAMP", ""), classified_keys)
 
     def test_partial_message_names_failed_note_count(self):
         """The partial message must account for notes from the failed call."""
         legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
         three_ok = self._shallow_result_3x3(
             success=True,
-            shallow_keys=[(10, "path3/0", "3x3")],
+            shallow_keys=[(10, "path3/0", "3x3", "Why1")],
         )
         failed, partial, ready = self._run(legacy_fail, three_ok)
         # Partial message must mention the 2 legacy notes that couldn't be classified

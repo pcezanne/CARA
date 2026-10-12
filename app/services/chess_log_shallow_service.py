@@ -133,10 +133,14 @@ _LINE_RE_3X3 = re.compile(
 def _parse_3x3_verdicts(reply_text: str, note_count: int) -> dict:
     """Return {idx: (intent_upper, lesson_upper)} from a 3x3 classifier reply.
 
+    Preprocessing: insert a newline when a lesson verdict (REAL/FILLER/BLANK) is
+    immediately followed by a digit, matching the glued-block fix in _parse_verdicts.
+
     Last occurrence wins for duplicate indices.
     """
+    text = re.sub(r'\b(REAL|FILLER|BLANK)(\d)', r'\1\n\2', reply_text, flags=re.IGNORECASE)
     parsed: dict = {}
-    for m in _LINE_RE_3X3.finditer(reply_text):
+    for m in _LINE_RE_3X3.finditer(text):
         try:
             idx = int(m.group(1))
         except ValueError:

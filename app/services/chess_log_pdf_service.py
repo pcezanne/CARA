@@ -412,7 +412,7 @@ class ChessLogPDFService(BasePDFReportService):
         # Header: chips (Shallow / Vague lesson) — right-aligned, left of Ignore section
         if row.is_shallow or row.is_vague:
             labels_cfg = (
-                self._config.get("ui", {}).get("dialogs", {})
+                self.config.get("ui", {}).get("dialogs", {})
                 .get("shallow", {}).get("labels", {})
             )
             chip_pad = 3.0

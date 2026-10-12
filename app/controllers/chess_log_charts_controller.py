@@ -253,26 +253,37 @@ class ChessLogShallowThread(QThread):
             merged_usage: Optional[Any] = None
             merged_model: str = self._model
 
-            if legacy_result is not None and legacy_result.success:
-                merged_shallow.update(legacy_result.shallow_keys)
+            if legacy_result is not None:
+                # Always read unparsed_indices — even on failure all notes are unparsed
+                # (classify_notes returns tuple(range(len(notes))) on API failure).
+                # This prevents a failed call's notes from landing in classified_keys.
                 merged_unparsed_legacy = legacy_result.unparsed_indices
-                merged_model = legacy_result.model
-                if legacy_result.usage:
-                    merged_usage = legacy_result.usage
+                if legacy_result.success:
+                    merged_shallow.update(legacy_result.shallow_keys)
+                    merged_model = legacy_result.model
+                    if legacy_result.usage:
+                        merged_usage = legacy_result.usage
 
-            if three_result is not None and three_result.success:
-                merged_shallow.update(three_result.shallow_keys)
-                merged_vague.update(three_result.vague_keys)
+            if three_result is not None:
                 merged_unparsed_three = three_result.unparsed_indices
-                merged_model = three_result.model
-                if three_result.usage and merged_usage:
-                    merged_usage = TokenUsage(
-                        input_tokens=(merged_usage.input_tokens or 0) + (three_result.usage.input_tokens or 0),
-                        output_tokens=(merged_usage.output_tokens or 0) + (three_result.usage.output_tokens or 0),
-                        reported=merged_usage.reported and three_result.usage.reported,
-                    )
-                elif three_result.usage:
-                    merged_usage = three_result.usage
+                if three_result.success:
+                    merged_shallow.update(three_result.shallow_keys)
+                    merged_vague.update(three_result.vague_keys)
+                    merged_model = three_result.model
+                    if three_result.usage and merged_usage:
+                        merged_usage = TokenUsage(
+                            input_tokens=(merged_usage.input_tokens or 0) + (three_result.usage.input_tokens or 0),
+                            output_tokens=(merged_usage.output_tokens or 0) + (three_result.usage.output_tokens or 0),
+                            reasoning_tokens=(
+                                (merged_usage.reasoning_tokens or 0) + (three_result.usage.reasoning_tokens or 0)
+                                if (merged_usage.reasoning_tokens is not None
+                                    or three_result.usage.reasoning_tokens is not None)
+                                else None
+                            ),
+                            reported=merged_usage.reported and three_result.usage.reported,
+                        )
+                    elif three_result.usage:
+                        merged_usage = three_result.usage
 
             msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
                 "chess_log_messages", {}

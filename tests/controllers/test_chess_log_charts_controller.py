@@ -1268,5 +1268,189 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
         self.assertEqual(len(classified_keys), 2)
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThreadMixedCallFailure(unittest.TestCase):
+    """B1: A failed API call must not contaminate classified_keys."""
+
+    def _make_mixed_thread(self, legacy_notes=None, three_notes=None, config=None):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        if legacy_notes is None:
+            legacy_notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
+        if three_notes is None:
+            three_notes = [(i, i + 10, f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
+        return ChessLogShallowThread(
+            games=[],
+            provider="anthropic",
+            model="claude-sonnet-4-6",
+            api_key="sk-test",
+            base_url_override=None,
+            config=config if config is not None else _shallow_config(),
+            timeout_seconds=30,
+            legacy_notes=legacy_notes,
+            three_notes=three_notes,
+        )
+
+    def _shallow_result_3x3(self, success=True, error=None, shallow_keys=None, vague_keys=None, unparsed=None, n_notes=2):
+        from app.services.chess_log_shallow_service import ShallowResult
+        from app.services.ai_service import TokenUsage
+        # On failure the real service sets unparsed_indices=tuple(range(len(notes))).
+        if unparsed is None:
+            unparsed = () if success else tuple(range(n_notes))
+        return ShallowResult(
+            success=success,
+            shallow_keys=frozenset(shallow_keys or []),
+            vague_keys=frozenset(vague_keys or []),
+            error=error,
+            usage=TokenUsage(input_tokens=5, output_tokens=3, reasoning_tokens=None, reported=True),
+            model="claude-sonnet-4-6",
+            unparsed_indices=tuple(unparsed),
+        )
+
+    def _run(self, legacy_result, three_result):
+        thread = self._make_mixed_thread()
+        failed, partial, ready = [], [], []
+        thread.shallow_failed.connect(failed.append)
+        thread.shallow_partial.connect(partial.append)
+        thread.shallow_ready.connect(lambda sk, vk, ck, u: ready.append((sk, vk, ck, u)))
+        with patch("app.services.chess_log_shallow_service.classify_notes", return_value=legacy_result), \
+             patch("app.services.chess_log_shallow_service.classify_notes_3x3", return_value=three_result):
+            thread.run()
+        return failed, partial, ready
+
+    def test_legacy_fails_three_succeeds_legacy_notes_absent_from_classified(self):
+        """When legacy call fails and 3x3 succeeds, legacy notes must not be in classified_keys."""
+        # Real classify_notes sets unparsed_indices=tuple(range(len(notes))) on failure.
+        legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
+        three_ok = self._shallow_result_3x3(
+            success=True,
+            shallow_keys=[(10, "path3/0", "3x3")],
+        )
+        failed, partial, ready = self._run(legacy_fail, three_ok)
+        # Must not be a hard failure (3x3 call succeeded)
+        self.assertEqual(len(failed), 0, "should not hard-fail when one call succeeds")
+        # Must emit ready eventually
+        self.assertEqual(len(ready), 1)
+        _, _, classified_keys, _ = ready[0]
+        # Legacy notes (game_numbers 1, 2) must NOT be in classified_keys
+        self.assertNotIn((1, "path/0", "CLAMP"), classified_keys)
+        self.assertNotIn((2, "path/1", "CLAMP"), classified_keys)
+        # 3x3 notes (game_numbers 10, 11) must be in classified_keys
+        self.assertIn((10, "path3/0", "3x3"), classified_keys)
+        self.assertIn((11, "path3/1", "3x3"), classified_keys)
+
+    def test_three_fails_legacy_succeeds_three_notes_absent_from_classified(self):
+        """When 3x3 call fails and legacy succeeds, 3x3 notes must not be in classified_keys."""
+        legacy_ok = _shallow_result(
+            success=True,
+            shallow_keys=[(1, "path/0", "CLAMP")],
+        )
+        three_fail = self._shallow_result_3x3(success=False, error="API timeout")
+        failed, partial, ready = self._run(legacy_ok, three_fail)
+        self.assertEqual(len(failed), 0, "should not hard-fail when one call succeeds")
+        self.assertEqual(len(ready), 1)
+        _, _, classified_keys, _ = ready[0]
+        # 3x3 notes must NOT be in classified_keys
+        self.assertNotIn((10, "path3/0", "3x3"), classified_keys)
+        self.assertNotIn((11, "path3/1", "3x3"), classified_keys)
+        # Legacy notes must be in classified_keys
+        self.assertIn((1, "path/0", "CLAMP"), classified_keys)
+        self.assertIn((2, "path/1", "CLAMP"), classified_keys)
+
+    def test_partial_message_names_failed_note_count(self):
+        """The partial message must account for notes from the failed call."""
+        legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
+        three_ok = self._shallow_result_3x3(
+            success=True,
+            shallow_keys=[(10, "path3/0", "3x3")],
+        )
+        failed, partial, ready = self._run(legacy_fail, three_ok)
+        # Partial message must mention the 2 legacy notes that couldn't be classified
+        self.assertEqual(len(partial), 1, "shallow_partial must fire")
+        self.assertIn("2", partial[0])
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThreadTokenUsageMerge(unittest.TestCase):
+    """B2: Both calls succeed — token usage is summed correctly, including reasoning_tokens."""
+
+    def _run_both_succeed(self, legacy_usage, three_usage):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        from app.services.chess_log_shallow_service import ShallowResult
+        legacy_notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
+        three_notes = [(i, i + 10, f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
+        thread = ChessLogShallowThread(
+            games=[], provider="anthropic", model="claude-sonnet-4-6",
+            api_key="sk-test", base_url_override=None,
+            config=_shallow_config(), timeout_seconds=30,
+            legacy_notes=legacy_notes, three_notes=three_notes,
+        )
+        legacy_result = ShallowResult(
+            success=True,
+            shallow_keys=frozenset([(1, "path/0", "CLAMP")]),
+            vague_keys=frozenset(),
+            error=None,
+            usage=legacy_usage,
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),
+        )
+        three_result = ShallowResult(
+            success=True,
+            shallow_keys=frozenset(),
+            vague_keys=frozenset([(10, "path3/0", "3x3")]),
+            error=None,
+            usage=three_usage,
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),
+        )
+        ready = []
+        thread.shallow_ready.connect(lambda sk, vk, ck, u: ready.append((sk, vk, ck, u)))
+        with patch("app.services.chess_log_shallow_service.classify_notes", return_value=legacy_result), \
+             patch("app.services.chess_log_shallow_service.classify_notes_3x3", return_value=three_result):
+            thread.run()
+        return ready
+
+    def test_usage_tokens_are_summed(self):
+        """input and output tokens from both calls are summed."""
+        from app.services.ai_service import TokenUsage
+        legacy_u = TokenUsage(input_tokens=100, output_tokens=50, reasoning_tokens=None, reported=True)
+        three_u = TokenUsage(input_tokens=80, output_tokens=40, reasoning_tokens=None, reported=True)
+        ready = self._run_both_succeed(legacy_u, three_u)
+        self.assertEqual(len(ready), 1)
+        _, _, _, usage = ready[0]
+        self.assertIsNotNone(usage)
+        self.assertEqual(usage.input_tokens, 180)
+        self.assertEqual(usage.output_tokens, 90)
+
+    def test_reasoning_tokens_summed_when_both_present(self):
+        """reasoning_tokens from both calls are summed when non-None."""
+        from app.services.ai_service import TokenUsage
+        legacy_u = TokenUsage(input_tokens=100, output_tokens=50, reasoning_tokens=200, reported=True)
+        three_u = TokenUsage(input_tokens=80, output_tokens=40, reasoning_tokens=150, reported=True)
+        ready = self._run_both_succeed(legacy_u, three_u)
+        self.assertEqual(len(ready), 1)
+        _, _, _, usage = ready[0]
+        self.assertIsNotNone(usage)
+        self.assertEqual(usage.reasoning_tokens, 350)
+
+    def test_reasoning_tokens_none_when_neither_present(self):
+        """reasoning_tokens stays None when neither call has it."""
+        from app.services.ai_service import TokenUsage
+        legacy_u = TokenUsage(input_tokens=100, output_tokens=50, reasoning_tokens=None, reported=True)
+        three_u = TokenUsage(input_tokens=80, output_tokens=40, reasoning_tokens=None, reported=True)
+        ready = self._run_both_succeed(legacy_u, three_u)
+        _, _, _, usage = ready[0]
+        self.assertIsNone(usage.reasoning_tokens)
+
+    def test_merged_shallow_and_vague_contain_both_calls_results(self):
+        """shallow_keys and vague_keys each include results from both calls."""
+        from app.services.ai_service import TokenUsage
+        u = TokenUsage(input_tokens=10, output_tokens=5, reasoning_tokens=None, reported=True)
+        ready = self._run_both_succeed(u, u)
+        self.assertEqual(len(ready), 1)
+        shallow_keys, vague_keys, _, _ = ready[0]
+        self.assertIn((1, "path/0", "CLAMP"), shallow_keys)
+        self.assertIn((10, "path3/0", "3x3"), vague_keys)
+
+
 if __name__ == "__main__":
     unittest.main()

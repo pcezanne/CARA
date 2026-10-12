@@ -834,5 +834,108 @@ class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
                 self.assertNotIn(key, result.vague_keys, f"{label} should not be vague")
 
 
+class TestClassifyNotes3x3GluedReplies(unittest.TestCase):
+    """B3: Glued 3x3 reply blocks (no newline between verdicts) must be handled."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_glued_lesson_verdict_followed_by_next_index(self, mock_post):
+        """'REAL1:' glued reply: both indices must be parsed (never crash)."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        # Simulates upstream joining two text blocks without a separator.
+        # Block 1 ends with LESSON=REAL, block 2 starts immediately with '1:'.
+        reply = "0: INTENT=SPECIFIC LESSON=REAL1: INTENT=GENERIC LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        # Both indices must be parsed — neither should remain unparsed.
+        self.assertEqual(result.unparsed_indices, (),
+                         f"Unparsed indices: {result.unparsed_indices}; "
+                         "glued reply must be split before parsing")
+        # Index 0: SPECIFIC+REAL → not shallow, not vague
+        self.assertNotIn((1, "path/0", "3x3"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3"), result.vague_keys)
+        # Index 1: GENERIC+FILLER → shallow and vague
+        self.assertIn((1, "path/1", "3x3"), result.shallow_keys)
+        self.assertIn((1, "path/1", "3x3"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_glued_filler_verdict_followed_by_next_index(self, mock_post):
+        """'FILLER1:' glued reply: both indices must be parsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: INTENT=GENERIC LESSON=FILLER1: INTENT=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (),
+                         f"Unparsed indices: {result.unparsed_indices}")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_glued_blank_verdict_followed_by_next_index(self, mock_post):
+        """'BLANK1:' glued reply: both indices must be parsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: INTENT=BLANK LESSON=BLANK1: INTENT=GENERIC LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d"), ("e", "f", "g", "h")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (),
+                         f"Unparsed indices: {result.unparsed_indices}")
+
+
+class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
+    """B4: Duplicate indices in 3x3 replies — behavior must match CLAMP (last wins)."""
+
+    @patch("app.services.ai_service.requests.post")
+    def test_duplicate_index_last_verdict_wins(self, mock_post):
+        """When index 0 appears twice, the last verdict overwrites the first — same as CLAMP."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        # First: GENERIC+FILLER (shallow+vague), Second: SPECIFIC+REAL (deep, not vague)
+        # Last wins → SPECIFIC+REAL → not shallow, not vague
+        reply = (
+            "0: INTENT=GENERIC LESSON=FILLER\n"
+            "0: INTENT=SPECIFIC LESSON=REAL\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        key = (1, "path/0", "3x3")
+        self.assertNotIn(key, result.shallow_keys, "last verdict SPECIFIC+REAL → not shallow")
+        self.assertNotIn(key, result.vague_keys, "last verdict SPECIFIC+REAL → not vague")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_duplicate_index_last_verdict_wins_reversed(self, mock_post):
+        """Reversed order: first SPECIFIC+REAL, second GENERIC+FILLER → shallow+vague."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = (
+            "0: INTENT=SPECIFIC LESSON=REAL\n"
+            "0: INTENT=GENERIC LESSON=FILLER\n"
+        )
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        key = (1, "path/0", "3x3")
+        self.assertIn(key, result.shallow_keys, "last verdict GENERIC+FILLER → shallow")
+        self.assertIn(key, result.vague_keys, "last verdict GENERIC+FILLER → vague")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clamp_duplicate_last_wins_matches_3x3_behavior(self, mock_post):
+        """CLAMP and 3x3 must agree: last occurrence wins (not first, not error)."""
+        from app.services.chess_log_shallow_service import classify_notes
+        # CLAMP: first SHALLOW, second DEEP → last wins → DEEP → not in shallow_keys
+        reply = "0: SHALLOW\n0: DEEP\n"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes(["note"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "CLAMP"), result.shallow_keys)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1162,6 +1162,11 @@ class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
 class TestTemperatureDefaults(unittest.TestCase):
     """Without temperature kwarg: OpenAI sends 0.7; Anthropic sends no temperature key."""
 
+    def setUp(self):
+        from app.services.ai_service import AIService
+        AIService._models_not_supporting_temperature.discard("gpt-4o")
+        AIService._models_requiring_max_completion_tokens.discard("gpt-4o")
+
     @patch("app.services.ai_service.requests.post")
     def test_openai_default_temperature_0_7(self, mock_post):
         from app.services.ai_service import AIService
@@ -1204,6 +1209,11 @@ class TestTemperatureDefaults(unittest.TestCase):
 
 class TestTemperatureZeroExplicit(unittest.TestCase):
     """temperature=0 is forwarded to both providers."""
+
+    def setUp(self):
+        from app.services.ai_service import AIService
+        AIService._models_not_supporting_temperature.discard("gpt-4o")
+        AIService._models_requiring_max_completion_tokens.discard("gpt-4o")
 
     @patch("app.services.ai_service.requests.post")
     def test_openai_explicit_temperature_zero(self, mock_post):

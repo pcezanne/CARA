@@ -1386,7 +1386,7 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         )
         legacy_result = ShallowResult(
             success=True,
-            shallow_keys=frozenset([(1, "path/0", "CLAMP")]),
+            shallow_keys=frozenset([(1, "path/0", "CLAMP", "")]),
             vague_keys=frozenset(),
             error=None,
             usage=legacy_usage,
@@ -1396,7 +1396,7 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         three_result = ShallowResult(
             success=True,
             shallow_keys=frozenset(),
-            vague_keys=frozenset([(10, "path3/0", "3x3")]),
+            vague_keys=frozenset([(10, "path3/0", "3x3", "Why4")]),
             error=None,
             usage=three_usage,
             model="claude-sonnet-4-6",
@@ -1448,8 +1448,256 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         ready = self._run_both_succeed(u, u)
         self.assertEqual(len(ready), 1)
         shallow_keys, vague_keys, _, _ = ready[0]
-        self.assertIn((1, "path/0", "CLAMP"), shallow_keys)
-        self.assertIn((10, "path3/0", "3x3"), vague_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), shallow_keys)
+        self.assertIn((10, "path3/0", "3x3", "Why4"), vague_keys)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThread3x3IgnoreHonouredByHash(unittest.TestCase):
+    """Entry with ignore_shallow=True and matching hash → moment skipped, no keys emitted."""
+
+    def test_matched_hash_skips_whole_moment(self):
+        import hashlib
+        why_text = "I moved impulsively without considering alternatives"
+        h = hashlib.sha256(why_text.encode("utf-8")).hexdigest()
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why1", why_text, ignore_shallow=True, ignore_text_hash=h
+        )
+        game = _make_game(entries_per_path={"0": [entry]})
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({"ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}})
+
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append((k, vk, ck)))
+        ctrl.request_flag_shallow_notes()
+
+        self.assertEqual(len(received), 1, "shallow_ready must fire synchronously")
+        sk, vk, ck = received[0]
+        self.assertEqual(sk, set())
+        self.assertNotIn((1, "0", "3x3", "Why1"), ck)
+        self.assertIsNone(ctrl._shallow_thread)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThread3x3IgnoreClearedOnEdit(unittest.TestCase):
+    """Hash mismatch → Ignore dropped; moment is sent for classification."""
+
+    def test_mismatched_hash_sends_moment(self):
+        import hashlib
+        old_text = "I played an aggressive move"
+        h_old = hashlib.sha256(old_text.encode("utf-8")).hexdigest()
+        current_text = "I saw the pawn was undefended and grabbed it"  # different text
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why1", current_text, ignore_shallow=True, ignore_text_hash=h_old
+        )
+        game = _make_game(entries_per_path={"0": [entry]})
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({"ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}})
+
+        thread_kwargs: list = []
+
+        class FakeThread:
+            def __init__(self, **kwargs):
+                thread_kwargs.append(kwargs)
+                self.shallow_ready = MagicMock(); self.shallow_ready.connect = MagicMock()
+                self.shallow_failed = MagicMock(); self.shallow_failed.connect = MagicMock()
+                self.shallow_partial = MagicMock(); self.shallow_partial.connect = MagicMock()
+                self.finished = MagicMock(); self.finished.connect = MagicMock()
+
+            def start(self): pass
+
+        with patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread", side_effect=FakeThread):
+            ctrl.request_flag_shallow_notes()
+
+        self.assertEqual(len(thread_kwargs), 1, "thread must have been started (moment not skipped)")
+        three_notes = thread_kwargs[0]["three_notes"]
+        self.assertEqual(len(three_notes), 1)
+        self.assertEqual(three_notes[0][4], current_text)  # why1 = current text
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThread3x3AllAnswersIgnored(unittest.TestCase):
+    """Every non-blank answer ignored (matching hashes) → moment not sent; empty signal."""
+
+    def test_all_answers_ignored_emits_empty_synchronously(self):
+        import hashlib
+        why1 = "I saw the free pawn and grabbed it"
+        why4 = "Always count defenders before capturing"
+        h1 = hashlib.sha256(why1.encode("utf-8")).hexdigest()
+        h4 = hashlib.sha256(why4.encode("utf-8")).hexdigest()
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", why1, ignore_shallow=True, ignore_text_hash=h1),
+            ChessLogStorageService.make_entry("3x3", "Why4", why4, ignore_shallow=True, ignore_text_hash=h4),
+        ]
+        game = _make_game(entries_per_path={"0": entries})
+        db_ctrl = _make_db_controller([game])
+        db_ctrl.get_active_database.return_value.get_all_games.return_value = [game]
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        ctrl.set_user_settings({"ai_models": {"openai": {"api_key": "sk-test", "model": "gpt-4o"}}})
+
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append((k, vk, ck)))
+        ctrl.request_flag_shallow_notes()
+
+        self.assertEqual(len(received), 1)
+        sk, vk, ck = received[0]
+        self.assertEqual(sk, set())
+        self.assertIsNone(ctrl._shallow_thread)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThread3x3PartialIgnore(unittest.TestCase):
+    """Why1 ignored, Why4 not — moment is sent; Why1 verdict discarded, Why4 kept."""
+
+    def test_partial_ignore_discards_only_ignored_answers(self):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        from app.services.chess_log_shallow_service import ShallowResult
+        from app.services.ai_service import TokenUsage
+
+        why1 = "I played the move impulsively without looking at responses"
+        why4 = "Look at opponent responses before committing to a move"
+
+        three_notes = [(0, 1, "path/0", "3x3", why1, "", "", why4)]
+        three_ignored_sets = [frozenset({"Why1"})]
+
+        thread = ChessLogShallowThread(
+            games=[], provider="anthropic", model="claude-sonnet-4-6",
+            api_key="sk-test", base_url_override=None,
+            config=_shallow_config(), timeout_seconds=30,
+            legacy_notes=[], three_notes=three_notes,
+            three_ignored_sets=three_ignored_sets,
+        )
+
+        three_ok = ShallowResult(
+            success=True,
+            shallow_keys=frozenset([(1, "path/0", "3x3", "Why1")]),
+            vague_keys=frozenset([(1, "path/0", "3x3", "Why4")]),
+            error=None,
+            usage=TokenUsage(input_tokens=5, output_tokens=3, reasoning_tokens=None, reported=True),
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),
+        )
+
+        received = []
+        thread.shallow_ready.connect(lambda sk, vk, ck, u: received.append((sk, vk, ck, u)))
+
+        with patch("app.services.chess_log_shallow_service.classify_notes_3x3", return_value=three_ok):
+            thread.run()
+
+        self.assertEqual(len(received), 1)
+        sk, vk, ck, _ = received[0]
+        # Why1 verdict discarded (was in ignored_cats)
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), sk)
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), ck)
+        # Why4 verdict kept (not ignored)
+        self.assertIn((1, "path/0", "3x3", "Why4"), vk)
+        self.assertIn((1, "path/0", "3x3", "Why4"), ck)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThread3x3EmptyWhyRow(unittest.TestCase):
+    """Blank Why1 + populated Why4 → no Why1 key in shallow_keys."""
+
+    def test_blank_why1_not_in_shallow_keys(self):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        from app.services.chess_log_shallow_service import ShallowResult
+        from app.services.ai_service import TokenUsage
+
+        three_notes = [(0, 1, "path/0", "3x3", "", "", "", "Look at opponent responses before every move")]
+        thread = ChessLogShallowThread(
+            games=[], provider="anthropic", model="claude-sonnet-4-6",
+            api_key="sk-test", base_url_override=None,
+            config=_shallow_config(), timeout_seconds=30,
+            legacy_notes=[], three_notes=three_notes,
+        )
+
+        three_ok = ShallowResult(
+            success=True,
+            shallow_keys=frozenset(),
+            vague_keys=frozenset([(1, "path/0", "3x3", "Why4")]),
+            error=None,
+            usage=TokenUsage(input_tokens=5, output_tokens=3, reasoning_tokens=None, reported=True),
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),
+        )
+
+        received = []
+        thread.shallow_ready.connect(lambda sk, vk, ck, u: received.append((sk, vk, ck, u)))
+
+        with patch("app.services.chess_log_shallow_service.classify_notes_3x3", return_value=three_ok):
+            thread.run()
+
+        self.assertEqual(len(received), 1)
+        sk, vk, ck, _ = received[0]
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), sk)
+        self.assertIn((1, "path/0", "3x3", "Why4"), vk)
+        self.assertIn((1, "path/0", "3x3", "Why4"), ck)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestShallowThreadFailedResultBypassesUnparsedIndices(unittest.TestCase):
+    """B11: success=False → all notes unjudged regardless of unparsed_indices value."""
+
+    def test_failed_result_with_empty_unparsed_produces_no_classified_keys(self):
+        from app.controllers.chess_log_charts_controller import ChessLogShallowThread
+        from app.services.chess_log_shallow_service import ShallowResult
+        from app.services.ai_service import TokenUsage
+
+        legacy_notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
+        three_notes = [(0, 10, "path3/0", "3x3", "w1", "w2", "w3", "w4")]
+
+        thread = ChessLogShallowThread(
+            games=[], provider="anthropic", model="claude-sonnet-4-6",
+            api_key="sk-test", base_url_override=None,
+            config=_shallow_config(), timeout_seconds=30,
+            legacy_notes=legacy_notes, three_notes=three_notes,
+        )
+
+        three_fail = ShallowResult(
+            success=False,
+            shallow_keys=frozenset(),
+            vague_keys=frozenset(),
+            error="API timeout",
+            usage=TokenUsage(input_tokens=0, output_tokens=0, reasoning_tokens=None, reported=False),
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),  # empty — must NOT be trusted since success=False
+        )
+        legacy_ok = ShallowResult(
+            success=True,
+            shallow_keys=frozenset([(1, "path/0", "CLAMP", "")]),
+            vague_keys=frozenset(),
+            error=None,
+            usage=TokenUsage(input_tokens=5, output_tokens=3, reasoning_tokens=None, reported=True),
+            model="claude-sonnet-4-6",
+            unparsed_indices=(),
+        )
+
+        received = []
+        thread.shallow_ready.connect(lambda sk, vk, ck, u: received.append((sk, vk, ck, u)))
+
+        with patch("app.services.chess_log_shallow_service.classify_notes", return_value=legacy_ok), \
+             patch("app.services.chess_log_shallow_service.classify_notes_3x3", return_value=three_fail):
+            thread.run()
+
+        self.assertEqual(len(received), 1)
+        _, _, ck, _ = received[0]
+        # 3x3 notes must NOT be in classified_keys (success=False overrides empty unparsed_indices)
+        self.assertNotIn((10, "path3/0", "3x3", "Why1"), ck)
+        # Legacy notes should still be in classified_keys
+        self.assertIn((1, "path/0", "CLAMP", ""), ck)
 
 
 if __name__ == "__main__":

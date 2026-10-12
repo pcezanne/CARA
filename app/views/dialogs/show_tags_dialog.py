@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from io import StringIO
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -42,12 +43,13 @@ _MINI_BOARD_SCALE = 1.25
 _MINI_BOARD_PLACEHOLDER_PX = 204
 
 
-def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple[str, str, bool, bool, bool]]:
-    """(cat, why, ignore_shallow, is_shallow, is_vague) tuples sorted for change detection."""
+def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple]:
+    """(cat, why, ignore_shallow, ignore_text_hash, is_shallow, is_vague) tuples sorted for change detection."""
     return sorted(
         (
             e.get("cat", ""), e.get("why", ""),
-            bool(e.get("ignore_shallow")), bool(e.get("is_shallow")), bool(e.get("is_vague")),
+            bool(e.get("ignore_shallow")), e.get("ignore_text_hash"),
+            bool(e.get("is_shallow")), bool(e.get("is_vague")),
         )
         for e in entries
     )
@@ -91,8 +93,30 @@ class _TagRowWidget(QFrame):
         self._bg_rgb = bg_rgb
         self._text_color = text_color
         self._show_ignore_checkbox = show_ignore_checkbox
+
+        # Per-entry preserved flags, keyed by cat. For each entry, validate
+        # ignore_text_hash against the stored why text; drop Ignore on mismatch.
+        self._preserved_per_cat: Dict[str, Dict[str, Any]] = {}
+        for e in entries:
+            cat = e.get("cat", "")
+            why = (e.get("why") or "").strip()
+            ignore_shallow = bool(e.get("ignore_shallow", False))
+            ignore_text_hash = e.get("ignore_text_hash")
+            is_shallow = bool(e.get("is_shallow", False))
+            is_vague = bool(e.get("is_vague", False))
+            if ignore_shallow and ignore_text_hash:
+                if not why or hashlib.sha256(why.encode("utf-8")).hexdigest() != ignore_text_hash:
+                    ignore_shallow = False
+                    ignore_text_hash = None
+            self._preserved_per_cat[cat] = {
+                "ignore_shallow": ignore_shallow,
+                "ignore_text_hash": ignore_text_hash,
+                "is_shallow": is_shallow,
+                "is_vague": is_vague,
+            }
+
         self._preserved_ignore_shallow: bool = any(
-            bool(e.get("ignore_shallow")) for e in entries
+            d.get("ignore_shallow", False) for d in self._preserved_per_cat.values()
         )
         self._preserved_is_shallow: bool = any(
             bool(e.get("is_shallow")) for e in entries
@@ -313,8 +337,11 @@ class _TagRowWidget(QFrame):
             ignore = self._preserved_ignore_shallow
 
         def _annotate(d: Dict[str, Any]) -> Dict[str, Any]:
+            why_text = (d.get("why") or "").strip()
             if ignore:
                 d["ignore_shallow"] = True
+                if why_text:
+                    d["ignore_text_hash"] = hashlib.sha256(why_text.encode("utf-8")).hexdigest()
             if self._preserved_is_shallow:
                 d["is_shallow"] = True
             if self._preserved_is_vague:
@@ -325,9 +352,21 @@ class _TagRowWidget(QFrame):
             result = []
             for key in _3X3_KEYS:
                 text = self._why_texts.get(key, QPlainTextEdit()).toPlainText().strip()
-                if text:
-                    result.append(_annotate({"preset": "3x3", "cat": key, "why": text}))
+                if not text:
+                    continue
+                per_cat = self._preserved_per_cat.get(key, {})
+                entry: Dict[str, Any] = {"preset": "3x3", "cat": key, "why": text}
+                if ignore:
+                    entry["ignore_shallow"] = True
+                    entry["ignore_text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                # Per-cat shallow/vague flags (chip-eligibility rule B4)
+                if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
+                    entry["is_shallow"] = True
+                if per_cat.get("is_vague") and key == "Why4":
+                    entry["is_vague"] = True
+                result.append(entry)
             return result
+
         why = self._why_texts.get("why", QPlainTextEdit()).toPlainText().strip()
         selected = [cat for cat, cb in self._checkboxes.items() if cb.isChecked()]
         if not selected:

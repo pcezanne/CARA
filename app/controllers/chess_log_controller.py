@@ -206,6 +206,7 @@ class ChessLogController:
                 ignore_shallow=bool(e.get("ignore_shallow")),
                 is_shallow=bool(e.get("is_shallow")),
                 is_vague=bool(e.get("is_vague")),
+                ignore_text_hash=e.get("ignore_text_hash"),
             )
             for e in entries
         ]
@@ -261,6 +262,7 @@ class ChessLogController:
                 ignore_shallow=bool(e.get("ignore_shallow")),
                 is_shallow=bool(e.get("is_shallow")),
                 is_vague=bool(e.get("is_vague")),
+                ignore_text_hash=e.get("ignore_text_hash"),
             )
             for e in entries
         ]

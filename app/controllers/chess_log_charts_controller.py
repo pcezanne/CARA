@@ -12,7 +12,8 @@ wiring in AppController / MainWindow.
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+import hashlib
+from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QTimer, pyqtSignal
 
@@ -172,6 +173,7 @@ class ChessLogShallowThread(QThread):
         timeout_seconds: int,
         legacy_notes: List[Tuple[int, int, str, str, str]],           # (idx, gn, pk, preset, why) — CLAMP/CCT
         three_notes: List[Tuple[int, int, str, str, str, str, str, str]],  # (idx, gn, pk, preset, w1, w2, w3, w4)
+        three_ignored_sets: Optional[List[FrozenSet[str]]] = None,    # parallel to three_notes: cats ignored per note
     ) -> None:
         super().__init__()
         self._games = games
@@ -183,6 +185,7 @@ class ChessLogShallowThread(QThread):
         self._timeout_seconds = timeout_seconds
         self._legacy_notes = legacy_notes
         self._three_notes = three_notes
+        self._three_ignored_sets = three_ignored_sets
         self._cancelled = False
         self._mutex = QMutex()
 
@@ -254,19 +257,20 @@ class ChessLogShallowThread(QThread):
             merged_model: str = self._model
 
             if legacy_result is not None:
-                # Always read unparsed_indices — even on failure all notes are unparsed
-                # (classify_notes returns tuple(range(len(notes))) on API failure).
-                # This prevents a failed call's notes from landing in classified_keys.
-                merged_unparsed_legacy = legacy_result.unparsed_indices
                 if legacy_result.success:
+                    # B11: only trust unparsed_indices on success; failure → all unparsed
+                    merged_unparsed_legacy = legacy_result.unparsed_indices
                     merged_shallow.update(legacy_result.shallow_keys)
                     merged_model = legacy_result.model
                     if legacy_result.usage:
                         merged_usage = legacy_result.usage
+                else:
+                    merged_unparsed_legacy = tuple(range(len(self._legacy_notes)))
 
             if three_result is not None:
-                merged_unparsed_three = three_result.unparsed_indices
                 if three_result.success:
+                    # B11: only trust unparsed_indices on success; failure → all unparsed
+                    merged_unparsed_three = three_result.unparsed_indices
                     merged_shallow.update(three_result.shallow_keys)
                     merged_vague.update(three_result.vague_keys)
                     merged_model = three_result.model
@@ -284,6 +288,25 @@ class ChessLogShallowThread(QThread):
                         )
                     elif three_result.usage:
                         merged_usage = three_result.usage
+                else:
+                    merged_unparsed_three = tuple(range(len(self._three_notes)))
+
+            # Build lookup {(gn, pk): ignored_cats} for filtering verdicts of ignored answers.
+            three_ignored_lookup: Dict[Tuple[int, str], FrozenSet[str]] = {}
+            if self._three_ignored_sets:
+                for i, n in enumerate(self._three_notes):
+                    if i < len(self._three_ignored_sets):
+                        three_ignored_lookup[(n[1], n[2])] = self._three_ignored_sets[i]
+
+            # Filter out verdicts for ignored 3x3 answers.
+            merged_shallow = {
+                k for k in merged_shallow
+                if not (k[2] == "3x3" and k[3] in three_ignored_lookup.get((k[0], k[1]), frozenset()))
+            }
+            merged_vague = {
+                k for k in merged_vague
+                if not (k[2] == "3x3" and k[3] in three_ignored_lookup.get((k[0], k[1]), frozenset()))
+            }
 
             msgs = (self._config or {}).get("ui", {}).get("dialogs", {}).get(
                 "chess_log_messages", {}
@@ -321,6 +344,7 @@ class ChessLogShallowThread(QThread):
             # Keys are 4-tuples (game_number, path_key, preset, cat):
             #   CLAMP/CCT: cat="" (one entry per note)
             #   3x3: cat in {"Why1","Why2","Why3","Why4"} (four keys per parsed note)
+            #   Ignored 3x3 cats are excluded: an ignored answer never appears in classified_keys.
             legacy_unparsed_set = frozenset(merged_unparsed_legacy)
             three_unparsed_set = frozenset(merged_unparsed_three)
             classified_keys = frozenset(
@@ -332,6 +356,7 @@ class ChessLogShallowThread(QThread):
                 for i, n in enumerate(self._three_notes)
                 if i not in three_unparsed_set
                 for cat in ("Why1", "Why2", "Why3", "Why4")
+                if cat not in three_ignored_lookup.get((n[1], n[2]), frozenset())
             )
 
             self.shallow_ready.emit(
@@ -758,6 +783,7 @@ class ChessLogChartsController(QObject):
         # Build two separate note lists: legacy (CLAMP/CCT) and 3x3.
         legacy_notes: List[Tuple[int, int, str, str, str]] = []
         three_notes: List[Tuple[int, int, str, str, str, str, str, str]] = []
+        three_ignored_sets: List[FrozenSet[str]] = []
 
         for game in games:
             tags = self.get_tags_for_game(game)
@@ -770,10 +796,21 @@ class ChessLogChartsController(QObject):
                     by_preset.setdefault(p, []).append(entry)
                 for preset, preset_entries in by_preset.items():
                     if preset == "3x3":
-                        # Skip whole moment if any entry has ignore_shallow.
-                        if any(e.get("ignore_shallow") for e in preset_entries):
-                            continue
                         why_map = {e.get("cat", ""): (e.get("why") or "").strip() for e in preset_entries}
+                        # Per-entry hash check: honour ignore only when hash matches current text.
+                        ignored_cats: Set[str] = set()
+                        for e in preset_entries:
+                            cat = e.get("cat", "")
+                            why = (e.get("why") or "").strip()
+                            ign = bool(e.get("ignore_shallow", False))
+                            h = e.get("ignore_text_hash")
+                            if ign:
+                                if h:
+                                    if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
+                                        ignored_cats.add(cat)
+                                    # hash mismatch → don't ignore (edit cleared it)
+                                else:
+                                    ignored_cats.add(cat)  # legacy: no hash → honour
                         why1 = why_map.get("Why1", "")
                         why2 = why_map.get("Why2", "")
                         why3 = why_map.get("Why3", "")
@@ -781,13 +818,25 @@ class ChessLogChartsController(QObject):
                         # Skip moment if all four whys are empty.
                         if not any([why1, why2, why3, why4]):
                             continue
+                        # Skip moment if every non-blank answer is ignored.
+                        non_blank = {c for c, w in (("Why1", why1), ("Why2", why2), ("Why3", why3), ("Why4", why4)) if w}
+                        if non_blank and non_blank.issubset(ignored_cats):
+                            continue
                         idx = len(three_notes)
                         three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
+                        three_ignored_sets.append(frozenset(ignored_cats))
                     else:
                         for entry in preset_entries:
-                            if entry.get("ignore_shallow"):
-                                continue
                             why = (entry.get("why") or "").strip()
+                            ign = bool(entry.get("ignore_shallow", False))
+                            h = entry.get("ignore_text_hash")
+                            if ign:
+                                if h:
+                                    if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
+                                        continue  # hash matches → skip
+                                    # hash mismatch → don't skip (edit cleared ignore)
+                                else:
+                                    continue  # legacy: no hash → honour ignore
                             if why:
                                 idx = len(legacy_notes)
                                 legacy_notes.append((idx, game.game_number, path_key, preset, why))
@@ -807,6 +856,7 @@ class ChessLogChartsController(QObject):
             timeout_seconds=self.get_narrative_timeout_seconds(),
             legacy_notes=legacy_notes,
             three_notes=three_notes,
+            three_ignored_sets=three_ignored_sets,
         )
         thread.shallow_ready.connect(self._on_shallow_thread_ready)
         thread.shallow_failed.connect(self._on_shallow_thread_failed)

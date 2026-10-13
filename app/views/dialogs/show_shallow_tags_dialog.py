@@ -67,6 +67,8 @@ class ShowShallowTagsDialog(QDialog):
         vague_keys: Set[Tuple[int, str, str, str]] = frozenset(),
         classified_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(),
         partial_notice: Optional[str] = None,
+        source_label: str = "",
+        model_label: str = "",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -77,6 +79,8 @@ class ShowShallowTagsDialog(QDialog):
         self._classified_keys = classified_keys
         self._flagged_keys = self._shallow_keys | self._vague_keys
         self._partial_notice = partial_notice
+        self._source_label = source_label
+        self._model_label = model_label
         self._games_in_scope = list(games)
 
         self._load_config()
@@ -454,7 +458,10 @@ class ShowShallowTagsDialog(QDialog):
             tag_groups.append({"header": current_header, "rows": current_rows})
 
         ChessLogPDFService(self._config).export_tags(
-            Path(path), tag_groups, is_shallow_only=True
+            Path(path), tag_groups,
+            is_shallow_only=True,
+            source_label=self._source_label,
+            model_label=self._model_label,
         )
 
     def _on_save(self) -> None:

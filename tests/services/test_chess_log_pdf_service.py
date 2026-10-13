@@ -1109,5 +1109,120 @@ class TestThreeByThreeIgnorePerChip(unittest.TestCase):
         )
 
 
+@requires_qt
+class TestCheckLogsPDFMetadataLines(unittest.TestCase):
+    """B7: Check Logs PDF (is_shallow_only=True) shows Source, Generated and AI model lines;
+    narrative summary PDF is unchanged; locked-model behaviour."""
+
+    _MINIMAL_CLAMP = [
+        {"preset": "CLAMP", "cat": "C", "why": "test note"},
+    ]
+
+    def _export_and_extract(
+        self,
+        *,
+        is_shallow_only: bool,
+        source_label: str = "",
+        model_label: str = "",
+        export_charts: bool = False,
+        charts_model_label: str = "",
+    ) -> str:
+        """Export a PDF and extract all text via pypdf."""
+        try:
+            import pypdf as _pypdf
+        except ImportError:
+            self.skipTest("pypdf not installed")
+
+        from datetime import datetime as _real_dt
+        from unittest.mock import patch
+        from pathlib import Path
+        import tempfile
+
+        # Use a real datetime object so strftime("Generated: %Y-%m-%d %H:%M")
+        # produces the expected string "Generated: 2099-01-15 07:30".
+        _fixed_dt = _real_dt(2099, 1, 15, 7, 30)
+
+        svc = ChessLogPDFService({})
+        snap = TagRowSnapshot(
+            move_label="1. e4",
+            preset="CLAMP",
+            entries=self._MINIMAL_CLAMP,
+            fen=None,
+            played_move=None,
+            show_ignore=False,
+        )
+
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            tmp_path = Path(f.name)
+        try:
+            with patch("app.services.chess_log_pdf_service.datetime") as mock_dt:
+                mock_dt.now.return_value = _fixed_dt
+                if export_charts:
+                    svc.export_charts_report(
+                        tmp_path,
+                        player_name="Alice",
+                        source_label=source_label,
+                        chart_pixmaps=[],
+                        narrative_text="",
+                        shallow_rows=[snap] if charts_model_label else [],
+                        model_label=charts_model_label,
+                    )
+                else:
+                    svc.export_tags(
+                        tmp_path,
+                        [{"header": "G1", "rows": [snap]}],
+                        is_shallow_only=is_shallow_only,
+                        source_label=source_label,
+                        model_label=model_label,
+                    )
+            reader = _pypdf.PdfReader(str(tmp_path))
+            return " ".join(p.extract_text() or "" for p in reader.pages)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_check_logs_pdf_has_source_generated_model(self):
+        """Check Logs PDF must contain all three metadata lines."""
+        text = self._export_and_extract(
+            is_shallow_only=True,
+            source_label="Active Database: MyDB",
+            model_label="Anthropic claude-sonnet-5-5",
+        )
+        self.assertIn("Source: Active Database: MyDB", text)
+        self.assertIn("Generated:", text)
+        self.assertIn("AI model: Anthropic claude-sonnet-5-5", text)
+
+    def test_check_logs_pdf_no_run_fallback(self):
+        """Empty model_label → 'not run (chips from earlier checks)'."""
+        text = self._export_and_extract(
+            is_shallow_only=True,
+            source_label="All Games",
+            model_label="",
+        )
+        self.assertIn("AI model: not run (chips from earlier checks)", text)
+
+    def test_model_label_locked_at_run_time(self):
+        """The model label in the PDF is whatever was passed (captured at run time),
+        not a fresh read of current settings."""
+        text = self._export_and_extract(
+            is_shallow_only=True,
+            source_label="Active Database: X",
+            model_label="OpenAI gpt-4o",  # model that was current at run time
+        )
+        self.assertIn("AI model: OpenAI gpt-4o", text)
+        self.assertNotIn("claude", text.lower())
+
+    def test_narrative_summary_pdf_header_unchanged(self):
+        """export_charts_report: Source and Generated still present; no AI model line when model_label empty."""
+        text = self._export_and_extract(
+            is_shallow_only=False,
+            source_label="Active Database: MyDB",
+            export_charts=True,
+            charts_model_label="",
+        )
+        self.assertIn("Source: Active Database: MyDB", text)
+        self.assertIn("Generated:", text)
+        self.assertNotIn("AI model:", text)
+
+
 if __name__ == "__main__":
     unittest.main()

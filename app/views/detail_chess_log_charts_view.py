@@ -632,6 +632,10 @@ class DetailChessLogChartsView(QWidget):
         chess_log_ctrl = self._controller.get_chess_log_controller()
         if not chess_log_ctrl:
             return
+        label = self._source_combo.currentText()
+        files = self._controller.get_current_source_filenames() if self._controller else []
+        source_label = f"{label}: {', '.join(files)}" if files else label
+        model_label = self._controller.get_cached_shallow_model_label() if self._controller else ""
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         dlg = ShowShallowTagsDialog(
             config=self._config,
@@ -641,6 +645,8 @@ class DetailChessLogChartsView(QWidget):
             vague_keys=vague_keys,
             classified_keys=classified_keys,
             partial_notice=partial_notice,
+            source_label=source_label,
+            model_label=model_label,
             parent=self,
         )
         dlg.exec()
@@ -874,6 +880,7 @@ class DetailChessLogChartsView(QWidget):
         label = self._source_combo.currentText()
         files = self._controller.get_current_source_filenames() if self._controller else []
         source_label = f"{label}: {', '.join(files)}" if files else label
+        model_label = self._controller.get_cached_shallow_model_label() if self._controller else ""
         ChessLogPDFService(self._config).export_charts_report(
             Path(path),
             player_name,
@@ -881,4 +888,5 @@ class DetailChessLogChartsView(QWidget):
             chart_pixmaps,
             narrative_text,
             shallow_rows,
+            model_label=model_label,
         )

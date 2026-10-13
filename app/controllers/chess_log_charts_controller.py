@@ -42,6 +42,12 @@ from app.utils.ai_provider_config import (
     resolve_default_provider,
 )
 
+_PROVIDER_DISPLAY: Dict[str, str] = {
+    "anthropic": "Anthropic",
+    "openai": "OpenAI",
+    "custom": "Custom",
+}
+
 _3X3_SHORT_LABELS: Dict[str, str] = {
     "Why1": "Why I played it",
     "Why2": "What was wrong",
@@ -158,7 +164,7 @@ class ChessLogShallowThread(QThread):
     Emits a single shallow_ready with combined results when both complete.
     """
 
-    shallow_ready = pyqtSignal(object, object, object, object)  # (shallow_keys, vague_keys, classified_keys, Optional[TokenUsage])
+    shallow_ready = pyqtSignal(object, object, object, object, str)  # (shallow_keys, vague_keys, classified_keys, Optional[TokenUsage], model_label)
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
 
@@ -254,14 +260,14 @@ class ChessLogShallowThread(QThread):
             merged_unparsed_legacy: tuple = ()
             merged_unparsed_three: tuple = ()
             merged_usage: Optional[Any] = None
-            merged_model: str = self._model
+            merged_model_ids: set = set()
 
             if legacy_result is not None:
                 if legacy_result.success:
                     # B11: only trust unparsed_indices on success; failure → all unparsed
                     merged_unparsed_legacy = legacy_result.unparsed_indices
                     merged_shallow.update(legacy_result.shallow_keys)
-                    merged_model = legacy_result.model
+                    merged_model_ids.add(legacy_result.model)
                     if legacy_result.usage:
                         merged_usage = legacy_result.usage
                 else:
@@ -273,7 +279,7 @@ class ChessLogShallowThread(QThread):
                     merged_unparsed_three = three_result.unparsed_indices
                     merged_shallow.update(three_result.shallow_keys)
                     merged_vague.update(three_result.vague_keys)
-                    merged_model = three_result.model
+                    merged_model_ids.add(three_result.model)
                     if three_result.usage and merged_usage:
                         merged_usage = TokenUsage(
                             input_tokens=(merged_usage.input_tokens or 0) + (three_result.usage.input_tokens or 0),
@@ -359,11 +365,18 @@ class ChessLogShallowThread(QThread):
                 if cat not in three_ignored_lookup.get((n[1], n[2]), frozenset())
             )
 
+            if not merged_model_ids:
+                merged_model_ids.add(self._model)
+            model_id_str = ", ".join(sorted(merged_model_ids))
+            provider_display = _PROVIDER_DISPLAY.get(self._provider.lower(), self._provider)
+            model_label = f"{provider_display} {model_id_str}"
+
             self.shallow_ready.emit(
                 frozenset(merged_shallow),
                 frozenset(merged_vague),
                 classified_keys,
                 merged_usage,
+                model_label,
             )
         except Exception as exc:
             self.shallow_failed.emit(f"Unexpected error: {exc}")
@@ -495,6 +508,7 @@ class ChessLogChartsController(QObject):
         self._cached_shallow_keys: Optional[Any] = None
         self._cached_vague_keys: Optional[Any] = None
         self._cached_shallow_usage: Optional[Any] = None
+        self._cached_shallow_model_label: str = ""
 
         self._selection_debounce = QTimer(self)
         self._selection_debounce.setSingleShot(True)
@@ -587,6 +601,10 @@ class ChessLogChartsController(QObject):
         """Return (shallow_keys, vague_keys, usage) from the most recent successful shallow check."""
         return self._cached_shallow_keys, self._cached_vague_keys, self._cached_shallow_usage
 
+    def get_cached_shallow_model_label(self) -> str:
+        """Return '<Provider> <model-id>' from the most recent Check Logs run, or '' if none."""
+        return self._cached_shallow_model_label
+
     def _clear_result_cache(self) -> None:
         self._cached_narrative = ""
         self._cached_narrative_flags = []
@@ -594,6 +612,7 @@ class ChessLogChartsController(QObject):
         self._cached_shallow_keys = None
         self._cached_vague_keys = None
         self._cached_shallow_usage = None
+        self._cached_shallow_model_label = ""
 
     # --- narrative panel controls ---
 
@@ -877,11 +896,12 @@ class ChessLogChartsController(QObject):
         self._cached_narrative_usage = None
         self.narrative_failed.emit(message)
 
-    def _on_shallow_thread_ready(self, shallow_keys, vague_keys, classified_keys, usage) -> None:
+    def _on_shallow_thread_ready(self, shallow_keys, vague_keys, classified_keys, usage, model_label: str = "") -> None:
         """Cache shallow/vague results then pass to the view; the dialog's Save commits them."""
         self._cached_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         self._cached_vague_keys = frozenset(vague_keys) if vague_keys else None
         self._cached_shallow_usage = usage
+        self._cached_shallow_model_label = model_label
         self.shallow_ready.emit(shallow_keys, vague_keys, classified_keys, usage)
 
     def _on_shallow_thread_failed(self, message: str) -> None:

@@ -71,12 +71,36 @@ class ChessLogPDFService(BasePDFReportService):
     # Public API
     # ------------------------------------------------------------------
 
+    def _draw_source_generated_lines(
+        self,
+        painter: QPainter,
+        content: QRectF,
+        y: float,
+        source_label: str,
+        generated_str: str,
+    ) -> float:
+        """Draw the Source and Generated metadata lines (shared by all report types)."""
+        if source_label:
+            y = self._draw_text_line(
+                painter, f"Source: {source_label}",
+                content.left(), y, content.width(),
+                self._font_body, self._muted,
+            )
+        y = self._draw_text_line(
+            painter, generated_str,
+            content.left(), y, content.width(),
+            self._font_body, self._muted,
+        )
+        return y
+
     def export_tags(
         self,
         path: Path,
         tag_groups: List[Dict[str, Any]],
         *,
         is_shallow_only: bool = False,
+        source_label: str = "",
+        model_label: str = "",
     ) -> bool:
         """Write tag rows from a Show-Tags dialog to a PDF."""
         painter = None
@@ -90,6 +114,16 @@ class ChessLogPDFService(BasePDFReportService):
             self._draw_page_chrome(painter, content)
             title = "Chess Log — Check Logs" if is_shallow_only else "Chess Log — Logged Moments"
             y = self._draw_report_header(painter, content, title)
+            if is_shallow_only:
+                generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+                y = self._draw_source_generated_lines(painter, content, y, source_label, generated_str)
+                ai_label = model_label if model_label else "not run (chips from earlier checks)"
+                y = self._draw_text_line(
+                    painter, f"AI model: {ai_label}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+                y += 6.0
 
             for group in tag_groups:
                 header_text = group.get("header")
@@ -130,6 +164,8 @@ class ChessLogPDFService(BasePDFReportService):
         chart_pixmaps: List[Tuple[str, QPixmap]],
         narrative_text: str,
         shallow_rows: List[TagRowSnapshot],
+        *,
+        model_label: str = "",
     ) -> bool:
         """Write Chess Log Charts page (charts + narrative + optional shallow rows) to a PDF."""
         painter = None
@@ -145,18 +181,14 @@ class ChessLogPDFService(BasePDFReportService):
             display_name = player_name or "Chess Log"
             title = f"Chess Log Charts — {display_name}"
             y = self._draw_report_header(painter, content, title)
-            if source_label:
+            generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+            y = self._draw_source_generated_lines(painter, content, y, source_label, generated_str)
+            if model_label:
                 y = self._draw_text_line(
-                    painter, f"Source: {source_label}",
+                    painter, f"AI model: {model_label}",
                     content.left(), y, content.width(),
                     self._font_body, self._muted,
                 )
-            generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
-            y = self._draw_text_line(
-                painter, generated_str,
-                content.left(), y, content.width(),
-                self._font_body, self._muted,
-            )
             y += 6.0
 
             for preset, pixmap in chart_pixmaps:

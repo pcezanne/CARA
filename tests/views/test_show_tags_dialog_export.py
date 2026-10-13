@@ -162,5 +162,86 @@ if _QT_OK:
     from PyQt6.QtCore import Qt
 
 
+@requires_qt
+class TestSnapshot3x3PerCatFields(unittest.TestCase):
+    """B5 — snapshot() populates shallow_cats and vague_cats for 3x3 rows."""
+
+    def _make_3x3_row(self, entries):
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="5. d4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+
+    def test_shallow_cats_empty_when_no_flags(self):
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "a", "id": "1", "created": "c"},
+            {"preset": "3x3", "cat": "Why2", "why": "b", "id": "2", "created": "c"},
+            {"preset": "3x3", "cat": "Why3", "why": "c", "id": "3", "created": "c"},
+            {"preset": "3x3", "cat": "Why4", "why": "d", "id": "4", "created": "c"},
+        ]
+        snap = self._make_3x3_row(entries).snapshot()
+        self.assertEqual(snap.shallow_cats, frozenset())
+        self.assertEqual(snap.vague_cats, frozenset())
+
+    def test_shallow_cats_populated_for_generic_why1(self):
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "a", "id": "1", "created": "c", "is_shallow": True},
+            {"preset": "3x3", "cat": "Why2", "why": "b", "id": "2", "created": "c"},
+            {"preset": "3x3", "cat": "Why3", "why": "c", "id": "3", "created": "c"},
+            {"preset": "3x3", "cat": "Why4", "why": "d", "id": "4", "created": "c"},
+        ]
+        snap = self._make_3x3_row(entries).snapshot()
+        self.assertIn("Why1", snap.shallow_cats)
+        self.assertNotIn("Why2", snap.shallow_cats)
+        self.assertNotIn("Why3", snap.shallow_cats)
+        self.assertEqual(snap.vague_cats, frozenset())
+
+    def test_vague_cats_populated_for_filler_why4(self):
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "a", "id": "1", "created": "c"},
+            {"preset": "3x3", "cat": "Why2", "why": "b", "id": "2", "created": "c"},
+            {"preset": "3x3", "cat": "Why3", "why": "c", "id": "3", "created": "c"},
+            {"preset": "3x3", "cat": "Why4", "why": "d", "id": "4", "created": "c", "is_vague": True},
+        ]
+        snap = self._make_3x3_row(entries).snapshot()
+        self.assertEqual(snap.shallow_cats, frozenset())
+        self.assertIn("Why4", snap.vague_cats)
+
+    def test_all_cats_flagged_populates_all(self):
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "a", "id": "1", "created": "c", "is_shallow": True},
+            {"preset": "3x3", "cat": "Why2", "why": "b", "id": "2", "created": "c", "is_shallow": True},
+            {"preset": "3x3", "cat": "Why3", "why": "c", "id": "3", "created": "c", "is_shallow": True},
+            {"preset": "3x3", "cat": "Why4", "why": "d", "id": "4", "created": "c", "is_vague": True},
+        ]
+        snap = self._make_3x3_row(entries).snapshot()
+        self.assertEqual(snap.shallow_cats, frozenset({"Why1", "Why2", "Why3"}))
+        self.assertEqual(snap.vague_cats, frozenset({"Why4"}))
+
+    def test_clamp_row_has_empty_per_cat_fields(self):
+        entries = [
+            {"preset": "CLAMP", "cat": "C", "why": "a", "id": "1", "created": "c", "is_shallow": True},
+        ]
+        row = _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+        snap = row.snapshot()
+        self.assertEqual(snap.shallow_cats, frozenset(), "CLAMP must not populate shallow_cats")
+        self.assertEqual(snap.vague_cats, frozenset(), "CLAMP must not populate vague_cats")
+
+
 if __name__ == "__main__":
     unittest.main()

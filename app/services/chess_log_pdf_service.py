@@ -409,8 +409,9 @@ class ChessLogPDFService(BasePDFReportService):
                 ignore_text,
             )
 
-        # Header: chips (Shallow / Vague lesson) — right-aligned, left of Ignore section
-        if row.is_shallow or row.is_vague:
+        # Header: chips (Shallow / Vague lesson) — right-aligned, left of Ignore section.
+        # 3x3 rows draw per-answer chips in the body instead of a header chip.
+        if (row.is_shallow or row.is_vague) and row.preset != "3x3":
             labels_cfg = (
                 self.config.get("ui", {}).get("dialogs", {})
                 .get("shallow", {}).get("labels", {})
@@ -467,16 +468,49 @@ class ChessLogPDFService(BasePDFReportService):
 
         # Body content: 3x3 prompts/answers OR checkboxes + why-text
         if row.preset == "3x3":
+            labels_cfg_3x3 = (
+                self.config.get("ui", {}).get("dialogs", {})
+                .get("shallow", {}).get("labels", {})
+            )
+            chip_pad = 3.0
             y_col = y_inner
             for key in ("Why1", "Why2", "Why3", "Why4"):
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 painter.setPen(self._muted)
                 br = painter.boundingRect(QRectF(col2_x, 0, full_w, 1000), flags, prompt)
+                prompt_h = float(br.height())
                 painter.drawText(
-                    QRectF(col2_x, y_col, full_w, float(br.height()) + 2), flags, prompt
+                    QRectF(col2_x, y_col, full_w, prompt_h + 2), flags, prompt
                 )
-                y_col += float(br.height())
+                # Per-answer chip for this Why category
+                is_ans_shallow = key in row.shallow_cats
+                is_ans_vague = key in row.vague_cats
+                if is_ans_shallow or is_ans_vague:
+                    if is_ans_shallow:
+                        kind_key, def_bg, def_tc, def_txt = "shallow", [185, 70, 70], [255, 255, 255], "Shallow"
+                    else:
+                        kind_key, def_bg, def_tc, def_txt = "vague_lesson", [195, 145, 55], [255, 255, 255], "Vague lesson"
+                    cfg = labels_cfg_3x3.get(kind_key, {})
+                    bg = cfg.get("background_color", def_bg)
+                    tc = cfg.get("text_color", def_tc)
+                    txt = cfg.get("text", def_txt)
+                    cw = float(fm_bold.horizontalAdvance(txt)) + chip_pad * 2
+                    chip_x = col2_x + full_w - cw
+                    chip_y = y_col + (prompt_h - bold_line_h) / 2
+                    painter.save()
+                    painter.setBrush(QColor(bg[0], bg[1], bg[2]))
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.drawRoundedRect(QRectF(chip_x, chip_y, cw, bold_line_h), 2, 2)
+                    painter.setFont(self._font_body_bold)
+                    painter.setPen(QColor(tc[0], tc[1], tc[2]))
+                    painter.drawText(
+                        QRectF(chip_x + chip_pad, chip_y, cw - chip_pad * 2, bold_line_h),
+                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                        txt,
+                    )
+                    painter.restore()
+                y_col += prompt_h
                 answer = why_map_3x3.get(key, "").strip()
                 if answer:
                     painter.setFont(self._font_body)

@@ -437,6 +437,17 @@ class _TagRowWidget(QFrame):
 
     def snapshot(self):
         """Return current widget state as a TagRowSnapshot for PDF export."""
+        shallow_cats: frozenset = frozenset()
+        vague_cats: frozenset = frozenset()
+        if self._preset == "3x3":
+            shallow_cats = frozenset(
+                cat for cat, data in self._preserved_per_cat.items()
+                if data.get("is_shallow") and cat in ("Why1", "Why2", "Why3")
+            )
+            vague_cats = frozenset(
+                cat for cat, data in self._preserved_per_cat.items()
+                if data.get("is_vague") and cat == "Why4"
+            )
         return TagRowSnapshot(
             move_label=self._header_label.text() if self._header_label else "",
             preset=self._preset,
@@ -448,6 +459,8 @@ class _TagRowWidget(QFrame):
             is_flipped=self._is_flipped,
             is_shallow=self._preserved_is_shallow,
             is_vague=self._preserved_is_vague,
+            shallow_cats=shallow_cats,
+            vague_cats=vague_cats,
         )
 
 

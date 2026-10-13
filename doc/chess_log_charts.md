@@ -67,7 +67,7 @@ Clicking "Check Logs" disables the button, starts a `BusySpinner` and shows "Che
 
 **Token usage labels.** Two right-aligned `QLabel` instances appear after runs: `_narrative_token_label` (below `_narrative_edit`) and `_shallow_token_label` (below the Check Logs row). Lifecycle: cleared when a request *starts* and when a request *fails* — never show stale counts. Format when usage is reported: `Tokens: {in:,} in / {out:,} out`; appends ` / {thinking:,} thinking` when `reasoning_tokens > 0`. When usage is absent from the provider response: `Token usage not reported by this provider`. Styled via `ui.panels.detail.chess_log_charts.token_usage_label.{color, font_size}` in all three theme JSONs (registered in `config_loader`; covered by `test_theme_coverage`). Labels are pure view widgets — not passed to `ChessLogPDFService`; a PDF absence test in `tests/services/test_chess_log_pdf_service.py` confirms this.
 
-**Signal arity.** `narrative_ready = pyqtSignal(str, list, object)` carries `(text, shallow_flags, usage: Optional[TokenUsage])`; `shallow_ready = pyqtSignal(object, object, object, object)` carries `(shallow_keys, vague_keys, classified_keys, usage: Optional[TokenUsage])`. `classified_keys` is a `frozenset` of `(game_number, path_key, preset)` triples that were parsed this run (the "touchable set"); `shallow_keys ∪ vague_keys ⊆ classified_keys`. `vague_keys` is always empty for CLAMP/CCT notes. Both thread classes and the controller class use these arities. Every consumer (`_on_narrative_ready`, `_on_shallow_ready`, all test stubs) must accept all arguments.
+**Signal arity.** `narrative_ready = pyqtSignal(str, list, object)` carries `(text, shallow_flags, usage: Optional[TokenUsage])`; `shallow_ready = pyqtSignal(object, object, object, object)` carries `(shallow_keys, vague_keys, classified_keys, usage: Optional[TokenUsage])`. All three key sets use **4-tuple** `(game_number, path_key, preset, cat)` keys: CLAMP/CCT use `cat=""` (empty string); 3x3 uses `cat` in `{"Why1","Why2","Why3","Why4"}`. `classified_keys` is a `frozenset` of 4-tuples that were parsed this run (the "touchable set"); `shallow_keys ∪ vague_keys ⊆ classified_keys`. `vague_keys` is always empty for CLAMP/CCT notes. Both thread classes and the controller class use these arities. Every consumer (`_on_narrative_ready`, `_on_shallow_ready`, all test stubs) must accept all arguments.
 
 The controller's `get_available_models()` / `get_default_narrative_model()` / `get_narrative_timeout_seconds()` drive the view; `set_narrative_*()` setters update the in-memory state (timeout also persists).
 
@@ -83,13 +83,15 @@ The controller's `get_available_models()` / `get_default_narrative_model()` / `g
 
 ### Check Logs dialog
 
-`app/views/dialogs/show_shallow_tags_dialog.py`, class `ShowShallowTagsDialog` (internal name unchanged). Displays rows whose `(game_number, path_key, preset)` tuple is in `shallow_keys ∪ vague_keys` returned by `request_flag_shallow_notes()`.
+`app/views/dialogs/show_shallow_tags_dialog.py`, class `ShowShallowTagsDialog` (internal name unchanged). Displays rows whose 4-tuple keys `(game_number, path_key, preset, cat)` are in `shallow_keys ∪ vague_keys`. For 3x3 a moment row appears if **any** of its cat-level keys is flagged; for CLAMP/CCT the row appears when `(gn, pk, preset, "")` is flagged.
 
-**Save/Cancel model**: edits are buffered in row widgets until the user clicks **Save**. Save writes `is_shallow=True` / `is_vague=True` on every shown row (per key membership), clears stale flags on classified-clean entries (scoped to `classified_keys` only — entries the classifier didn't touch are never modified), then calls `save_games()`. **Cancel** and the window close button discard all edits. **Export to PDF** button (left of button row) calls `ChessLogPDFService.export_tags(..., is_shallow_only=True)` with a WYSIWYG snapshot of current row state; PDF title "Chess Log — Check Logs", filename segment "CheckLogs".
+**Save/Cancel model**: edits are buffered in row widgets until the user clicks **Save**. Save stamps `is_shallow=True` / `is_vague=True` per-entry (per 4-tuple key membership), clears stale flags on classified-clean entries (scoped to `classified_keys` only — entries the classifier didn't touch are never modified), then calls `save_games()`. For 3x3, stale-clear operates per-entry: only entries whose exact `(gn, pk, "3x3", cat)` key is in `classified_keys` but not in `flagged_keys` get their flags cleared; entries outside `classified_keys` are untouched. **Cancel** and the window close button discard all edits. **Export to PDF** button (left of button row) calls `ChessLogPDFService.export_tags(..., is_shallow_only=True)` with a WYSIWYG snapshot of current row state; PDF title "Chess Log — Check Logs", filename segment "CheckLogs".
 
-**Row display**: each row shows **⚠️ + Ignore** (`show_ignore_checkbox=True`). Checking Ignore sets `ignore_shallow=True` — dismissed rows reappear if unflagged next run. `ShowShallowTagsDialog._setup_ui()` pre-stamps entries with `is_shallow=True`/`is_vague=True` (per key membership) before constructing `_TagRowWidget`, so chip labels appear during the current run even before Save.
+**Row display**: CLAMP/CCT rows show **Ignore** in the move-header row (`show_ignore_checkbox=True`). 3x3 rows show per-answer Ignore checkboxes, right-justified below the chip on each question line. No ⚠️ triangle anywhere. `ShowShallowTagsDialog._setup_ui()` pre-stamps entries per-entry (via `_stamp_entries`) before constructing `_TagRowWidget`, so chip labels appear during the current run even before Save.
 
-**Row chips**: `_TagRowWidget` renders zero, one, or two chip `QLabel`s in the header row (between the move label and the Ignore group) based on `_preserved_is_shallow` / `_preserved_is_vague`. Chip colors and text from `ui.dialogs.shallow.labels.{shallow,vague_lesson}` — colors in theme files, text/tooltip in `config.json`. `ShowTagsDialog` (regular tags dialog) also shows chips when entries already carry `is_shallow`/`is_vague`. Both dialogs drive chips from stored entry flags.
+**Row chips**: chip placement is per-preset. CLAMP/CCT: chips render in the move-header row (unchanged). 3x3: chips render on the per-answer question line, right-justified. **Chip-eligibility rule (B4)**: `Shallow` may only render on entries with `cat ∈ {Why1,Why2,Why3}`; `Vague lesson` may only render on `cat = Why4`. Legacy data that stored `is_shallow` on Why4 or `is_vague` on Why1-3 is ignored at render time. Chip colors and text from `ui.dialogs.shallow.labels.{shallow,vague_lesson}` — colors in theme files, text/tooltip in `config.json`. `ShowTagsDialog` (Show Logged Moments) also shows chips from stored flags; ignored entries render the chip at 40% opacity with a ticked Ignore checkbox so the user can untick from there (B10a).
+
+**Help icon**: a ⓘ `QToolButton` in the dialog header (via `app/utils/help_icon.py`) opens a modal with the text from `ui.dialogs.shallow.help_text` in `config.json`. Wording explains each chip's meaning, when Ignore stops a chip from returning, and the edit→hash-mismatch auto-clear rule.
 
 Each row's miniature board is oriented so the mover at the tagged ply is at the bottom — see the "Miniature board orientation" note in `doc/chess_log.md`. The `_export_pdf_report` path on `DetailChessLogChartsView` synthesizes `TagRowSnapshot` objects directly (bypassing the dialog) and populates `is_flipped` from `node_info()` the same way, so charts-tab PDF exports orient Check Logs rows identically.
 
@@ -97,11 +99,15 @@ Each row's miniature board is oriented so the mover at the tagged ply is at the 
 
 Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, ignore_shallow=False)`. Omitted from the dict when `False` (backward-compatible — old entries read as `ignore_shallow=False` via `.get("ignore_shallow", False)`). Preserved through controller round-trips: both `replace_entries_at_path` and `replace_entries_at_path_for_game` pass `ignore_shallow=bool(e.get("ignore_shallow"))` when reconstructing entries via `make_entry`. `_TagRowWidget` without `show_ignore_checkbox` transparently carries the original moment-level flag through `get_current_entries()`.
 
+**`ignore_text_hash`**: SHA-256 hex digest of `why.strip()` at the moment the user ticked Ignore. Stored alongside `ignore_shallow=True` via `make_entry(... ignore_text_hash=...)`. Ignore is only honoured when `ignore_text_hash` is present **and** matches `sha256(current_why.strip())`. A mismatch means the answer was edited after Ignore was set — all three fields (`ignore_shallow`, `ignore_text_hash`, and the chip flag) are cleared automatically and the entry is re-judged on the next Check Logs run. Entries with `ignore_shallow=True` but no `ignore_text_hash` (written before this field existed) show the chip once; the stale Ignore is cleared on first Save.
+
 ### `is_shallow` schema field
 
 Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, is_shallow=False)`. Omitted when `False` (backward-compatible). **Written by `ShowShallowTagsDialog._on_save()`** (Save-deferred — no longer written directly by the controller after classification). Persisted to the PGN via the normal Save Chess Log flow (same lifecycle as `ignore_shallow`). Both `_TagRowWidget._preserved_is_shallow` and `get_current_entries()` carry the flag through edits so it survives round-trips in both dialogs.
 
-**`is_shallow` is written per `(game_number, path_key, preset)` key, not per note.** A position tagged with two CLAMP letters (e.g. C and L) produces two entries; if the classifier returns SHALLOW for the key, both entries get `is_shallow=True`.
+**CLAMP/CCT**: `is_shallow` is written per `(game_number, path_key, preset)` key. A position tagged with two CLAMP letters (e.g. C and L) produces two entries; the classifier returns a single verdict for that key and both entries get `is_shallow=True`.
+
+**3x3**: `is_shallow` is written per-entry, keyed by the 4-tuple `(game_number, path_key, "3x3", cat)`. Only entries with `cat ∈ {Why1,Why2,Why3}` receive `is_shallow=True` — a GENERIC verdict on a Why answer does not affect Why4. The B4 chip-eligibility rule also enforces this at render time.
 
 ### `is_vague` schema field
 
@@ -109,25 +115,24 @@ Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, is
 
 `is_vague=True` is only ever set for 3x3 notes. CLAMP/CCT classifier never emits `vague_keys` — `vague_keys` is always `frozenset()` for those presets.
 
-**Combining rules** (applied in Python after the 3x3 classifier reply, never by the model):
+**Per-answer rules** (applied in Python after the 3x3 classifier reply, never by the model):
 
-| INTENT | LESSON | shallow | vague |
-|--------|--------|---------|-------|
-| SPECIFIC | REAL | false | false |
-| SPECIFIC | FILLER | false | **true** |
-| SPECIFIC | BLANK | false | false |
-| GENERIC | REAL | false | false |
-| GENERIC | FILLER | **true** | **true** |
-| GENERIC | BLANK | **true** | false |
-| BLANK | REAL | false | false |
-| BLANK | FILLER | **true** | **true** |
-| BLANK | BLANK | **true** | false |
+Each answer is judged independently — no answer can rescue or cancel another verdict. The old "real lesson rescues a generic Why" rule is removed.
 
-Rule: `shallow = (intent != SPECIFIC) and (lesson != REAL)`; `vague = (lesson == FILLER)`. BLANK is never vague.
+| Answer | Verdict | `is_shallow` | `is_vague` |
+|--------|---------|-------------|------------|
+| Why1, Why2, or Why3 | SPECIFIC | false | false |
+| Why1, Why2, or Why3 | GENERIC | **true** | false |
+| Why1, Why2, or Why3 | BLANK | false | false |
+| Why4 (Lesson) | REAL | false | false |
+| Why4 (Lesson) | FILLER | false | **true** |
+| Why4 (Lesson) | BLANK | false | false |
+
+Rules: for Why1–3, `is_shallow = (verdict == "GENERIC")`; for Why4, `is_vague = (verdict == "FILLER")`. BLANK is never flagged. A GENERIC Why3 does not make Why4 vague; a REAL Why4 does not rescue a GENERIC Why1.
 
 ### `request_flag_shallow_notes()` in `ChessLogChartsController`
 
-Spawns `ChessLogShallowThread`; on completion caches `shallow_keys`, `vague_keys`, `classified_keys`, and `usage` in `_cached_shallow_keys`, `_cached_vague_keys`, `_cached_shallow_usage`; emits `shallow_ready(shallow_keys, vague_keys, classified_keys, usage)`. **Does not write `is_shallow`/`is_vague`** — that is Save-deferred to `ShowShallowTagsDialog._on_save()`. Emits `shallow_failed(str)` on error; `shallow_partial(str)` then `shallow_ready(...)` on partial-parse. Skips entries with `ignore_shallow=True`. Public accessor `get_chess_log_controller()` exposes the underlying `ChessLogController` to the view.
+Spawns `ChessLogShallowThread`; on completion caches `shallow_keys`, `vague_keys`, `classified_keys`, and `usage` in `_cached_shallow_keys`, `_cached_vague_keys`, `_cached_shallow_usage`; emits `shallow_ready(shallow_keys, vague_keys, classified_keys, usage)`. **Does not write `is_shallow`/`is_vague`** — that is Save-deferred to `ShowShallowTagsDialog._on_save()`. Emits `shallow_failed(str)` on error; `shallow_partial(str)` then `shallow_ready(...)` on partial-parse. Skips entries where `ignore_shallow=True` **and** `ignore_text_hash` matches `sha256(current_why.strip())` (hash mismatch = Ignore lapsed, entry is re-sent). For 3x3, a moment is sent if any of its answers is not ignored; all four answers are always included so the model sees context; verdicts for ignored answers are discarded before key expansion. A moment where every non-blank answer is ignored is not sent. Public accessor `get_chess_log_controller()` exposes the underlying `ChessLogController` to the view.
 
 **3-way terminal branch**: `ChessLogShallowThread.run()` emits exactly one of: (a) all-fail → `shallow_failed(msg)` only; (b) partial-fail → `shallow_partial(msg)` then `shallow_ready(...)`; (c) clean → `shallow_ready(...)` only. Never emits `shallow_failed`/`shallow_partial` together with the "nothing flagged" congratulation path.
 
@@ -137,13 +142,15 @@ Classification logic in `app/services/chess_log_shallow_service.py`. `ChessLogSh
 
 **CLAMP/CCT classifier** (`classify_notes`): sends notes built as `(idx, gn, pk, preset, why)` 5-tuples to `prompts.chess_log.classifier`. Reply format: `<idx>: SHALLOW` or `<idx>: DEEP`. Line-anchored MULTILINE regex `_LINE_RE`; preprocesses glued blocks (SHALLOW/DEEP immediately followed by a digit). Returns `ShallowResult(shallow_keys, classified_keys, vague_keys=frozenset(), ...)`.
 
-**3x3 classifier** (`classify_notes_3x3`): sends notes built as `(idx, gn, pk, "3x3", why1, why2, why3, why4)` 8-tuples to `prompts.chess_log.classifier_3x3` (new config key). The classifier_3x3 prompt body contains `{why1_q}`/`{why2_q}`/`{why3_q}`/`{why4_q}` placeholders that are filled at build time from `THREE_BY_THREE_PROMPTS` in `app/utils/chess_log_prompts.py` — same wording the 3x3 dialog shows. Reply format: `<idx>: INTENT=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>`. Line-anchored MULTILINE regex `_LINE_RE_3X3`; requires both fields on same line. Prose mid-sentence (`"3. Re1: INTENT=..."`) is rejected. Python applies the combining rules (see table above) to produce `shallow_keys` and `vague_keys`.
+**3x3 classifier** (`classify_notes_3x3`): sends notes built as `(idx, gn, pk, "3x3", why1, why2, why3, why4)` 8-tuples to `prompts.chess_log.classifier_3x3`. Empty answers are sent as `(blank)`. The classifier_3x3 prompt body contains `{why1_q}`/`{why2_q}`/`{why3_q}`/`{why4_q}` placeholders filled at build time from `THREE_BY_THREE_PROMPTS` in `app/utils/chess_log_prompts.py` — same wording the 3x3 dialog shows. Reply format: `<idx>: WHY1=<SPECIFIC|GENERIC|BLANK> WHY2=<SPECIFIC|GENERIC|BLANK> WHY3=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>`. Line-anchored MULTILINE regex `_LINE_RE_3X3`; requires all four fields on the same line in order. Prose mid-sentence is rejected (the entire line must be the verdict). After parsing, Python expands each 4-tuple verdict into per-cat 4-tuple keys: `(gn, pk, "3x3", "Why1")` in `shallow_keys` iff WHY1==GENERIC, `(gn, pk, "3x3", "Why4")` in `vague_keys` iff LESSON==FILLER, etc. Verdicts for ignored answers (hash-matched) are discarded before key expansion. (See per-answer rules table in the `is_vague` section above.)
 
-**Unparsed indices**: an index is "parsed" when the reply contains a matching line. Unparsed indices are never flagged — they stay DEEP/non-vague unchanged. `ShallowResult.unparsed_indices` carries them. When non-empty: `shallow_partial(msg)` then `shallow_ready(...)`. When all fail: `shallow_failed(msg)` only.
+**Unparsed indices**: an index is "parsed" when the reply contains a matching verdict line with all required fields. Unparsed indices are never flagged — they remain unflagged. `ShallowResult.unparsed_indices` carries them. When non-empty: `shallow_partial(msg)` then `shallow_ready(...)`. When all fail: `shallow_failed(msg)` only. **B11 defensive fix**: when `result.success == False`, `ChessLogShallowThread.run()` treats all notes in that call as unparsed regardless of `unparsed_indices` — a failed call contributes nothing to `classified_keys`.
 
-**Token budget**: `max(2000, n_notes * 60 + 500)` per call — ~2× the observed output rate; applied separately to each classifier call.
+**Token budget**: `max(2000, n_notes * 60 + 500)` for CLAMP/CCT; `max(2000, n_notes * 90 + 500)` for 3x3 — the four-field reply is roughly 3× longer per note than the SHALLOW/DEEP response. Applied separately to each classifier call.
 
-**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail.
+**Temperature**: both `classify_notes` and `classify_notes_3x3` pass `temperature=0` to `AIService.send_message()` for deterministic output across runs. See "Temperature and thinking rule" in the AI integration section below.
+
+**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail. Each classifier call logs at DEBUG before dispatch: model id, thinking payload, and effective temperature.
 
 ## Right-click context menu
 
@@ -155,7 +162,7 @@ Classification logic in `app/services/chess_log_shallow_service.py`. `ChessLogSh
 
 Each `ChessLogCategoryChartWidget` and the narrative `QFrame` carry a `section_name` property (`f"chart_{preset}"` / `"narrative"`) used for hit-testing in `contextMenuEvent`. `_narrative_edit` uses `Qt.ContextMenuPolicy.NoContextMenu` so right-clicks bubble up rather than opening the built-in text-edit menu.
 
-**Shallow-tag freshness rule**: Copy Log and Export PDF include shallow tags only when fresh — `self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]]` on the view is non-None. Set in `_on_shallow_ready` (after Show Shallow Tags runs); cleared in `_on_source_changed` and `_on_player_changed`. When stale or not yet run, shallow tags are silently omitted. Color filter is not yet wired to a UI control in this view — when a Color combo is added, its change handler must also clear `_last_shallow_keys`.
+**Shallow-tag freshness rule**: Copy Log and Export PDF include shallow tags only when fresh — `self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str, str]]]` on the view is non-None. Set in `_on_shallow_ready` (after Show Shallow Tags runs); cleared in `_on_source_changed` and `_on_player_changed`. When stale or not yet run, shallow tags are silently omitted. Color filter is not yet wired to a UI control in this view — when a Color combo is added, its change handler must also clear `_last_shallow_keys`.
 
 **Result cache across view rebuilds**: `ChessLogChartsController` caches the most recent successful narrative (`_cached_narrative`, `_cached_narrative_flags`, `_cached_narrative_usage`) and Check Logs result (`_cached_shallow_keys`, `_cached_vague_keys`, `_cached_shallow_usage`). `DetailChessLogChartsView.set_controller()` reads this cache and restores the display, so a theme change (which rebuilds the central widget) does not lose the narrative or Check Logs results. The cache is cleared on database switch, source change, and player change — events that genuinely invalidate the data — but not on cosmetic actions like theme switching or resizing.
 
@@ -164,8 +171,6 @@ Each `ChessLogCategoryChartWidget` and the narrative `QFrame` carry a `section_n
 **Export PDF Report source label**: the PDF header reads `Source: <combo-text>: <pgn-stem>[, <pgn-stem>...]`. The filename list is built by `ChessLogChartsController.get_current_source_filenames()`, which mirrors the `_resolve_games` selection logic (active database → 1 name; all open → N names). `DatabaseModel.display_name` (Path stem or "Clipboard") is used for each entry.
 
 **Tag row cards in PDFs** are sized dynamically: `card_h = pad*2 + header_h + 4 + max(board_sz, body_content_h)`. `body_content_h` is measured via `painter.boundingRect` (checkboxes×line_h vs. word-wrapped why-text for CLAMP/CCT; sum of prompt+answer pairs for 3x3). Cards are never taller than content requires. The helper `ChessLogPDFService._measure_tag_row_height(painter, content, row)` is called both by `_draw_tag_row` (for `_ensure_space`) and by `export_tags` / `export_charts_report` (for the `keep_with` parameter in `_section_heading`, ensuring game headers never orphan from their first row).
-
-**Warning triangle in PDF**: drawn as a QPainter yellow-filled polygon with black exclamation mark (not a Unicode glyph — emoji doesn't render in PDF fonts). Positioned right-aligned on the header line, immediately to the left of "Ignore: Yes/No". Drawn via `ChessLogPDFService._draw_warning_triangle(painter, x, y, size)`. Colors come from `chess_log_charts.pdf_report.colors.warning_fill` / `warning_outline` — resolved at `__init__` time into `self._warn_fill` / `self._warn_outline`; defaults are `[241, 196, 15]` (yellow) and `[30, 30, 30]` (near-black).
 
 **Chess Log PDF print theme**: `ChessLogPDFService.__init__` extracts `ui.panels.detail.chess_log_charts.pdf_report` and passes it as `report_cfg` to `BasePDFReportService.__init__`, which deep-merges it over `ui.pdf`. The `pdf_report` block is defined in all three theme JSON files under `chess_log_charts.pdf_report.colors`; values are print-safe (dark ink on light page) and identical across themes. Callers pass `config` only — no API change.
 
@@ -236,6 +241,23 @@ All 12 keys are registered in `ConfigLoader._REQUIRED_CONFIG_KEY_PATHS` — a mi
 `generate_narrative()` checks `(config or {}).get("prompts", {}).get("chess_log")` before calling `build_prompt()`. If the section is absent it returns `NarrativeResult(success=False, text="Chess Log prompts are missing from config.json — reinstall or restore the file.")` without touching the network. `classify_notes()` does the same, returning a `ShallowResult(success=False, …)`. `AIChatController.send_message()` emits `error_occurred` and returns `False` before appending any message to the conversation. The guards fire before state is mutated — they mirror the existing model-config checks at lines 476–484 of `ai_chat_controller.py`.
 
 Tests: `TestNarrativeMissingConfig`, `TestClassifyNotesMissingConfig`, `TestAIChatMissingConfig` in the relevant test files.
+
+### Temperature and thinking rule
+
+**Upstream note for Philipp**: `ai_service.py` gained one new optional kwarg as part of the per-Why classifier redesign. This section flags the change and its interaction with the thinking-disable logic for review when the Chess Log feature reaches upstream.
+
+`AIService.send_message` now accepts `temperature: Optional[float] = None`. When `None` (the default), all callers behave exactly as before: OpenAI/custom path sends `temperature=0.7`; Anthropic path sends no `temperature` key. The classifier call sites (`classify_notes`, `classify_notes_3x3`) pass `temperature=0` explicitly for deterministic output — no other callers are affected.
+
+**Interaction with the thinking-disable logic (Anthropic path only)**: the Anthropic Messages API rejects `temperature != 1.0` when a real thinking mode is active (`"adaptive"`, `"between_tools"`, or `output_config.effort` set). The rule in `_send_anthropic_message`, applied after the retry-override merge step on the final outgoing payload:
+
+```python
+thinking_type = payload.get("thinking", {}).get("type")
+thinking_is_live = thinking_type in ("adaptive", "between_tools") or "output_config" in payload
+if thinking_is_live:
+    payload.pop("temperature", None)
+```
+
+Breakdown: `thinking={"type":"disabled"}` sets `thinking_is_live = False`, so `temperature=0` **is sent** — correct for Sonnet 5 / Opus 5 initial requests. After the one-shot retry for Sonnet 5.5 (`{"type":"between_tools"}`) or Opus 5.5 (`{"type":"adaptive"} + output_config`), `thinking_is_live = True` and `temperature` is dropped. If the API rejects a payload that passes the rule above, a single belt-and-braces retry without `temperature` is made and a WARNING is logged with the model id and API error message.
 
 ### `THREE_BY_THREE_PROMPTS` and config divergence
 

@@ -17,53 +17,53 @@ specific. Each answer is scored on its own text.
 
 INTENT (for Why1, Why2, Why3)
 =============================
-SPECIFIC — Names something concrete about the position, the move, or the
-  player's own thinking. "Concrete" means: a piece, a square, a plan, a
-  tactic, a mental process, a misread, or an intent tied to this position.
-  Short is fine. Overlap with another answer is fine. Repeating a point
-  in different words is fine.
-  Examples:
-    "Clearing the e-file for my rook."
-    "To stop ...Bb4 before I castled."
-    "Doubling rooks before opening the c-file."
-    "It left my f2 pawn without a defender."
-    "The other move wins the h-pawn because their rook is overloaded."
-GENERIC — Could fit almost any move at almost any point in any game.
-  No piece, square, plan, or intent you could point to.
+Read each answer together with the other answers for the same move. An answer may lean on another one ("It wasn't under attack" after "I was guarding my knight"). Judge what it says in that context. Still give each answer its own verdict.
+
+BLANK: an empty answer. A blank answer is never GENERIC.
+
+GENERIC is rare. Use it only for a non-blank answer that says nothing about this game: no piece, square, plan, threat, outcome or reason, even when read with the other answers. Such an answer could be pasted under any move of any game.
   Examples:
     "Just a good-looking move."
-    "Trying to improve my position."
-    "Developing."
-    "It was a mistake."
-    "The other move was stronger."
-BLANK — No text, whitespace only, or `(blank)`.
+    "Seemed like the thing to do."
+    "No real reason."
+    "Just a normal move."
+
+SPECIFIC is everything else. All of these are SPECIFIC:
+  - A piece, square, plan, tactic or threat:
+      "Clearing the e-file for my rook."
+      "It left my f2 pawn without a defender."
+  - An outcome, even a big one:
+      "I'd have won the exchange."
+      "That line wins the game."
+  - An answer that leans on another answer, or contradicts it:
+      "That plan was already done."
+      "It wasn't a safe trade after all."
+  - An honest admission of not understanding, or "I'm not sure" followed by a thought. Never treat an honest answer as GENERIC.
+      "I still can't see why the engine prefers it."
+      "Not sure, but trading into the endgame looked good."
 
 LESSON (for Why4)
 =================
-When in doubt, choose REAL. FILLER is reserved for text that names NOTHING
-you could watch for next time.
+When in doubt, choose REAL.
 
-REAL — Names something identifiable to watch for next game: a pattern, a
-  piece, a square, a mental habit, a method step, or a checklist item.
-  Short counts. Repeated across many moments counts (seeing "look at
-  checks" on ten moments is useful information, not a defect). Prescriptive
-  phrasing counts. Negative lessons count. Any takeaway that you could
-  sincerely use as a to-do item on your next move is REAL.
+REAL: the lesson points at something to do or change next game. That can be a habit, a check, a method, an area of chess to pay more attention to, or a chess quality to play with more or less of (activity, aggression, patience). It counts if it is short. It counts if it is phrased as a description of what went wrong, as long as that points at what to change.
   Examples:
     "Count attackers and defenders on every capture square."
-    "When attacked, list every retreat and every counter-attack."
-    "Watch for discovered attacks when my queen moves."
     "Before every move, ask what my opponent's last move threatens."
     "Sit on my hands for ten seconds and recheck the board."
-FILLER — Names nothing you could watch for. Vague encouragement, defeatist
-  remarks, "I don't know" shrugs, or restated outcomes. If a reasonable
-  reader could not derive a single checklist item from it, it is FILLER.
+    "Push for the initiative when I'm ahead in development."
+    "I was too slow to bring my rooks into the game."
+    "Pay more attention to pawn structure."
+
+FILLER: the lesson gives nothing to act on. It is a shrug, a complaint about the game, giving up, doubting yourself instead of naming a change, or a general effort word with nothing chess-specific (focus, concentrate, try harder). A lesson that names an idea and then gives up on it ("…but I can't do that") is FILLER.
   Examples:
     "Try harder."
-    "Just play better chess."
-    "Bad day at the board."
     "Who knows."
-BLANK — No text, whitespace only, or `(blank)`.
+    "Bad day at the board."
+    "Concentrate more."
+    "I should see more, but I'm just not good enough yet."
+
+BLANK (for Why4): an empty lesson.
 
 Output format
 =============

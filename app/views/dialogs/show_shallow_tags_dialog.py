@@ -66,6 +66,7 @@ class ShowShallowTagsDialog(QDialog):
         shallow_keys: Set[Tuple[int, str, str, str]],
         vague_keys: Set[Tuple[int, str, str, str]] = frozenset(),
         classified_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(),
+        partial_notice: Optional[str] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -75,6 +76,7 @@ class ShowShallowTagsDialog(QDialog):
         self._vague_keys = frozenset(vague_keys)
         self._classified_keys = classified_keys
         self._flagged_keys = self._shallow_keys | self._vague_keys
+        self._partial_notice = partial_notice
         self._games_in_scope = list(games)
 
         self._load_config()
@@ -270,6 +272,18 @@ class ShowShallowTagsDialog(QDialog):
         )
         hdr_row.addWidget(help_btn)
         root.addLayout(hdr_row)
+
+        if self._partial_notice:
+            notice_lbl = QLabel(self._partial_notice)
+            tr, tg, tb = self._text_color_rgb
+            br2, bg2, bb2 = self._bg_rgb
+            notice_lbl.setStyleSheet(
+                f"color: rgb({tr},{tg},{tb}); "
+                f"background-color: rgb({min(255,br2+15)},{min(255,bg2+10)},{min(255,bb2+5)}); "
+                f"padding: 6px 8px; border-radius: 4px;"
+            )
+            notice_lbl.setWordWrap(True)
+            root.addWidget(notice_lbl)
 
         if not self._rows:
             tr, tg, tb = self._text_color_rgb

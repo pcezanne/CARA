@@ -70,6 +70,10 @@ class DetailChessLogChartsView(QWidget):
         # Session-scoped shallow-tag freshness: set after Show Shallow Tags runs,
         # cleared when Data Source or Player filter changes.
         self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]] = None
+        # Partial-fail notice from shallow_partial signal; consumed by the next
+        # shallow_ready handler to show inline in the dialog rather than a
+        # separate QMessageBox.
+        self._pending_partial_message: Optional[str] = None
 
         self._build_ui()
         self._apply_styling()
@@ -609,6 +613,8 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_token_label.setText(self._format_token_usage(usage))
         self._refresh_ai_state()
         self._last_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
+        partial_notice = self._pending_partial_message
+        self._pending_partial_message = None
         if not self._controller:
             return
         if not shallow_keys and not vague_keys:
@@ -618,6 +624,8 @@ class DetailChessLogChartsView(QWidget):
             ).get("shallow_notes", {}).get("none_found", {})
             title = msgs.get("title", "Nothing Flagged")
             message = msgs.get("message_template", "No shallow notes or vague lessons found — great job.")
+            if partial_notice:
+                message = f"{partial_notice}\n\n{message}"
             QMessageBox.information(self, title, message)
             return
         games = self._controller.resolve_games()
@@ -632,6 +640,7 @@ class DetailChessLogChartsView(QWidget):
             shallow_keys=shallow_keys,
             vague_keys=vague_keys,
             classified_keys=classified_keys,
+            partial_notice=partial_notice,
             parent=self,
         )
         dlg.exec()
@@ -645,8 +654,7 @@ class DetailChessLogChartsView(QWidget):
         QMessageBox.warning(self, "Check Logs Error", f"Could not classify notes:\n{message}")
 
     def _on_shallow_partial(self, message: str) -> None:
-        from PyQt6.QtWidgets import QMessageBox
-        QMessageBox.information(self, "Check Logs", message)
+        self._pending_partial_message = message
 
     def _refresh_ai_state(self) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())

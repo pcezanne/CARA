@@ -937,5 +937,46 @@ class TestHelpIcon(unittest.TestCase):
         self.assertTrue(len(buttons) > 0, "Expected at least one QToolButton (help icon)")
 
 
+@requires_qt
+class TestPartialNotice(unittest.TestCase):
+    """B3 — partial_notice kwarg shows a notice label at the top of the dialog."""
+
+    def test_partial_notice_label_present_when_supplied(self):
+        """A non-None partial_notice produces a QLabel with the notice text."""
+        from PyQt6.QtWidgets import QLabel
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        ctrl = _make_controller({1: tags})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        msg = "2 of 5 notes could not be classified — they remain unchanged."
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP", "")},
+            partial_notice=msg,
+        )
+        labels = [w.text() for w in dlg.findChildren(QLabel) if msg in (w.text() or "")]
+        self.assertEqual(len(labels), 1, "Exactly one QLabel should contain the partial notice text")
+
+    def test_no_partial_notice_label_when_none(self):
+        """When partial_notice=None (default), no extra notice label is added."""
+        from PyQt6.QtWidgets import QLabel
+        game = _make_game()
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
+        ctrl = _make_controller({1: tags})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP", "")},
+            partial_notice=None,
+        )
+        sentinel = "could not be classified"
+        labels = [w.text() for w in dlg.findChildren(QLabel) if sentinel in (w.text() or "")]
+        self.assertEqual(len(labels), 0, "No partial-notice label expected when partial_notice=None")
+
+
 if __name__ == "__main__":
     unittest.main()

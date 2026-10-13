@@ -1025,5 +1025,89 @@ class TestNarrativeTokenLabelAbsentFromPDF(unittest.TestCase):
             tmp_path.unlink(missing_ok=True)
 
 
+@requires_qt
+class TestThreeByThreeIgnorePerChip(unittest.TestCase):
+    """B6 fix: 3x3 header has no triangle; per-chip Ignore text appears on answer row;
+    CLAMP rows are unaffected."""
+
+    def _run_draw(self, row):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = ChessLogPDFService({})
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 700)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, writer, content, 0.0, row)
+        return painter
+
+    def test_3x3_show_ignore_no_header_triangle(self):
+        """show_ignore=True on a 3x3 row must NOT draw the header warning triangle."""
+        row = TagRowSnapshot(
+            move_label="1. e4",
+            preset="3x3",
+            entries=[
+                {"preset": "3x3", "cat": "Why1", "why": "Control center"},
+                {"preset": "3x3", "cat": "Why4", "why": "Look for tactics"},
+            ],
+            fen=None,
+            played_move=None,
+            show_ignore=True,
+        )
+        painter = self._run_draw(row)
+        self.assertEqual(
+            painter.drawPolygon.call_count, 0,
+            "Header warning triangle must not appear for 3x3 rows",
+        )
+
+    def test_3x3_per_chip_ignore_text_on_answer_row(self):
+        """A 3x3 chip with show_ignore=True must draw 'Ignore: Yes/No' on the answer row."""
+        import hashlib
+        why1_text = "Control center"
+        h = hashlib.sha256(why1_text.encode("utf-8")).hexdigest()
+        row = TagRowSnapshot(
+            move_label="1. e4",
+            preset="3x3",
+            entries=[
+                {
+                    "preset": "3x3", "cat": "Why1", "why": why1_text,
+                    "ignore_shallow": True, "ignore_text_hash": h, "is_shallow": True,
+                },
+            ],
+            fen=None,
+            played_move=None,
+            show_ignore=True,
+            shallow_cats=frozenset({"Why1"}),
+        )
+        painter = self._run_draw(row)
+        all_drawn = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        ignore_texts = [t for t in all_drawn if t.startswith("Ignore:")]
+        self.assertGreaterEqual(len(ignore_texts), 1, f"Expected 'Ignore: ...' drawn; got: {all_drawn}")
+        self.assertIn("Ignore: Yes", ignore_texts, f"Expect honoured entry → 'Ignore: Yes'; got: {ignore_texts}")
+
+    def test_clamp_show_ignore_still_draws_triangle(self):
+        """CLAMP rows with show_ignore=True must still draw the header warning triangle."""
+        row = TagRowSnapshot(
+            move_label="2. Nf3",
+            preset="CLAMP",
+            entries=[{"preset": "CLAMP", "cat": "C", "why": "Improving piece",
+                      "ignore_shallow": True, "is_shallow": True}],
+            fen=None,
+            played_move=None,
+            show_ignore=True,
+            is_shallow=True,
+        )
+        painter = self._run_draw(row)
+        self.assertGreater(
+            painter.drawPolygon.call_count, 0,
+            "CLAMP header warning triangle must still be drawn when show_ignore=True",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

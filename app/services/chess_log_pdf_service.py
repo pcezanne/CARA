@@ -22,6 +22,7 @@ from PyQt6.QtGui import (
 
 from app.models.chess_log_snapshot import TagRowSnapshot
 from app.services.chess_log_narrative_service import sanitize_narrative_markdown
+from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.pdf_report_base import BasePDFReportService
 from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
 
@@ -256,10 +257,11 @@ class ChessLogPDFService(BasePDFReportService):
         bold_line_h = float(fm_bold.height())
         body_line_h = float(fm_body.height())
 
-        # Header height — move label (bold), plus room for triangle if shown
+        # Header height — move label (bold), plus room for triangle if shown.
+        # 3x3 rows never show a header triangle (Ignore moves to per-chip text).
         header_br = painter.boundingRect(QRectF(0, 0, w_inner, 1000), flags, row.move_label)
         header_h = float(header_br.height())
-        if row.show_ignore:
+        if row.show_ignore and row.preset != "3x3":
             header_h = max(header_h, bold_line_h)
 
         # Body content height
@@ -267,15 +269,21 @@ class ChessLogPDFService(BasePDFReportService):
             why_map = {e.get("cat", ""): e.get("why", "") for e in row.entries}
             full_w = col2_w + gap + col3_w
             body_h = 0.0
+            chip_pad = 3.0
+            _chip_w_est = float(fm_bold.horizontalAdvance("Vague lesson")) + chip_pad * 2
+            _ignore_w_est = float(fm_body.horizontalAdvance("Ignore: Yes"))
+            chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
             for key in ("Why1", "Why2", "Why3", "Why4"):
+                has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
                 body_h += float(br.height())
                 answer = why_map.get(key, "").strip()
                 if answer:
+                    ans_w = (full_w - chip_col_w) if has_chip else full_w
                     painter.setFont(self._font_body)
-                    br2 = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(0, 0, ans_w, 1000), flags, answer)
                     body_h += float(br2.height())
                 body_h += 3.0
         else:
@@ -333,7 +341,7 @@ class ChessLogPDFService(BasePDFReportService):
         header_br = painter.boundingRect(QRectF(0, 0, w_inner, 1000), flags, row.move_label)
         header_h = float(header_br.height())
         tri_size = 0.0
-        if row.show_ignore:
+        if row.show_ignore and row.preset != "3x3":
             tri_size = bold_line_h
             header_h = max(header_h, tri_size)
 
@@ -344,15 +352,21 @@ class ChessLogPDFService(BasePDFReportService):
             why_map_3x3 = {e.get("cat", ""): e.get("why", "") for e in row.entries}
             full_w = col2_w + gap + col3_w
             body_h = 0.0
+            chip_pad = 3.0
+            _chip_w_est = float(fm_bold.horizontalAdvance("Vague lesson")) + chip_pad * 2
+            _ignore_w_est = float(fm_body.horizontalAdvance("Ignore: Yes"))
+            chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
             for key in ("Why1", "Why2", "Why3", "Why4"):
+                has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
                 body_h += float(br.height())
                 answer = why_map_3x3.get(key, "").strip()
                 if answer:
+                    ans_w = (full_w - chip_col_w) if has_chip else full_w
                     painter.setFont(self._font_body)
-                    br2 = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(0, 0, ans_w, 1000), flags, answer)
                     body_h += float(br2.height())
                 body_h += 3.0
         else:
@@ -394,8 +408,9 @@ class ChessLogPDFService(BasePDFReportService):
         painter.setPen(self._text)
         painter.drawText(QRectF(x_inner, y_inner, w_inner, header_h + 2), flags, row.move_label)
 
-        # Header: warning triangle + Ignore text (right-aligned)
-        if row.show_ignore:
+        # Header: warning triangle + Ignore text (right-aligned).
+        # 3x3 rows skip the header triangle — Ignore appears per-chip in the body.
+        if row.show_ignore and row.preset != "3x3":
             is_ignored = any(e.get("ignore_shallow") for e in row.entries)
             ignore_text = f"Ignore: {'Yes' if is_ignored else 'No'}"
             text_w = float(fm_bold.horizontalAdvance(ignore_text))
@@ -473,8 +488,17 @@ class ChessLogPDFService(BasePDFReportService):
                 .get("shallow", {}).get("labels", {})
             )
             chip_pad = 3.0
+            _chip_w_est = float(fm_bold.horizontalAdvance("Vague lesson")) + chip_pad * 2
+            _ignore_w_est = float(fm_body.horizontalAdvance("Ignore: Yes"))
+            chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
+            entry_map_3x3 = {e.get("cat", ""): e for e in row.entries}
             y_col = y_inner
             for key in ("Why1", "Why2", "Why3", "Why4"):
+                is_ans_shallow = key in row.shallow_cats
+                is_ans_vague = key in row.vague_cats
+                has_chip = is_ans_shallow or is_ans_vague
+                entry = entry_map_3x3.get(key, {})
+                is_ignored = ChessLogStorageService.is_entry_ignore_honoured(entry) if has_chip else False
                 prompt = _3X3_PROMPTS.get(key, key)
                 painter.setFont(self._font_body_bold)
                 painter.setPen(self._muted)
@@ -483,10 +507,7 @@ class ChessLogPDFService(BasePDFReportService):
                 painter.drawText(
                     QRectF(col2_x, y_col, full_w, prompt_h + 2), flags, prompt
                 )
-                # Per-answer chip for this Why category
-                is_ans_shallow = key in row.shallow_cats
-                is_ans_vague = key in row.vague_cats
-                if is_ans_shallow or is_ans_vague:
+                if has_chip:
                     if is_ans_shallow:
                         kind_key, def_bg, def_tc, def_txt = "shallow", [185, 70, 70], [255, 255, 255], "Shallow"
                     else:
@@ -499,6 +520,8 @@ class ChessLogPDFService(BasePDFReportService):
                     chip_x = col2_x + full_w - cw
                     chip_y = y_col + (prompt_h - bold_line_h) / 2
                     painter.save()
+                    if is_ignored:
+                        painter.setOpacity(0.4)
                     painter.setBrush(QColor(bg[0], bg[1], bg[2]))
                     painter.setPen(Qt.PenStyle.NoPen)
                     painter.drawRoundedRect(QRectF(chip_x, chip_y, cw, bold_line_h), 2, 2)
@@ -513,13 +536,25 @@ class ChessLogPDFService(BasePDFReportService):
                 y_col += prompt_h
                 answer = why_map_3x3.get(key, "").strip()
                 if answer:
+                    ans_w = (full_w - chip_col_w) if has_chip else full_w
                     painter.setFont(self._font_body)
                     painter.setPen(self._text)
-                    br2 = painter.boundingRect(QRectF(col2_x, 0, full_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(col2_x, 0, ans_w, 1000), flags, answer)
+                    ans_h = float(br2.height())
                     painter.drawText(
-                        QRectF(col2_x, y_col, full_w, float(br2.height()) + 2), flags, answer
+                        QRectF(col2_x, y_col, ans_w, ans_h + 2), flags, answer
                     )
-                    y_col += float(br2.height())
+                    if has_chip and row.show_ignore:
+                        ignore_str = f"Ignore: {'Yes' if is_ignored else 'No'}"
+                        ignore_w = float(fm_body.horizontalAdvance(ignore_str))
+                        painter.setFont(self._font_body)
+                        painter.setPen(self._muted)
+                        painter.drawText(
+                            QRectF(col2_x + full_w - ignore_w, y_col, ignore_w, body_line_h + 2),
+                            int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
+                            ignore_str,
+                        )
+                    y_col += ans_h
                 y_col += 3.0
         else:
             selected = {e.get("cat", "") for e in row.entries}

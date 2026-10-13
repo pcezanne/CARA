@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.models.chess_log_snapshot import TagRowSnapshot
+from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.chess_log_preset_order import CLAMP_ORDER, CCT_ORDER
 from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS as _3X3_PROMPTS
@@ -100,14 +101,10 @@ class _TagRowWidget(QFrame):
         for e in entries:
             cat = e.get("cat", "")
             why = (e.get("why") or "").strip()
-            ignore_shallow = bool(e.get("ignore_shallow", False))
-            ignore_text_hash = e.get("ignore_text_hash")
+            ignore_shallow = ChessLogStorageService.is_entry_ignore_honoured(e)
+            ignore_text_hash = e.get("ignore_text_hash") if ignore_shallow else None
             is_shallow = bool(e.get("is_shallow", False))
             is_vague = bool(e.get("is_vague", False))
-            if ignore_shallow and ignore_text_hash:
-                if not why or hashlib.sha256(why.encode("utf-8")).hexdigest() != ignore_text_hash:
-                    ignore_shallow = False
-                    ignore_text_hash = None
             self._preserved_per_cat[cat] = {
                 "ignore_shallow": ignore_shallow,
                 "ignore_text_hash": ignore_text_hash,

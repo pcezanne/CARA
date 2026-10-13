@@ -1,5 +1,6 @@
 """Service for storing and loading Chess Log moments in PGN tags."""
 
+import hashlib
 import json
 import uuid
 from typing import Dict, List, Optional, Any
@@ -267,6 +268,24 @@ class ChessLogStorageService:
         if ignore_text_hash:
             entry["ignore_text_hash"] = ignore_text_hash
         return entry
+
+    @staticmethod
+    def is_entry_ignore_honoured(entry: Dict[str, Any]) -> bool:
+        """Return True when this entry's ignore_shallow flag is in effect.
+
+        Honoured when ignore_shallow=True AND either:
+        - no ignore_text_hash stored (legacy: honour unconditionally), OR
+        - sha256(why) == ignore_text_hash (text unchanged since Ignore was set).
+        """
+        if not entry.get("ignore_shallow", False):
+            return False
+        h = entry.get("ignore_text_hash")
+        if not h:
+            return True
+        why = (entry.get("why") or "").strip()
+        if not why:
+            return False
+        return hashlib.sha256(why.encode("utf-8")).hexdigest() == h
 
     @staticmethod
     def _remove_chess_log_tags(game: GameData) -> None:

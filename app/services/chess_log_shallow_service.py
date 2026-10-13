@@ -220,6 +220,8 @@ def classify_notes(
     base_url_override: Optional[str],
     config: Optional[dict],
     timeout_seconds: int,
+    *,
+    _is_retry: bool = False,
 ) -> ShallowResult:
     """Classify *notes* as SHALLOW or DEEP via the configured AI provider.
 
@@ -256,10 +258,12 @@ def classify_notes(
     prompt = classifier_body + notes_text
 
     token_limit = _classifier_token_limit(len(notes))
+    temp_sent = 0
     service = AIService(config=config)
     LoggingService.get_instance().debug(
-        "chess_log classifier dispatch: model=%s, thinking=%r, temperature=0, notes=%d, max_tokens=%d"
-        % (model, thinking, len(notes), token_limit)
+        "chess_log classifier dispatch: model=%s, thinking=%r, temperature=%s, notes=%d, max_tokens=%d%s"
+        % (model, thinking, temp_sent, len(notes), token_limit,
+           ", IS_RETRY=True" if _is_retry else "")
     )
     result = service.send_message(
         provider=provider,
@@ -270,7 +274,7 @@ def classify_notes(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
-        temperature=0,
+        temperature=temp_sent,
     )
 
     if not result.success:
@@ -312,6 +316,25 @@ def classify_notes(
             )
         )
 
+    # Retry once for unparsed notes (never on a retry call itself).
+    if unparsed and not _is_retry:
+        retry_notes = [
+            (j,) + notes[orig_i][1:]
+            for j, orig_i in enumerate(unparsed)
+        ]
+        LoggingService.get_instance().info(
+            "chess_log classifier retry: model=%s, %d of %d notes unparsed — retrying %d"
+            % (model, len(unparsed), len(notes), len(retry_notes))
+        )
+        retry_result = classify_notes(
+            retry_notes, provider, model, api_key, base_url_override,
+            config, timeout_seconds, _is_retry=True,
+        )
+        if retry_result.success:
+            shallow_keys = shallow_keys | retry_result.shallow_keys
+            still_unparsed = frozenset(retry_result.unparsed_indices)
+            unparsed = tuple(unparsed[j] for j in sorted(still_unparsed))
+
     return ShallowResult(
         success=True,
         shallow_keys=shallow_keys,
@@ -334,6 +357,8 @@ def classify_notes_3x3(
     base_url_override: Optional[str],
     config: Optional[dict],
     timeout_seconds: int,
+    *,
+    _is_retry: bool = False,
 ) -> ShallowResult:
     """Classify 3x3 notes with independent INTENT / LESSON verdicts.
 
@@ -385,10 +410,12 @@ def classify_notes_3x3(
 
     thinking = AIService.disable_thinking_for(model)
     token_limit = _classifier_token_limit(len(notes), per_note=90)
+    temp_sent = 0
     service = AIService(config=config)
     LoggingService.get_instance().debug(
-        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, temperature=0, notes=%d, max_tokens=%d"
-        % (model, thinking, len(notes), token_limit)
+        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, temperature=%s, notes=%d, max_tokens=%d%s"
+        % (model, thinking, temp_sent, len(notes), token_limit,
+           ", IS_RETRY=True" if _is_retry else "")
     )
     result = service.send_message(
         provider=provider,
@@ -399,7 +426,7 @@ def classify_notes_3x3(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
-        temperature=0,
+        temperature=temp_sent,
     )
 
     if not result.success:
@@ -449,6 +476,26 @@ def classify_notes_3x3(
                 result.text[:4000],
             )
         )
+
+    # Retry once for unparsed notes (never on a retry call itself).
+    if unparsed and not _is_retry:
+        retry_notes = [
+            (j,) + notes[orig_i][1:]
+            for j, orig_i in enumerate(unparsed)
+        ]
+        LoggingService.get_instance().info(
+            "chess_log 3x3 classifier retry: model=%s, %d of %d notes unparsed — retrying %d"
+            % (model, len(unparsed), len(notes), len(retry_notes))
+        )
+        retry_result = classify_notes_3x3(
+            retry_notes, provider, model, api_key, base_url_override,
+            config, timeout_seconds, _is_retry=True,
+        )
+        if retry_result.success:
+            shallow_keys = shallow_keys | retry_result.shallow_keys
+            vague_keys = vague_keys | retry_result.vague_keys
+            still_unparsed = frozenset(retry_result.unparsed_indices)
+            unparsed = tuple(unparsed[j] for j in sorted(still_unparsed))
 
     return ShallowResult(
         success=True,

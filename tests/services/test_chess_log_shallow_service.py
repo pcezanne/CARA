@@ -264,7 +264,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         from app.services.chess_log_shallow_service import classify_notes
         # Three notes but reply only covers 0 and 2
         reply = "0: DEEP\n2: SHALLOW\n"
-        mock_post.return_value = _mock_anthropic_response(reply)
+        # Empty response for the retry so note 1 stays unparsed.
+        mock_post.side_effect = [_mock_anthropic_response(reply), _mock_anthropic_response("")]
         notes = _make_notes(["note A", "note B", "note C"])
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
@@ -552,7 +553,12 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
         """All notes unparsed → LoggingService.error called with reply, model, stop_reason,
         max_tokens, input/output token counts, block_count, block_types."""
         from app.services.chess_log_shallow_service import classify_notes
-        mock_post.return_value = _mock_anthropic_response("no verdicts here at all")
+        # Empty response for the retry so it fails silently (success=False) and
+        # error() is called exactly once — for the first all-fail.
+        mock_post.side_effect = [
+            _mock_anthropic_response("no verdicts here at all"),
+            _mock_anthropic_response(""),
+        ]
         notes = _make_notes(["a", "b"])
         mock_logger = MagicMock()
         with patch(
@@ -578,7 +584,11 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
         """The API key must never appear in the log message."""
         from app.services.chess_log_shallow_service import classify_notes
         sentinel_key = "sk-TESTKEY-SHOULDNOTAPPEAR"
-        mock_post.return_value = _mock_anthropic_response("no verdicts here")
+        # Empty response for the retry so error() is called exactly once.
+        mock_post.side_effect = [
+            _mock_anthropic_response("no verdicts here"),
+            _mock_anthropic_response(""),
+        ]
         notes = _make_notes(["a"])
         mock_logger = MagicMock()
         with patch(
@@ -594,9 +604,10 @@ class TestClassifyNotesDiagnosticLogging(unittest.TestCase):
     def test_partial_fail_logs_debug_not_warning(self, mock_post):
         """Partial failure (some parsed) → .debug called, not .warning."""
         from app.services.chess_log_shallow_service import classify_notes
-        # Index 0 parses, index 1 doesn't
+        # Index 0 parses, index 1 doesn't.  Empty response for the retry keeps
+        # index 1 unparsed so the unparsed_indices assertion still holds.
         reply = "0: SHALLOW\n"
-        mock_post.return_value = _mock_anthropic_response(reply)
+        mock_post.side_effect = [_mock_anthropic_response(reply), _mock_anthropic_response("")]
         notes = _make_notes(["a", "b"])
         mock_logger = MagicMock()
         with patch(
@@ -1046,7 +1057,8 @@ class TestClassifyNotes3x3PartialReply(unittest.TestCase):
             "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
             "2: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
         )
-        mock_post.return_value = _mock_anthropic_response(reply)
+        # Empty response for the retry so note 1 stays unparsed.
+        mock_post.side_effect = [_mock_anthropic_response(reply), _mock_anthropic_response("")]
         notes = _make_notes_3x3([("a", "b", "c", "d")] * 3)
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
@@ -1537,6 +1549,163 @@ class TestTemperatureZeroPassed(unittest.TestCase):
         mock_instance.send_message.assert_called_once()
         _, kwargs = mock_instance.send_message.call_args
         self.assertEqual(kwargs.get("temperature"), 0)
+
+
+# ---------------------------------------------------------------------------
+# B2 — retry on partial failure
+# ---------------------------------------------------------------------------
+
+class TestRetryOnPartialFailure(unittest.TestCase):
+    """classify_notes and classify_notes_3x3 retry once on partial parse failure."""
+
+    # CLAMP/CCT retry tests ---------------------------------------------------
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clamp_retry_resolves_all(self, mock_post):
+        """First call leaves 1 unparsed; retry resolves it → 0 unparsed in final result."""
+        from app.services.chess_log_shallow_service import classify_notes
+        # First call parses notes 0 and 2, leaves note 1 unparsed.
+        # Retry receives [note1-reindexed-as-0] and resolves it.
+        first_reply = "0: SHALLOW\n2: DEEP\n"
+        retry_reply = "0: SHALLOW\n"
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            _mock_anthropic_response(retry_reply),
+        ]
+        notes = _make_notes(["first", "second", "third"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (),
+                         "Retry must resolve remaining unparsed note")
+        # note 1 was SHALLOW in retry → should be in shallow_keys
+        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((1, "path/2", "CLAMP", ""), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clamp_retry_leaves_some_unparsed(self, mock_post):
+        """First call leaves 2 unparsed; retry resolves 1, leaves 1 → 1 still unparsed."""
+        from app.services.chess_log_shallow_service import classify_notes
+        first_reply = "0: DEEP\n"
+        retry_reply = "0: SHALLOW\n"   # resolves orig note 1; orig note 2 stays unparsed
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            _mock_anthropic_response(retry_reply),
+        ]
+        notes = _make_notes(["a", "b", "c"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (2,),
+                         "Original note 2 (retry index 1) should still be unparsed")
+        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_clamp_failed_retry_does_not_affect_first_call_results(self, mock_post):
+        """A failed retry call must not discard notes already judged by the first call."""
+        from app.services.chess_log_shallow_service import classify_notes
+        import requests as req_lib
+        first_reply = "0: SHALLOW\n"  # note 0 parsed; notes 1 and 2 unparsed
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            req_lib.exceptions.ConnectionError("retry failed"),
+        ]
+        notes = _make_notes(["a", "b", "c"])
+        result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys,
+                      "First-call result must survive a failed retry")
+        self.assertEqual(result.unparsed_indices, (1, 2),
+                         "Unparsed from first call must be preserved when retry fails")
+
+    # 3x3 retry tests ---------------------------------------------------------
+
+    @patch("app.services.ai_service.requests.post")
+    def test_3x3_retry_resolves_all(self, mock_post):
+        """3x3 first call leaves 1 unparsed; retry resolves it → 0 unparsed."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        first_reply = (
+            "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+            "2: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER\n"
+        )
+        retry_reply = "0: WHY1=SPECIFIC WHY2=GENERIC WHY3=SPECIFIC LESSON=REAL\n"
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            _mock_anthropic_response(retry_reply),
+        ]
+        notes = _make_notes_3x3([("a", "b", "c", "d")] * 3)
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        # note 1 resolved in retry with WHY2=GENERIC
+        self.assertIn((1, "path/1", "3x3", "Why2"), result.shallow_keys)
+        # note 2 from first call with WHY1=GENERIC, LESSON=FILLER
+        self.assertIn((1, "path/2", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/2", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_3x3_retry_leaves_some_unparsed(self, mock_post):
+        """3x3 retry resolves 1 of 2 unparsed → 1 still unparsed after retry."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        first_reply = "0: WHY1=SPECIFIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+        # Retry receives notes 1 and 2 as indices 0 and 1.
+        # Only index 0 (orig note 1) parsed; orig note 2 stays unparsed.
+        retry_reply = "0: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL\n"
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            _mock_anthropic_response(retry_reply),
+        ]
+        notes = _make_notes_3x3([("a", "b", "c", "d")] * 3)
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (2,))
+        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_3x3_failed_retry_does_not_affect_first_call_results(self, mock_post):
+        """A failed 3x3 retry must not discard notes judged by the first call."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        import requests as req_lib
+        first_reply = "0: WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=FILLER\n"
+        mock_post.side_effect = [
+            _mock_anthropic_response(first_reply),
+            req_lib.exceptions.ConnectionError("retry failed"),
+        ]
+        notes = _make_notes_3x3([("a", "b", "c", "d")] * 2)
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+                      "First-call shallow keys must survive a failed retry")
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+                      "First-call vague keys must survive a failed retry")
+        self.assertEqual(result.unparsed_indices, (1,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_no_retry_when_all_parsed(self, mock_post):
+        """When every note parses on the first call, no retry is made."""
+        from app.services.chess_log_shallow_service import classify_notes
+        mock_post.return_value = _mock_anthropic_response("0: DEEP\n1: SHALLOW\n")
+        notes = _make_notes(["a", "b"])
+        classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertEqual(mock_post.call_count, 1, "No retry when all notes parse")
+
+    @patch("app.services.ai_service.requests.post")
+    def test_retry_logs_at_info(self, mock_post):
+        """Retry triggers an INFO-level log with note counts."""
+        from app.services.chess_log_shallow_service import classify_notes
+        mock_post.side_effect = [
+            _mock_anthropic_response("0: DEEP\n"),   # note 1 unparsed → triggers retry
+            _mock_anthropic_response("0: SHALLOW\n"),
+        ]
+        notes = _make_notes(["a", "b"])
+        mock_logger = MagicMock()
+        with patch(
+            "app.services.chess_log_shallow_service.LoggingService.get_instance",
+            return_value=mock_logger,
+        ):
+            classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(mock_logger.info.called, "Retry must log at INFO level")
+        info_msg = mock_logger.info.call_args.args[0]
+        self.assertIn("retry", info_msg.lower())
 
 
 if __name__ == "__main__":

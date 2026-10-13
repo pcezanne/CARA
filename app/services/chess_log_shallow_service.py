@@ -118,54 +118,76 @@ def _parse_verdicts(reply_text: str, note_count: int) -> dict:
 # 3x3 verdict parsing
 # ---------------------------------------------------------------------------
 
-# Matches a 3x3 verdict line: <idx>: WHY1=<X> WHY2=<X> WHY3=<X> LESSON=<Y>
-# All four fields must be present on the same line, in order.  Prose lines
-# that mention WHY1/LESSON without the enum values (e.g. "the WHY1 would
-# have been clearer") never match because each field requires an = sign
-# immediately followed by a valid enum value.
-_LINE_RE_3X3 = re.compile(
-    r'^[\s|*>_\-\[]*'                               # leading decoration
-    r'(\d+)\s*'                                      # index
-    r'[-\]:.)|]\s*'                                  # separator
-    r'[*_`]*\s*'                                     # optional decoration
-    r'WHY1\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY1 verdict + whitespace
-    r'WHY2\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY2 verdict + whitespace
-    r'WHY3\s*=\s*(SPECIFIC|GENERIC|BLANK)\s+'       # WHY3 verdict + whitespace
-    r'LESSON\s*=\s*(REAL|FILLER|BLANK)'             # LESSON verdict
-    r'\s*[*_`|.,!;]*\s*$',                           # trailing decoration
-    re.IGNORECASE | re.MULTILINE,
+# Line-start anchor for 3x3: optional leading decoration, index, separator.
+# Same structural rule as the CLAMP _LINE_RE prefix — a verdict line must
+# open with a digit (index) followed by a separator character.  This blocks
+# prose lines whose only "index" is a move number mid-sentence.
+_LINE_PREFIX_3X3 = re.compile(
+    r'^[\s|*>_\-\[]*'   # leading decoration
+    r'(\d+)\s*'           # the index
+    r'[-\]:.)|]',         # separator character
+    re.MULTILINE,
 )
+
+# Matches one FIELD=VALUE assignment anywhere on a line.  Tolerates:
+#   - markdown bold/backtick/underscore wrapping on either side of the value
+#   - optional whitespace between the = and the value
+# The field name is captured in group 1; the value word in group 2.
+_FIELD_RE_3X3 = re.compile(
+    r'[*_`]*(WHY1|WHY2|WHY3|LESSON)\s*=\s*[*_`\s]*(SPECIFIC|GENERIC|BLANK|REAL|FILLER)[*_`]*',
+    re.IGNORECASE,
+)
+
+_WHY_VALUES = frozenset(("SPECIFIC", "GENERIC", "BLANK"))
+_LESSON_VALUES = frozenset(("REAL", "FILLER", "BLANK"))
 
 
 def _parse_3x3_verdicts(reply_text: str, note_count: int) -> dict:
     """Return {idx: (why1_upper, why2_upper, why3_upper, lesson_upper)}.
 
-    Preprocessing: insert a newline when any enum value is immediately followed
-    by a digit, covering glued reply blocks from all five vocabulary words.
+    Tolerant of field order, comma/semicolon/pipe separators, and markdown
+    decoration around values.  All four fields must be present and valid on
+    the same line; a missing field, duplicate field, or invalid value leaves
+    the index unparsed.
 
-    Last occurrence wins for duplicate indices.
+    Preprocessing: insert a newline when any enum value is immediately followed
+    by a digit (glued reply blocks).  Last occurrence wins for duplicates.
     """
     text = re.sub(r'\b(SPECIFIC|GENERIC|BLANK|REAL|FILLER)(\d)', r'\1\n\2', reply_text, flags=re.IGNORECASE)
     parsed: dict = {}
-    for m in _LINE_RE_3X3.finditer(text):
+    for line in text.splitlines():
+        m = _LINE_PREFIX_3X3.match(line)
+        if not m:
+            continue
         try:
             idx = int(m.group(1))
         except ValueError:
             continue
-        why1 = m.group(2).upper()
-        why2 = m.group(3).upper()
-        why3 = m.group(4).upper()
-        lesson = m.group(5).upper()
-        if why1 not in ("SPECIFIC", "GENERIC", "BLANK"):
+        if not (0 <= idx < note_count):
             continue
-        if why2 not in ("SPECIFIC", "GENERIC", "BLANK"):
+        rest = line[m.end():]
+        fields: dict = {}
+        duplicate = False
+        for fm in _FIELD_RE_3X3.finditer(rest):
+            fname = fm.group(1).upper()
+            fval = fm.group(2).upper()
+            if fname in fields:
+                duplicate = True
+                break
+            fields[fname] = fval
+        if duplicate:
             continue
-        if why3 not in ("SPECIFIC", "GENERIC", "BLANK"):
+        if len(fields) != 4:
             continue
-        if lesson not in ("REAL", "FILLER", "BLANK"):
+        if fields["WHY1"] not in _WHY_VALUES:
             continue
-        if 0 <= idx < note_count:
-            parsed[idx] = (why1, why2, why3, lesson)
+        if fields["WHY2"] not in _WHY_VALUES:
+            continue
+        if fields["WHY3"] not in _WHY_VALUES:
+            continue
+        if fields["LESSON"] not in _LESSON_VALUES:
+            continue
+        parsed[idx] = (fields["WHY1"], fields["WHY2"], fields["WHY3"], fields["LESSON"])
     return parsed
 
 

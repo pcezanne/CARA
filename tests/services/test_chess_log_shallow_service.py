@@ -795,10 +795,102 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         self.assertEqual(result.unparsed_indices, (0,))
 
     @patch("app.services.ai_service.requests.post")
-    def test_out_of_order_fields_unparsed(self, mock_post):
-        """Fields in wrong order (LESSON before WHY3) → unparsed."""
+    def test_out_of_order_fields_parsed(self, mock_post):
+        """Fields in any order (LESSON before WHY3) → now parsed by tolerant parser."""
         from app.services.chess_log_shallow_service import classify_notes_3x3
         reply = "0: WHY1=SPECIFIC LESSON=REAL WHY2=SPECIFIC WHY3=SPECIFIC"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    # B1 — tolerant parser: additional failure shapes now accepted ------------
+
+    @patch("app.services.ai_service.requests.post")
+    def test_comma_separated_fields_parsed(self, mock_post):
+        """Comma-separated fields are accepted by the tolerant parser."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC, WHY2=GENERIC, WHY3=SPECIFIC, LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_semicolon_separated_fields_parsed(self, mock_post):
+        """Semicolon-separated fields are accepted by the tolerant parser."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=GENERIC; WHY2=SPECIFIC; WHY3=SPECIFIC; LESSON=FILLER"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_pipe_separated_fields_parsed(self, mock_post):
+        """Pipe-separated fields (markdown table shape) are accepted."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC | WHY2=GENERIC | WHY3=SPECIFIC | LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_bold_wrapped_values_parsed(self, mock_post):
+        """Bold-wrapped values (**SPECIFIC**) are accepted by the tolerant parser."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=**SPECIFIC** WHY2=**GENERIC** WHY3=**SPECIFIC** LESSON=**REAL**"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    @patch("app.services.ai_service.requests.post")
+    def test_lesson_first_all_fields_present_parsed(self, mock_post):
+        """LESSON appearing first (before WHY1) is now accepted."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: LESSON=FILLER WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, ())
+        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+
+    # B1 — negative tests: missing field, duplicate field ----------------------
+
+    @patch("app.services.ai_service.requests.post")
+    def test_missing_why2_field_unparsed(self, mock_post):
+        """WHY1, WHY3, LESSON present but WHY2 missing → unparsed (no guessing)."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
+        mock_post.return_value = _mock_anthropic_response(reply)
+        notes = _make_notes_3x3([("a", "b", "c", "d")])
+        result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
+        self.assertTrue(result.success)
+        self.assertEqual(result.unparsed_indices, (0,))
+
+    @patch("app.services.ai_service.requests.post")
+    def test_duplicate_field_unparsed(self, mock_post):
+        """WHY1 appearing twice → duplicate → unparsed (no guessing)."""
+        from app.services.chess_log_shallow_service import classify_notes_3x3
+        reply = "0: WHY1=SPECIFIC WHY1=GENERIC WHY2=SPECIFIC WHY3=SPECIFIC LESSON=REAL"
         mock_post.return_value = _mock_anthropic_response(reply)
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)

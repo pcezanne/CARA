@@ -136,6 +136,8 @@ class _TagRowWidget(QFrame):
         self._ignore_check: Optional[QCheckBox] = None
         self._shallow_chip: Optional[QLabel] = None
         self._vague_chip: Optional[QLabel] = None
+        # Per-answer Ignore checkboxes for 3x3 rows (keyed by Why cat name).
+        self._ignore_checks: Dict[str, QCheckBox] = {}
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -203,19 +205,19 @@ class _TagRowWidget(QFrame):
         header_row.addWidget(header, 1)
         self._header_label = header
 
-        if self._preserved_is_shallow:
-            chip = self._make_chip("shallow")
-            header_row.addWidget(chip)
-            self._shallow_chip = chip
-        if self._preserved_is_vague:
-            chip = self._make_chip("vague_lesson")
-            header_row.addWidget(chip)
-            self._vague_chip = chip
+        # For CLAMP/CCT: chips stay on the move-header. For 3x3: chips move to
+        # the per-answer question lines (rendered in the txt_col loop below).
+        if self._preset != "3x3":
+            if self._preserved_is_shallow:
+                chip = self._make_chip("shallow")
+                header_row.addWidget(chip)
+                self._shallow_chip = chip
+            if self._preserved_is_vague:
+                chip = self._make_chip("vague_lesson")
+                header_row.addWidget(chip)
+                self._vague_chip = chip
 
-        if self._show_ignore_checkbox:
-            warning_lbl = QLabel("⚠️")
-            warning_lbl.setStyleSheet("border: none;")
-            header_row.addWidget(warning_lbl)
+        if self._show_ignore_checkbox and self._preset != "3x3":
             self._ignore_check = QCheckBox("Ignore")
             self._ignore_check.setChecked(self._preserved_ignore_shallow)
             self._ignore_check.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
@@ -272,12 +274,48 @@ class _TagRowWidget(QFrame):
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
         if self._preset == "3x3":
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
             for key in _3X3_KEYS:
+                per_cat = self._preserved_per_cat.get(key, {})
+                has_shallow_chip = per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3")
+                has_vague_chip = per_cat.get("is_vague") and key == "Why4"
+                is_ignored = per_cat.get("ignore_shallow", False)
+
+                # Question line: label (stretch) + chip right-justified
+                q_row = QHBoxLayout()
                 prompt_lbl = QLabel(_3X3_PROMPTS[key])
                 prompt_lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
                 prompt_lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); font-style: italic;")
-                txt_col.addWidget(prompt_lbl)
+                prompt_lbl.setWordWrap(True)
+                q_row.addWidget(prompt_lbl, 1)
+                if has_shallow_chip or has_vague_chip:
+                    chip_kind = "shallow" if has_shallow_chip else "vague_lesson"
+                    chip = self._make_chip(chip_kind)
+                    if is_ignored:
+                        eff = QGraphicsOpacityEffect(chip)
+                        eff.setOpacity(0.4)
+                        chip.setGraphicsEffect(eff)
+                    q_row.addWidget(chip, 0, Qt.AlignmentFlag.AlignTop)
+                    if has_shallow_chip:
+                        self._shallow_chip = chip
+                    else:
+                        self._vague_chip = chip
+                txt_col.addLayout(q_row)
+
+                # Ignore checkbox: right-justified under chip (shown when chip present)
+                if has_shallow_chip or has_vague_chip:
+                    ign_row = QHBoxLayout()
+                    ign_row.addStretch(1)
+                    if self._show_ignore_checkbox or is_ignored:
+                        ign_cb = QCheckBox("Ignore")
+                        ign_cb.setChecked(is_ignored)
+                        ign_cb.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
+                        ign_cb.stateChanged.connect(self._schedule_edited)
+                        ign_row.addWidget(ign_cb)
+                        self._ignore_checks[key] = ign_cb
+                    txt_col.addLayout(ign_row)
+
                 te = QPlainTextEdit(why_map.get(key, ""))
                 te.setFont(QFont(self._input_font_family, self._input_font_size))
                 self._style_text_widget(te)
@@ -355,15 +393,37 @@ class _TagRowWidget(QFrame):
                 if not text:
                     continue
                 per_cat = self._preserved_per_cat.get(key, {})
+                per_cat_ignore_cb = self._ignore_checks.get(key)
                 entry: Dict[str, Any] = {"preset": "3x3", "cat": key, "why": text}
-                if ignore:
-                    entry["ignore_shallow"] = True
-                    entry["ignore_text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
-                # Per-cat shallow/vague flags (chip-eligibility rule B4)
-                if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
-                    entry["is_shallow"] = True
-                if per_cat.get("is_vague") and key == "Why4":
-                    entry["is_vague"] = True
+                if per_cat_ignore_cb is not None:
+                    # User-controlled Ignore checkbox for this answer
+                    current_ignore = per_cat_ignore_cb.isChecked()
+                    was_ignored = per_cat.get("ignore_shallow", False)
+                    if current_ignore:
+                        entry["ignore_shallow"] = True
+                        entry["ignore_text_hash"] = hashlib.sha256(text.encode("utf-8")).hexdigest()
+                        if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
+                            entry["is_shallow"] = True
+                        if per_cat.get("is_vague") and key == "Why4":
+                            entry["is_vague"] = True
+                    elif was_ignored:
+                        # B10a: was ignored, now unticked → clear ALL flags for this answer
+                        pass
+                    else:
+                        if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
+                            entry["is_shallow"] = True
+                        if per_cat.get("is_vague") and key == "Why4":
+                            entry["is_vague"] = True
+                else:
+                    # No checkbox for this answer → preserve original flags
+                    if per_cat.get("ignore_shallow"):
+                        entry["ignore_shallow"] = True
+                        if per_cat.get("ignore_text_hash"):
+                            entry["ignore_text_hash"] = per_cat["ignore_text_hash"]
+                    if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
+                        entry["is_shallow"] = True
+                    if per_cat.get("is_vague") and key == "Why4":
+                        entry["is_vague"] = True
                 result.append(entry)
             return result
 

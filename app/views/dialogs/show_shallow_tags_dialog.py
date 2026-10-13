@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.utils.chess_log_best_move import resolve_best_move_for_path
+from app.utils.help_icon import make_help_icon
 from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER, _normalize_entries
@@ -62,9 +63,9 @@ class ShowShallowTagsDialog(QDialog):
         config: Dict[str, Any],
         games: List,
         controller,
-        shallow_keys: Set[Tuple[int, str, str]],
-        vague_keys: Set[Tuple[int, str, str]] = frozenset(),
-        classified_keys: FrozenSet[Tuple[int, str, str]] = frozenset(),
+        shallow_keys: Set[Tuple[int, str, str, str]],
+        vague_keys: Set[Tuple[int, str, str, str]] = frozenset(),
+        classified_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(),
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -104,8 +105,7 @@ class ShowShallowTagsDialog(QDialog):
                     by_preset.setdefault(p, []).append(entry)
 
                 for preset, entries in by_preset.items():
-                    key = (game.game_number, path_key, preset)
-                    if key not in self._flagged_keys:
+                    if not self._moment_has_flag(game.game_number, path_key, preset):
                         continue
                     ply = _ply_for_path_fn(pgn_game, path)
                     rank = preset_rank.get(preset, len(_PRESET_ORDER))
@@ -145,6 +145,51 @@ class ShowShallowTagsDialog(QDialog):
         sh = self._config.get("ui", {}).get("dialogs", {}).get("shallow", {})
         self._btn_save_label = sh.get("button_save", "Save")
         self._btn_cancel_label = sh.get("button_cancel", "Cancel")
+
+    # ------------------------------------------------------------------
+    # 4-tuple key helpers
+    # ------------------------------------------------------------------
+
+    def _moment_has_flag(self, gn: int, pk: str, preset: str) -> bool:
+        """True if any per-cat key for this moment is in flagged_keys."""
+        if preset == "3x3":
+            return any(
+                (gn, pk, "3x3", cat) in self._flagged_keys
+                for cat in ("Why1", "Why2", "Why3", "Why4")
+            )
+        return (gn, pk, preset, "") in self._flagged_keys
+
+    def _is_shallow_key(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+        if preset == "3x3":
+            return (gn, pk, "3x3", cat) in self._shallow_keys
+        return (gn, pk, preset, "") in self._shallow_keys
+
+    def _is_vague_key(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+        if preset == "3x3":
+            return (gn, pk, "3x3", cat) in self._vague_keys
+        return (gn, pk, preset, "") in self._vague_keys
+
+    def _in_classified(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+        if preset == "3x3":
+            return (gn, pk, "3x3", cat) in self._classified_keys
+        return (gn, pk, preset, "") in self._classified_keys
+
+    def _stamp_entries(
+        self, gn: int, pk: str, preset: str, entries: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Return entries with is_shallow / is_vague stamped per 4-tuple key membership."""
+        result = []
+        for e in entries:
+            e_copy = dict(e)
+            cat = e.get("cat", "")
+            if self._is_shallow_key(gn, pk, preset, cat):
+                if preset != "3x3" or cat in ("Why1", "Why2", "Why3"):
+                    e_copy["is_shallow"] = True
+            if self._is_vague_key(gn, pk, preset, cat):
+                if preset != "3x3" or cat == "Why4":
+                    e_copy["is_vague"] = True
+            result.append(e_copy)
+        return result
 
     @staticmethod
     def _parse_pgn(game_data):
@@ -191,6 +236,19 @@ class ShowShallowTagsDialog(QDialog):
         )
         return label
 
+    def _show_help(self) -> None:
+        from PyQt6.QtWidgets import QMessageBox
+        from PyQt6.QtGui import QFont
+        help_text = (
+            self._config.get("ui", {}).get("dialogs", {})
+            .get("shallow", {}).get("help_text", "")
+        )
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Check Logs — Help")
+        msg.setText(help_text or "Check Logs help not configured.")
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
+
     def _setup_ui(self) -> None:
         br, bg, bb = self._bg_rgb
         self.setStyleSheet(f"QDialog {{ background-color: rgb({br},{bg},{bb}); }}")
@@ -198,6 +256,20 @@ class ShowShallowTagsDialog(QDialog):
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
+
+        # Header row: title label + help icon
+        tr, tg, tb = self._text_color_rgb
+        hdr_row = QHBoxLayout()
+        hdr_row.setSpacing(4)
+        hdr_row.addStretch(1)
+        help_btn = make_help_icon(
+            self._config,
+            tooltip="What do the chips mean?",
+            text_color=self._text_color_rgb,
+            on_click=self._show_help,
+        )
+        hdr_row.addWidget(help_btn)
+        root.addLayout(hdr_row)
 
         if not self._rows:
             tr, tg, tb = self._text_color_rgb
@@ -239,12 +311,7 @@ class ShowShallowTagsDialog(QDialog):
                     rows_layout.addWidget(self._make_separator())
 
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
-                key = (game.game_number, path_key, preset)
-                stamped = list(entries)
-                if key in self._shallow_keys:
-                    stamped = [dict(e, is_shallow=True) for e in stamped]
-                if key in self._vague_keys:
-                    stamped = [dict(e, is_vague=True) for e in stamped]
+                stamped = self._stamp_entries(game.game_number, path_key, preset, entries)
                 row_widget = _TagRowWidget(
                     self._config,
                     preset,
@@ -383,22 +450,20 @@ class ShowShallowTagsDialog(QDialog):
         for i, (path_key, preset, _) in enumerate(self._rows):
             row_widget = self._row_widgets[i]
             game = self._row_games[i]
-            key = (game.game_number, path_key, preset)
             user_entries = row_widget.get_current_entries()
-            new_entries = list(user_entries)
-            if key in self._shallow_keys:
-                new_entries = [dict(e, is_shallow=True) for e in new_entries]
-            if key in self._vague_keys:
-                new_entries = [dict(e, is_vague=True) for e in new_entries]
+            new_entries = self._stamp_entries(game.game_number, path_key, preset, user_entries)
+            key = (game.game_number, path_key, preset)
             original = self._original_snapshot.get(key, [])
-            orig_with_flags = list(original)
-            if key in self._shallow_keys:
-                orig_with_flags = [dict(e, is_shallow=True) for e in orig_with_flags]
-            if key in self._vague_keys:
-                orig_with_flags = [dict(e, is_vague=True) for e in orig_with_flags]
-            flags_missing = (
-                (key in self._shallow_keys and any(not e.get("is_shallow") for e in original))
-                or (key in self._vague_keys and any(not e.get("is_vague") for e in original))
+            orig_with_flags = self._stamp_entries(game.game_number, path_key, preset, original)
+            flags_missing = any(
+                (
+                    self._is_shallow_key(game.game_number, path_key, preset, e.get("cat", ""))
+                    and not e.get("is_shallow")
+                ) or (
+                    self._is_vague_key(game.game_number, path_key, preset, e.get("cat", ""))
+                    and not e.get("is_vague")
+                )
+                for e in original
             )
             if _normalize_entries(new_entries) != _normalize_entries(orig_with_flags) or flags_missing:
                 self._controller.replace_entries_at_path_for_game(
@@ -416,20 +481,45 @@ class ShowShallowTagsDialog(QDialog):
                 for e in entries:
                     by_preset.setdefault(e.get("preset", ""), []).append(e)
                 for preset, preset_entries in by_preset.items():
-                    key = (game.game_number, path_key, preset)
-                    if key not in self._classified_keys:
-                        continue
-                    if key in self._flagged_keys:
-                        continue
-                    if any(e.get("is_shallow") or e.get("is_vague") for e in preset_entries):
-                        cleared = [
-                            {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
-                            for e in preset_entries
-                        ]
-                        self._controller.replace_entries_at_path_for_game(
-                            game, path_key, preset, cleared
-                        )
-                        affected.add(game)
+                    if preset == "3x3":
+                        # Per-entry stale clear for 3x3
+                        new_list = []
+                        changed = False
+                        for e in preset_entries:
+                            cat = e.get("cat", "")
+                            in_cls = self._in_classified(game.game_number, path_key, preset, cat)
+                            in_flag = (
+                                self._is_shallow_key(game.game_number, path_key, preset, cat) or
+                                self._is_vague_key(game.game_number, path_key, preset, cat)
+                            )
+                            if in_cls and not in_flag and (e.get("is_shallow") or e.get("is_vague")):
+                                new_list.append(
+                                    {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
+                                )
+                                changed = True
+                            else:
+                                new_list.append(e)
+                        if changed:
+                            self._controller.replace_entries_at_path_for_game(
+                                game, path_key, preset, new_list
+                            )
+                            affected.add(game)
+                    else:
+                        # Per-preset stale clear for CLAMP/CCT
+                        key_4 = (game.game_number, path_key, preset, "")
+                        if key_4 not in self._classified_keys:
+                            continue
+                        if self._moment_has_flag(game.game_number, path_key, preset):
+                            continue
+                        if any(e.get("is_shallow") or e.get("is_vague") for e in preset_entries):
+                            cleared = [
+                                {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
+                                for e in preset_entries
+                            ]
+                            self._controller.replace_entries_at_path_for_game(
+                                game, path_key, preset, cleared
+                            )
+                            affected.add(game)
 
         if affected:
             self._controller.save_games(affected)

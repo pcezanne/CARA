@@ -913,5 +913,84 @@ class TestSaveModelShowTags(unittest.TestCase):
         self.assertIn(game, saved_games)
 
 
+# ---------------------------------------------------------------------------
+# B10a — Show Logged Moments: dimmed chip + Ignore for ignored 3x3 entries
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestShowTagsDialogB10a(unittest.TestCase):
+    """B10a: ignored entries render dimmed chip + ticked Ignore in ShowTagsDialog."""
+
+    def _make_3x3_dialog_with_ignored(self, why1_text="I moved impulsively"):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        # Entry with is_shallow=True + ignore_shallow=True + matching hash
+        h = hashlib.sha256(why1_text.encode()).hexdigest()
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why1", why1_text,
+            ignore_shallow=True, is_shallow=True, ignore_text_hash=h,
+        )
+        paths = {"0": [entry]}
+        return _make_dialog(paths)
+
+    def test_ignored_entry_has_ticked_ignore_checkbox(self):
+        """B10a: ignored entry renders with Ignore checkbox pre-ticked."""
+        from PyQt6.QtWidgets import QCheckBox
+        dlg, _ = self._make_3x3_dialog_with_ignored()
+        row = dlg._row_widgets[0]
+        self.assertIn("Why1", row._ignore_checks)
+        self.assertTrue(row._ignore_checks["Why1"].isChecked())
+
+    def test_ignored_entry_chip_is_present(self):
+        """B10a: ignored entry still shows the chip (dimmed)."""
+        dlg, _ = self._make_3x3_dialog_with_ignored()
+        row = dlg._row_widgets[0]
+        # Chip exists (dimmed, but present as a QLabel)
+        self.assertIsNotNone(row._shallow_chip)
+
+    def test_untick_ignore_and_save_clears_all_three_fields(self):
+        """B10a: unticking Ignore and clicking Save clears ignore_shallow,
+        ignore_text_hash, and is_shallow from the entry."""
+        dlg, ctrl = self._make_3x3_dialog_with_ignored()
+        ctrl.save_games = MagicMock()
+        row = dlg._row_widgets[0]
+        # Untick Ignore
+        row._ignore_checks["Why1"].setChecked(False)
+        dlg._on_save()
+        # Check what was written
+        calls = ctrl.replace_entries_at_path_for_game.call_args_list
+        self.assertTrue(len(calls) > 0, "Expected replace call after untick+save")
+        written = calls[0][0][3]
+        why1 = next((e for e in written if e.get("cat") == "Why1"), None)
+        self.assertIsNotNone(why1)
+        self.assertFalse(why1.get("ignore_shallow", False))
+        self.assertIsNone(why1.get("ignore_text_hash"))
+        self.assertFalse(why1.get("is_shallow", False))
+
+    def test_non_ignored_entry_has_unticked_ignore(self):
+        """B10a: entry with chip but no Ignore has unticked checkbox."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "I moved impulsively", is_shallow=True)
+        paths = {"0": [entry]}
+        dlg, _ = _make_dialog(paths)
+        row = dlg._row_widgets[0]
+        self.assertIn("Why1", row._ignore_checks)
+        self.assertFalse(row._ignore_checks["Why1"].isChecked())
+
+    def test_entry_without_chip_has_no_ignore_checkbox(self):
+        """Entry with no chip (Why2, not flagged) shows no Ignore checkbox."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        # Why1 has chip, Why2 does not
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "I moved fast", is_shallow=True),
+            ChessLogStorageService.make_entry("3x3", "Why2", "It lost the center"),
+        ]
+        paths = {"0": entries}
+        dlg, _ = _make_dialog(paths)
+        row = dlg._row_widgets[0]
+        self.assertIn("Why1", row._ignore_checks)
+        self.assertNotIn("Why2", row._ignore_checks)
+
+
 if __name__ == "__main__":
     unittest.main()

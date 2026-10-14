@@ -1109,5 +1109,128 @@ class TestShowTagsDialogB10a(unittest.TestCase):
         self.assertNotIn("Why2", row._ignore_checks)
 
 
+# ---------------------------------------------------------------------------
+# B3: chip opacity updates in real time when Ignore is ticked / unticked
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipRealTimeOpacity(unittest.TestCase):
+    """B3: Ignore checkbox must dim the chip immediately; unticking restores full opacity."""
+
+    def _make_3x3_row(self, entries, show_ignore=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _make_clamp_row(self, entries, show_ignore=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _has_opacity_effect(self, chip) -> bool:
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        eff = chip.graphicsEffect()
+        return isinstance(eff, QGraphicsOpacityEffect) and abs(eff.opacity() - 0.4) < 0.01
+
+    def test_3x3_shallow_chip_dims_when_ignore_ticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "Moved impulsively", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertFalse(self._has_opacity_effect(chip), "chip must start undimmed")
+        row._ignore_checks["Why1"].setChecked(True)
+        self.assertTrue(self._has_opacity_effect(chip), "chip must dim when Ignore ticked")
+
+    def test_3x3_shallow_chip_undims_when_ignore_unticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why1", "Moved impulsively", is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=__import__("hashlib").sha256(b"Moved impulsively").hexdigest()
+        )
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertTrue(self._has_opacity_effect(chip), "chip must start dimmed for ignored entry")
+        row._ignore_checks["Why1"].setChecked(False)
+        self.assertFalse(self._has_opacity_effect(chip), "chip must undim when Ignore unticked")
+
+    def test_3x3_vague_chip_dims_when_ignore_ticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why4", "Need to slow down", is_vague=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why4")
+        self.assertIsNotNone(chip)
+        row._ignore_checks["Why4"].setChecked(True)
+        self.assertTrue(self._has_opacity_effect(chip), "vague chip must dim when Ignore ticked")
+
+    def test_3x3_vague_chip_undims_when_ignore_unticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why4", "Need to slow down", is_vague=True, ignore_shallow=True,
+            ignore_text_hash=__import__("hashlib").sha256(b"Need to slow down").hexdigest()
+        )
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why4")
+        self.assertIsNotNone(chip)
+        self.assertTrue(self._has_opacity_effect(chip), "vague chip must start dimmed")
+        row._ignore_checks["Why4"].setChecked(False)
+        self.assertFalse(self._has_opacity_effect(chip), "vague chip must undim on untick")
+
+    def test_clamp_chip_dims_when_ignore_ticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "Rushed", is_shallow=True)
+        row = self._make_clamp_row([entry], show_ignore=True)
+        chip = row._shallow_chip
+        self.assertIsNotNone(chip)
+        self.assertFalse(self._has_opacity_effect(chip), "CLAMP chip must start undimmed")
+        row._ignore_check.setChecked(True)
+        self.assertTrue(self._has_opacity_effect(chip), "CLAMP chip must dim when Ignore ticked")
+
+    def test_clamp_chip_undims_when_ignore_unticked(self):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        text = "Rushed development"
+        entry = ChessLogStorageService.make_entry(
+            "CLAMP", "C", text, is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=__import__("hashlib").sha256(text.encode()).hexdigest()
+        )
+        row = self._make_clamp_row([entry], show_ignore=True)
+        chip = row._shallow_chip
+        self.assertIsNotNone(chip)
+        self.assertTrue(self._has_opacity_effect(chip), "CLAMP chip must start dimmed")
+        row._ignore_check.setChecked(False)
+        self.assertFalse(self._has_opacity_effect(chip), "CLAMP chip must undim on untick")
+
+    def test_3x3_chip_already_dimmed_on_open_when_ignored(self):
+        """Chip renders dimmed immediately on dialog open when entry is already ignored."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why1", "Moved impulsively", is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=__import__("hashlib").sha256(b"Moved impulsively").hexdigest()
+        )
+        row = self._make_3x3_row([entry])
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertTrue(self._has_opacity_effect(chip), "chip must be dimmed at open for ignored entry")
+
+
 if __name__ == "__main__":
     unittest.main()

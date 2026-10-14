@@ -135,6 +135,8 @@ class _TagRowWidget(QFrame):
         self._vague_chip: Optional[QLabel] = None
         # Per-answer Ignore checkboxes for 3x3 rows (keyed by Why cat name).
         self._ignore_checks: Dict[str, QCheckBox] = {}
+        # Per-answer chips for 3x3 rows — used for real-time opacity updates.
+        self._chips_per_cat: Dict[str, QLabel] = {}
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -205,12 +207,17 @@ class _TagRowWidget(QFrame):
         # For CLAMP/CCT: chips stay on the move-header. For 3x3: chips move to
         # the per-answer question lines (rendered in the txt_col loop below).
         if self._preset != "3x3":
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect as _OpEff
             if self._preserved_is_shallow:
                 chip = self._make_chip("shallow")
+                if self._preserved_ignore_shallow:
+                    eff = _OpEff(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
                 header_row.addWidget(chip)
                 self._shallow_chip = chip
             if self._preserved_is_vague:
                 chip = self._make_chip("vague_lesson")
+                if self._preserved_ignore_shallow:
+                    eff = _OpEff(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
                 header_row.addWidget(chip)
                 self._vague_chip = chip
 
@@ -219,6 +226,9 @@ class _TagRowWidget(QFrame):
             self._ignore_check.setChecked(self._preserved_ignore_shallow)
             self._ignore_check.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
             self._ignore_check.stateChanged.connect(self._schedule_edited)
+            self._ignore_check.stateChanged.connect(
+                lambda st: self._update_clamp_cct_chip_opacity(bool(st))
+            )
             header_row.addWidget(self._ignore_check)
 
         outer.addLayout(header_row)
@@ -298,6 +308,7 @@ class _TagRowWidget(QFrame):
                         self._shallow_chip = chip
                     else:
                         self._vague_chip = chip
+                    self._chips_per_cat[key] = chip
                 txt_col.addLayout(q_row)
 
                 # Ignore checkbox: right-justified under chip (shown when chip present)
@@ -309,6 +320,11 @@ class _TagRowWidget(QFrame):
                         ign_cb.setChecked(is_ignored)
                         ign_cb.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
                         ign_cb.stateChanged.connect(self._schedule_edited)
+                        ign_cb.stateChanged.connect(
+                            lambda st, k=key: self._set_chip_opacity(
+                                self._chips_per_cat.get(k), bool(st)
+                            )
+                        )
                         ign_row.addWidget(ign_cb)
                         self._ignore_checks[key] = ign_cb
                     txt_col.addLayout(ign_row)
@@ -344,6 +360,23 @@ class _TagRowWidget(QFrame):
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any input change."""
         self._edit_debounce.start()
+
+    @staticmethod
+    def _set_chip_opacity(chip: Optional[QLabel], dim: bool) -> None:
+        """Dim (opacity 0.4) or fully restore a chip widget in real time."""
+        if chip is None:
+            return
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        if dim:
+            eff = QGraphicsOpacityEffect(chip)
+            eff.setOpacity(0.4)
+            chip.setGraphicsEffect(eff)
+        else:
+            chip.setGraphicsEffect(None)
+
+    def _update_clamp_cct_chip_opacity(self, dim: bool) -> None:
+        for chip in filter(None, [self._shallow_chip, self._vague_chip]):
+            self._set_chip_opacity(chip, dim)
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
         tr, tg, tb = self._text_color

@@ -798,6 +798,123 @@ class TestShowTagsDialogResizeGrip(unittest.TestCase):
         self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
 
 
+# ---------------------------------------------------------------------------
+# A3 / B2: is_shallow and is_vague survive the Ignore → Save → untick → Save cycle
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestIgnoreFlagsPreservation3x3(unittest.TestCase):
+    """A3: is_shallow / is_vague must survive the tick-Ignore → Save → untick → Save round-trip."""
+
+    def _make_row(self, entries, show_ignore=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _by_cat(self, entries):
+        return {e["cat"]: e for e in entries}
+
+    def test_a3_why4_vague_preserved_after_ignore_then_untick(self):
+        """A3 core: is_vague on Why4 must survive tick Ignore → Save → untick → Save."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "I attacked too early", is_shallow=True),
+            ChessLogStorageService.make_entry("3x3", "Why2", "Missed the fork"),
+            ChessLogStorageService.make_entry("3x3", "Why3", "Engine prefers Nf3"),
+            ChessLogStorageService.make_entry("3x3", "Why4", "I need to slow down", is_vague=True),
+        ]
+
+        # Step 1 (Check Logs dialog): tick Ignore on Why4, Save
+        row = self._make_row(entries, show_ignore=True)
+        self.assertIn("Why4", row._ignore_checks)
+        row._ignore_checks["Why4"].setChecked(True)
+        saved = row.get_current_entries()
+
+        by_cat = self._by_cat(saved)
+        self.assertEqual(by_cat["Why4"]["why"], "I need to slow down")
+        self.assertTrue(by_cat["Why4"].get("ignore_shallow"), "ignore_shallow must be set after tick")
+        self.assertTrue(by_cat["Why4"].get("is_vague"), "is_vague must survive first Save")
+
+        # Step 2 (Show Logged Moments): is_ignored=True so checkbox appears; untick, Save
+        row2 = self._make_row(saved, show_ignore=False)
+        self.assertIn("Why4", row2._ignore_checks,
+                      "checkbox must be shown for already-ignored entry")
+        row2._ignore_checks["Why4"].setChecked(False)
+        final = row2.get_current_entries()
+
+        by_cat2 = self._by_cat(final)
+        self.assertEqual(by_cat2["Why4"]["why"], "I need to slow down")
+        self.assertFalse(by_cat2["Why4"].get("ignore_shallow"),
+                         "ignore_shallow must be cleared after untick")
+        self.assertTrue(by_cat2["Why4"].get("is_vague"),
+                        "is_vague must survive the untick (Bug B)")
+
+    def test_why1_is_shallow_preserved_after_ignore_untick(self):
+        """is_shallow on Why1 must survive tick Ignore → untick round-trip."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "Attacked too early", is_shallow=True),
+            ChessLogStorageService.make_entry("3x3", "Why4", "Lesson text"),
+        ]
+
+        row = self._make_row(entries, show_ignore=True)
+        row._ignore_checks["Why1"].setChecked(True)
+        saved = row.get_current_entries()
+        self.assertTrue(self._by_cat(saved)["Why1"].get("is_shallow"))
+
+        row2 = self._make_row(saved, show_ignore=False)
+        row2._ignore_checks["Why1"].setChecked(False)
+        final = row2.get_current_entries()
+        self.assertTrue(self._by_cat(final)["Why1"].get("is_shallow"),
+                        "is_shallow must survive untick")
+
+    def test_all_four_texts_unchanged_through_ignore_untick_cycle(self):
+        """All four Why texts must be byte-identical after tick-Ignore → Save → untick → Save."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        texts = {
+            "Why1": "I attacked too early — rushed development",
+            "Why2": "I missed the knight fork on d5",
+            "Why3": "Engine recommends Nf3 before castling",
+            "Why4": "Next time I need to slow down and calculate",
+        }
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", texts["Why1"], is_shallow=True),
+            ChessLogStorageService.make_entry("3x3", "Why2", texts["Why2"]),
+            ChessLogStorageService.make_entry("3x3", "Why3", texts["Why3"]),
+            ChessLogStorageService.make_entry("3x3", "Why4", texts["Why4"], is_vague=True),
+        ]
+
+        # Tick Ignore on both Why1 and Why4, Save
+        row = self._make_row(entries, show_ignore=True)
+        for k in ("Why1", "Why4"):
+            if k in row._ignore_checks:
+                row._ignore_checks[k].setChecked(True)
+        saved = row.get_current_entries()
+        for cat, text in texts.items():
+            m = next((e for e in saved if e["cat"] == cat), None)
+            self.assertIsNotNone(m, f"{cat} missing after first Save")
+            self.assertEqual(m["why"], text, f"{cat} text changed after first Save")
+
+        # Untick all, Save again
+        row2 = self._make_row(saved, show_ignore=False)
+        for cb in row2._ignore_checks.values():
+            cb.setChecked(False)
+        final = row2.get_current_entries()
+        for cat, text in texts.items():
+            m = next((e for e in final if e["cat"] == cat), None)
+            self.assertIsNotNone(m, f"{cat} missing after second Save")
+            self.assertEqual(m["why"], text, f"{cat} text changed after second Save")
+
+
 @requires_qt
 class TestOrphanRowSkipped(unittest.TestCase):
     """Dialog must skip rows whose path_key doesn't resolve in the game's move tree
@@ -948,9 +1065,9 @@ class TestShowTagsDialogB10a(unittest.TestCase):
         # Chip exists (dimmed, but present as a QLabel)
         self.assertIsNotNone(row._shallow_chip)
 
-    def test_untick_ignore_and_save_clears_all_three_fields(self):
-        """B10a: unticking Ignore and clicking Save clears ignore_shallow,
-        ignore_text_hash, and is_shallow from the entry."""
+    def test_untick_ignore_and_save_clears_ignore_flags_preserves_is_shallow(self):
+        """B10a / Bug B: unticking Ignore clears ignore_shallow and ignore_text_hash
+        but PRESERVES is_shallow — chip must remain visible after re-opening."""
         dlg, ctrl = self._make_3x3_dialog_with_ignored()
         ctrl.save_games = MagicMock()
         row = dlg._row_widgets[0]
@@ -963,9 +1080,9 @@ class TestShowTagsDialogB10a(unittest.TestCase):
         written = calls[0][0][3]
         why1 = next((e for e in written if e.get("cat") == "Why1"), None)
         self.assertIsNotNone(why1)
-        self.assertFalse(why1.get("ignore_shallow", False))
-        self.assertIsNone(why1.get("ignore_text_hash"))
-        self.assertFalse(why1.get("is_shallow", False))
+        self.assertFalse(why1.get("ignore_shallow", False), "ignore_shallow must be cleared")
+        self.assertIsNone(why1.get("ignore_text_hash"), "ignore_text_hash must be cleared")
+        self.assertTrue(why1.get("is_shallow", False), "is_shallow must be preserved after untick")
 
     def test_non_ignored_entry_has_unticked_ignore(self):
         """B10a: entry with chip but no Ignore has unticked checkbox."""

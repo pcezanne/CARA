@@ -404,8 +404,11 @@ class _TagRowWidget(QFrame):
                         if per_cat.get("is_vague") and key == "Why4":
                             entry["is_vague"] = True
                     elif was_ignored:
-                        # B10a: was ignored, now unticked → clear ALL flags for this answer
-                        pass
+                        # unticked → clear only ignore flags; preserve is_shallow and is_vague
+                        if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
+                            entry["is_shallow"] = True
+                        if per_cat.get("is_vague") and key == "Why4":
+                            entry["is_vague"] = True
                     else:
                         if per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3"):
                             entry["is_shallow"] = True

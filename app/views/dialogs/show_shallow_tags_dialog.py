@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.help_icon import make_help_icon
 from app.utils.pgn_variation_path import decode_path
@@ -183,7 +184,12 @@ class ShowShallowTagsDialog(QDialog):
     def _stamp_entries(
         self, gn: int, pk: str, preset: str, entries: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Return entries with is_shallow / is_vague stamped per 4-tuple key membership."""
+        """Return entries with is_shallow / is_vague stamped per 4-tuple key membership.
+
+        For 3x3 entries whose Ignore is honoured but whose chip flag is absent from
+        storage (e.g. dropped by a prior bug), the flag is inferred from cat so the
+        chip always appears in the dialog.
+        """
         result = []
         for e in entries:
             e_copy = dict(e)
@@ -193,6 +199,11 @@ class ShowShallowTagsDialog(QDialog):
                     e_copy["is_shallow"] = True
             if self._is_vague_key(gn, pk, preset, cat):
                 if preset != "3x3" or cat == "Why4":
+                    e_copy["is_vague"] = True
+            if preset == "3x3" and ChessLogStorageService.is_entry_ignore_honoured(e):
+                if cat in ("Why1", "Why2", "Why3") and not e_copy.get("is_shallow"):
+                    e_copy["is_shallow"] = True
+                elif cat == "Why4" and not e_copy.get("is_vague"):
                     e_copy["is_vague"] = True
             result.append(e_copy)
         return result

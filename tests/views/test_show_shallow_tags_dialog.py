@@ -978,5 +978,285 @@ class TestPartialNotice(unittest.TestCase):
         self.assertEqual(len(labels), 0, "No partial-notice label expected when partial_notice=None")
 
 
+# ---------------------------------------------------------------------------
+# C1 — Check Logs shows dimmed chip + ticked Ignore for an ignored 3x3 answer
+#      even when is_vague / is_shallow is absent from storage
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestIgnoredAnswerChipInCheckLogs(unittest.TestCase):
+    """C1: when a 3x3 entry has ignore_shallow=True+hash in storage but no is_vague,
+    Check Logs must still show the chip (dimmed) and Ignore box (ticked)."""
+
+    # Shared helper for the core scenario:
+    #   Why1 classified SHALLOW (not ignored), Why4 ignored + hash but NO is_vague.
+    def _make_scenario_entries(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        w4_text = "Slow down and calculate"
+        return [
+            ChessLogStorageService.make_entry("3x3", "Why1", "I attacked too early", is_shallow=True),
+            ChessLogStorageService.make_entry("3x3", "Why2", "I missed the fork"),
+            ChessLogStorageService.make_entry("3x3", "Why3", "Engine prefers Nf3"),
+            {
+                "preset": "3x3", "cat": "Why4", "why": w4_text,
+                "ignore_shallow": True,
+                "ignore_text_hash": hashlib.sha256(w4_text.encode()).hexdigest(),
+                # deliberately NOT including is_vague — this is the broken-storage scenario
+            },
+        ]
+
+    def _make_check_logs_dialog(self, entries):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        tags = {"0": entries}
+        ctrl = _make_controller({1: tags})
+        ctrl.save_games = MagicMock()
+        # Why1 classified shallow this run; Why4 excluded (ignored → not in classified_keys)
+        sk = frozenset({(1, "0", "3x3", "Why1")})
+        ck = frozenset(sk)
+        return ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck,
+        ), ctrl, game
+
+    def _has_opacity_effect(self, chip) -> bool:
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        eff = chip.graphicsEffect()
+        return isinstance(eff, QGraphicsOpacityEffect) and abs(eff.opacity() - 0.4) < 0.01
+
+    def test_why4_chip_present_when_is_vague_missing_from_storage(self):
+        """C1 core: vague chip shown for Why4 even when is_vague not stored."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        self.assertEqual(len(dlg._row_widgets), 1)
+        row = dlg._row_widgets[0]
+        self.assertIn("Why4", row._chips_per_cat,
+                      "Why4 chip must appear even when is_vague absent from storage")
+
+    def test_why4_chip_is_dimmed(self):
+        """C1: Why4 chip is dimmed (opacity 0.4) when Ignore is honoured."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        chip = row._chips_per_cat.get("Why4")
+        self.assertIsNotNone(chip)
+        self.assertTrue(self._has_opacity_effect(chip),
+                        "Why4 chip must be dimmed at dialog open when Ignore is honoured")
+
+    def test_why4_ignore_box_ticked(self):
+        """C1: Why4 Ignore checkbox is pre-ticked when Ignore is honoured."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        self.assertIn("Why4", row._ignore_checks,
+                      "Why4 Ignore checkbox must be present")
+        self.assertTrue(row._ignore_checks["Why4"].isChecked(),
+                        "Why4 Ignore checkbox must be ticked")
+
+    def test_why1_chip_normal_and_unticked(self):
+        """C1: Why1 chip is not dimmed and Ignore box is unticked (not ignored)."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertFalse(self._has_opacity_effect(chip),
+                         "Why1 chip must not be dimmed (not ignored)")
+        self.assertIn("Why1", row._ignore_checks)
+        self.assertFalse(row._ignore_checks["Why1"].isChecked(),
+                         "Why1 Ignore box must be unticked")
+
+    def test_all_four_texts_present(self):
+        """C1: all four answer texts are accessible in the dialog."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        for key in ("Why1", "Why2", "Why3", "Why4"):
+            self.assertIn(key, row._why_texts, f"{key} QPlainTextEdit missing")
+        self.assertIn("attacked", row._why_texts["Why1"].toPlainText())
+        self.assertIn("Slow down", row._why_texts["Why4"].toPlainText())
+
+    def test_untick_why4_undims_chip_before_save(self):
+        """C1: unticking Why4 Ignore undims the chip immediately (before Save)."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        chip = row._chips_per_cat.get("Why4")
+        self.assertTrue(self._has_opacity_effect(chip), "chip must start dimmed")
+        row._ignore_checks["Why4"].setChecked(False)
+        self.assertFalse(self._has_opacity_effect(chip),
+                         "chip must undim after unticking Why4 Ignore")
+
+    def test_untick_and_save_writes_is_vague_for_why4(self):
+        """C1: untick Why4 Ignore + Save writes is_vague=True (change detected → write triggered)."""
+        entries = self._make_scenario_entries()
+        dlg, ctrl, _ = self._make_check_logs_dialog(entries)
+        # Untick Why4 Ignore — this IS a change (ignore_shallow: True → False)
+        dlg._row_widgets[0]._ignore_checks["Why4"].setChecked(False)
+        dlg._on_save()
+        why4_written = None
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            written = c[0][3]
+            for e in written:
+                if e.get("cat") == "Why4":
+                    why4_written = e
+        self.assertIsNotNone(why4_written, "Why4 entry must be written after untick+save")
+        self.assertTrue(why4_written.get("is_vague"),
+                        "is_vague=True must be preserved after untick+save")
+        self.assertFalse(why4_written.get("ignore_shallow", False),
+                         "ignore_shallow must be cleared after untick+save")
+
+    def test_save_untick_reopen_normal_chip_unticked(self):
+        """C1 full flow: untick Why4 → Save → reopen → chip present, undimmed, unticked."""
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entries = self._make_scenario_entries()
+        dlg, ctrl, game = self._make_check_logs_dialog(entries)
+
+        # Untick Why4, then Save
+        row = dlg._row_widgets[0]
+        row._ignore_checks["Why4"].setChecked(False)
+        dlg._on_save()
+
+        # Get what was written for Why4
+        saved_entries = None
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            if c[0][2] == "3x3":
+                saved_entries = c[0][3]
+        self.assertIsNotNone(saved_entries)
+
+        # Build a second dialog with the saved entries
+        w4 = next(e for e in saved_entries if e.get("cat") == "Why4")
+        self.assertFalse(w4.get("ignore_shallow", False),
+                         "ignore_shallow must be cleared after untick+save")
+        self.assertTrue(w4.get("is_vague"),
+                        "is_vague must be preserved after untick+save")
+        self.assertEqual(w4["why"], "Slow down and calculate",
+                         "Why4 text must be byte-identical after untick+save")
+
+        # Reopen with the saved entries (is_vague=True, no ignore_shallow)
+        tags2 = {"0": saved_entries}
+        ctrl2 = _make_controller({1: tags2})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        sk2 = frozenset({(1, "0", "3x3", "Why1")})
+        vk2 = frozenset({(1, "0", "3x3", "Why4")})  # now classified vague again
+        ck2 = frozenset(sk2 | vk2)
+        dlg2 = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl2,
+            shallow_keys=sk2, vague_keys=vk2, classified_keys=ck2,
+        )
+        row2 = dlg2._row_widgets[0]
+        chip2 = row2._chips_per_cat.get("Why4")
+        self.assertIsNotNone(chip2, "Why4 chip must be present in reopened dialog")
+        self.assertFalse(self._has_opacity_effect(chip2),
+                         "Why4 chip must NOT be dimmed (Ignore was unticked)")
+        self.assertIn("Why4", row2._ignore_checks)
+        self.assertFalse(row2._ignore_checks["Why4"].isChecked(),
+                         "Why4 Ignore box must be unticked in reopened dialog")
+
+        # All 4 texts byte-identical
+        for key, expected in [
+            ("Why1", "I attacked too early"),
+            ("Why2", "I missed the fork"),
+            ("Why3", "Engine prefers Nf3"),
+            ("Why4", "Slow down and calculate"),
+        ]:
+            actual = row2._why_texts[key].toPlainText()
+            self.assertEqual(actual, expected, f"{key} text changed")
+
+    def test_pdf_snapshot_has_vague_cats_for_why4(self):
+        """C1 PDF: snapshot().vague_cats includes Why4, enabling PDF chip + Ignore: Yes."""
+        entries = self._make_scenario_entries()
+        dlg, _, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+        snap = row.snapshot()
+        self.assertIn("Why4", snap.vague_cats,
+                      "snapshot().vague_cats must include Why4 for PDF chip rendering")
+        self.assertTrue(snap.show_ignore,
+                        "snapshot().show_ignore must be True for Ignore: Yes to appear in PDF")
+        why4_entry = next((e for e in snap.entries if e.get("cat") == "Why4"), None)
+        self.assertIsNotNone(why4_entry)
+        self.assertTrue(why4_entry.get("ignore_shallow"),
+                        "snapshot entry for Why4 must carry ignore_shallow=True for PDF Ignore: Yes")
+
+    def test_ignored_why1_chip_present_when_is_shallow_missing(self):
+        """C1: same fix for Why1-3 — chip shown when is_shallow absent but Ignore honoured."""
+        import hashlib
+        w1_text = "I attacked impulsively"
+        entries = [
+            {
+                "preset": "3x3", "cat": "Why1", "why": w1_text,
+                "ignore_shallow": True,
+                "ignore_text_hash": hashlib.sha256(w1_text.encode()).hexdigest(),
+                # deliberately NO is_shallow
+            },
+            {"preset": "3x3", "cat": "Why4", "why": "Lesson text"},
+        ]
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        tags = {"0": entries}
+        ctrl = _make_controller({1: tags})
+        # Why4 is VAGUE this run (moment is shown because Why4 in vague_keys)
+        vk = frozenset({(1, "0", "3x3", "Why4")})
+        ck = frozenset(vk)
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=frozenset(), vague_keys=vk, classified_keys=ck,
+        )
+        row = dlg._row_widgets[0]
+        self.assertIn("Why1", row._chips_per_cat,
+                      "Why1 chip must appear even when is_shallow absent from storage")
+        chip = row._chips_per_cat.get("Why1")
+        self.assertTrue(self._has_opacity_effect(chip),
+                        "Why1 chip must be dimmed (Ignore honoured)")
+        self.assertIn("Why1", row._ignore_checks)
+        self.assertTrue(row._ignore_checks["Why1"].isChecked())
+
+    def test_proof_sequence_prints_all_states(self):
+        """C1 proof: print entry states + widget labels at each step to confirm the fix."""
+        import hashlib
+        from PyQt6.QtWidgets import QLabel
+        from app.services.chess_log_storage_service import ChessLogStorageService
+
+        w4_text = "Slow down and calculate"
+        entries = self._make_scenario_entries()
+
+        print("\n--- PROOF SEQUENCE ---")
+        print("STORAGE before dialog open:")
+        for e in entries:
+            cat = e.get("cat", "")
+            print(f"  {cat}: why={repr(e.get('why','')[:40])!s} "
+                  f"is_shallow={e.get('is_shallow')} "
+                  f"is_vague={e.get('is_vague')} "
+                  f"ignore_shallow={e.get('ignore_shallow')}")
+
+        dlg, ctrl, _ = self._make_check_logs_dialog(entries)
+        row = dlg._row_widgets[0]
+
+        print("\nDIALOG LABELS (all QLabel texts):")
+        for lbl in dlg.findChildren(QLabel):
+            t = (lbl.text() or "").strip()
+            if t:
+                print(f"  {repr(t[:80])}")
+
+        print("\nROW WIDGET STATE:")
+        print(f"  _why_texts keys: {list(row._why_texts.keys())}")
+        for k, te in row._why_texts.items():
+            print(f"  {k}: {repr(te.toPlainText()[:60])}")
+        print(f"  _chips_per_cat: {list(row._chips_per_cat.keys())}")
+        for k, chip in row._chips_per_cat.items():
+            from PyQt6.QtWidgets import QGraphicsOpacityEffect
+            eff = chip.graphicsEffect()
+            dimmed = isinstance(eff, QGraphicsOpacityEffect) and abs(eff.opacity() - 0.4) < 0.01
+            print(f"  {k}: chip='{chip.text()}' dimmed={dimmed}")
+        print(f"  _ignore_checks: {list(row._ignore_checks.keys())}")
+        for k, cb in row._ignore_checks.items():
+            print(f"  {k}: checked={cb.isChecked()}")
+
+        self.assertIn("Why4", row._chips_per_cat)
+        print("\n--- PROOF PASSED ---\n")
+
+
 if __name__ == "__main__":
     unittest.main()

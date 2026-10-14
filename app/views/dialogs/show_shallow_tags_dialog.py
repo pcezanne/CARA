@@ -497,7 +497,15 @@ class ShowShallowTagsDialog(QDialog):
                 )
                 for e in original
             )
-            if _normalize_entries(new_entries) != _normalize_entries(orig_with_flags) or flags_missing:
+            # Repair: if storage has a honoured-Ignore entry that is missing its chip
+            # flag (dropped by the stale-clear bug), force a save so the C1 inference
+            # in _stamp_entries writes the flag back.
+            inference_repair_needed = preset == "3x3" and any(
+                ChessLogStorageService.is_entry_ignore_honoured(e)
+                and not e.get("is_shallow") and not e.get("is_vague")
+                for e in original
+            )
+            if _normalize_entries(new_entries) != _normalize_entries(orig_with_flags) or flags_missing or inference_repair_needed:
                 self._controller.replace_entries_at_path_for_game(
                     game, path_key, preset, new_entries
                 )
@@ -524,7 +532,10 @@ class ShowShallowTagsDialog(QDialog):
                                 self._is_shallow_key(game.game_number, path_key, preset, cat) or
                                 self._is_vague_key(game.game_number, path_key, preset, cat)
                             )
-                            if in_cls and not in_flag and (e.get("is_shallow") or e.get("is_vague")):
+                            # Never stale-clear an entry whose Ignore is still honoured —
+                            # the user's dismiss is intentional and must not be undone.
+                            ignore_honoured = ChessLogStorageService.is_entry_ignore_honoured(e)
+                            if in_cls and not in_flag and not ignore_honoured and (e.get("is_shallow") or e.get("is_vague")):
                                 new_list.append(
                                     {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
                                 )

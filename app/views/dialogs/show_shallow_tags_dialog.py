@@ -536,8 +536,12 @@ class ShowShallowTagsDialog(QDialog):
                             # the user's dismiss is intentional and must not be undone.
                             ignore_honoured = ChessLogStorageService.is_entry_ignore_honoured(e)
                             if in_cls and not in_flag and not ignore_honoured and (e.get("is_shallow") or e.get("is_vague")):
+                                # Also clear ignore_shallow/ignore_text_hash: editing the text
+                                # (which caused the hash mismatch) invalidates the Ignore.
+                                # Never leave ignore_shallow=True with no chip flag.
                                 new_list.append(
-                                    {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
+                                    {k: v for k, v in e.items()
+                                     if k not in ("is_shallow", "is_vague", "ignore_shallow", "ignore_text_hash")}
                                 )
                                 changed = True
                             else:

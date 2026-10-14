@@ -1469,6 +1469,226 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
                         "Second save must not strip is_vague from already-repaired entry",
                     )
 
+    def test_stale_clear_also_clears_ignore_when_hash_mismatches(self):
+        """Stale-clear must also strip ignore_shallow+ignore_text_hash when hash mismatches.
+
+        Editing an answer invalidates its Ignore (hash no longer matches).  When the
+        classifier re-runs and returns DEEP, the stale-clear fires.  It must atomically
+        clear the chip flag AND both Ignore fields — leaving ignore_shallow=True with no
+        is_vague would suppress future classifier runs without showing a chip.
+        """
+        import hashlib
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        old_text = "Original answer before edit"
+        new_text = "Completely different answer now"
+        entries = [
+            {
+                "preset": "3x3", "cat": "Why4", "why": new_text,
+                "is_vague": True,
+                "ignore_shallow": True,
+                "ignore_text_hash": hashlib.sha256(old_text.encode()).hexdigest(),
+                # hash of old_text ≠ sha256(new_text) → NOT honoured → sent to classifier → DEEP
+            },
+        ]
+        tags = {"0": entries}
+        ctrl = _make_controller({1: tags})
+        ctrl.save_games = MagicMock()
+        # Why4 was re-classified DEEP (in classified_keys but not in vague/shallow_keys)
+        ck = frozenset({(1, "0", "3x3", "Why4")})
+        # No flagged_keys → moment not shown; but part (b) still processes all tags
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=frozenset(), vague_keys=frozenset(), classified_keys=ck,
+        )
+        dlg._on_save()
+        why4_written = None
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            for e in c[0][3]:
+                if e.get("cat") == "Why4":
+                    why4_written = e
+        self.assertIsNotNone(why4_written, "Stale-clear must have written Why4")
+        self.assertFalse(why4_written.get("is_vague", False),
+                         "is_vague must be cleared")
+        self.assertFalse(why4_written.get("ignore_shallow", False),
+                         "ignore_shallow must also be cleared — editing invalidates Ignore")
+        self.assertIsNone(why4_written.get("ignore_text_hash"),
+                          "ignore_text_hash must also be cleared")
+
+
+# ---------------------------------------------------------------------------
+# C2 — prove Paul's exact sequence from CLEAN storage works end-to-end
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestNormalSequenceFromCleanStorage(unittest.TestCase):
+    """Prove the five-step normal sequence starting from clean 3x3 storage.
+
+    Steps:
+    1. Check Logs → tick Ignore on Why4 → Save.
+    2. Check Logs again (Why4 excluded from classifier) → Save without changes.
+    3. Check Logs again → untick Why4 (chip undims before Save) → Save.
+    4. Check Logs again: Why4 shows normal Vague chip, Ignore unticked.
+    5. All four why texts are byte-identical to start.
+    """
+
+    TEXTS = {
+        "Why1": "I attacked too early",
+        "Why2": "I missed the fork",
+        "Why3": "Engine prefers Nf3",
+        "Why4": "Slow down and calculate",
+    }
+
+    @staticmethod
+    def _has_opacity_effect(chip) -> bool:
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        if chip is None:
+            return False
+        eff = chip.graphicsEffect()
+        return isinstance(eff, QGraphicsOpacityEffect) and abs(eff.opacity() - 0.4) < 0.01
+
+    @staticmethod
+    def _print_entries(label, entries):
+        import hashlib
+        print(f"\n--- {label} ---")
+        for e in entries:
+            cat = e.get("cat", "")
+            why = (e.get("why") or "").strip()
+            h = e.get("ignore_text_hash")
+            if h and why:
+                hash_ok = h == hashlib.sha256(why.encode()).hexdigest()
+                hash_str = "YES(correct)" if hash_ok else "YES(mismatch)"
+            else:
+                hash_str = "yes(no why)" if h else "no"
+            print(f"  {cat}: why={repr(why[:35])}"
+                  f" is_shallow={e.get('is_shallow')}"
+                  f" is_vague={e.get('is_vague')}"
+                  f" ignore_shallow={e.get('ignore_shallow')}"
+                  f" hash={hash_str}")
+
+    @staticmethod
+    def _get_why4(entries):
+        return next((e for e in entries if e.get("cat") == "Why4"), None) if entries else None
+
+    @staticmethod
+    def _last_written_3x3(ctrl):
+        for c in reversed(ctrl.replace_entries_at_path_for_game.call_args_list):
+            if c[0][1] == "0" and c[0][2] == "3x3":
+                return list(c[0][3])
+        return None
+
+    def _open_dialog(self, entries, shallow_keys, vague_keys, classified_keys):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        ctrl = _make_controller({1: {"0": list(entries)}})
+        ctrl.save_games = MagicMock()
+        dlg = ShowShallowTagsDialog(
+            config={}, games=[game], controller=ctrl,
+            shallow_keys=shallow_keys, vague_keys=vague_keys,
+            classified_keys=classified_keys,
+        )
+        return dlg, ctrl
+
+    def test_full_five_step_sequence(self):
+        """Walk all five steps and assert the correct entry state after each save."""
+        import hashlib
+
+        clean = [{"preset": "3x3", "cat": k, "why": v}
+                 for k, v in self.TEXTS.items()]
+        self._print_entries("INITIAL STORAGE (clean)", clean)
+
+        SK_W1 = frozenset({(1, "0", "3x3", "Why1")})
+        VK_W4 = frozenset({(1, "0", "3x3", "Why4")})
+        CK_ALL = frozenset(SK_W1 | VK_W4)
+        # Step 2/3 run: Why4 excluded because it was ignored
+        CK_NO_W4 = frozenset({(1, "0", "3x3", k) for k in ("Why1", "Why2", "Why3")})
+        expected_hash = hashlib.sha256("Slow down and calculate".encode()).hexdigest()
+
+        # ── Step 1: Check Logs → tick Ignore on Why4 → Save ──────────────
+        dlg1, ctrl1 = self._open_dialog(clean, SK_W1, VK_W4, CK_ALL)
+        row1 = dlg1._row_widgets[0]
+        self.assertIn("Why4", row1._ignore_checks, "Why4 Ignore checkbox must exist")
+        row1._ignore_checks["Why4"].setChecked(True)
+        dlg1._on_save()
+
+        saved1 = self._last_written_3x3(ctrl1)
+        self.assertIsNotNone(saved1, "Step 1: must have written entries")
+        self._print_entries("AFTER STEP 1 (tick Ignore on Why4, Save)", saved1)
+
+        w4 = self._get_why4(saved1)
+        self.assertIsNotNone(w4)
+        self.assertTrue(w4.get("is_vague"), "Step 1: is_vague must be True")
+        self.assertTrue(w4.get("ignore_shallow"), "Step 1: ignore_shallow must be True")
+        self.assertEqual(w4.get("ignore_text_hash"), expected_hash,
+                         "Step 1: hash must equal sha256(why.strip())")
+
+        # ── Step 2: Check Logs again (Why4 NOT in classified_keys) → no-op Save
+        self.assertNotIn((1, "0", "3x3", "Why4"), CK_NO_W4,
+                         "Step 2 precondition: Why4 must be excluded from classifier")
+        dlg2, ctrl2 = self._open_dialog(saved1, SK_W1, frozenset(), CK_NO_W4)
+        dlg2._on_save()
+
+        # No write expected; if one happened, Why4 must be unchanged
+        written2 = self._last_written_3x3(ctrl2)
+        w4_2 = self._get_why4(written2) if written2 else w4
+        self._print_entries("AFTER STEP 2 (no changes; Why4 must be unchanged)",
+                             written2 if written2 else saved1)
+        self.assertTrue(w4_2.get("is_vague"), "Step 2: is_vague unchanged (True)")
+        self.assertTrue(w4_2.get("ignore_shallow"), "Step 2: ignore_shallow unchanged (True)")
+        self.assertEqual(w4_2.get("ignore_text_hash"), expected_hash,
+                         "Step 2: hash unchanged")
+
+        # ── Step 3: Check Logs again → untick Why4 (chip undims) → Save ──
+        dlg3, ctrl3 = self._open_dialog(saved1, SK_W1, frozenset(), CK_NO_W4)
+        row3 = dlg3._row_widgets[0]
+        chip3 = row3._chips_per_cat.get("Why4")
+        self.assertTrue(self._has_opacity_effect(chip3),
+                        "Step 3: Why4 chip must start dimmed (Ignore honoured)")
+        row3._ignore_checks["Why4"].setChecked(False)
+        self.assertFalse(self._has_opacity_effect(chip3),
+                         "Step 3: chip must undim immediately after untick (before Save)")
+        dlg3._on_save()
+
+        saved3 = self._last_written_3x3(ctrl3)
+        self.assertIsNotNone(saved3, "Step 3: must have written entries")
+        self._print_entries("AFTER STEP 3 (untick Ignore, Save)", saved3)
+
+        w4_3 = self._get_why4(saved3)
+        self.assertTrue(w4_3.get("is_vague"), "Step 3: is_vague must be True")
+        self.assertFalse(w4_3.get("ignore_shallow", False),
+                         "Step 3: ignore_shallow must be None/False")
+        self.assertIsNone(w4_3.get("ignore_text_hash"),
+                          "Step 3: ignore_text_hash must be absent")
+
+        # ── Step 4: Check Logs again — normal chip, unticked box ──────────
+        SK4 = frozenset({(1, "0", "3x3", "Why1")})
+        VK4 = frozenset({(1, "0", "3x3", "Why4")})   # Why4 vague again (Ignore cleared)
+        dlg4, _ = self._open_dialog(saved3, SK4, VK4, frozenset(SK4 | VK4))
+        row4 = dlg4._row_widgets[0]
+        chip4 = row4._chips_per_cat.get("Why4")
+
+        print("\nSTEP 4 dialog opened:")
+        print(f"  Why4 chip present: {chip4 is not None}")
+        print(f"  Why4 chip dimmed: {self._has_opacity_effect(chip4)}")
+        w4_ign = row4._ignore_checks.get("Why4")
+        print(f"  Why4 Ignore ticked: {w4_ign.isChecked() if w4_ign else '(no checkbox)'}")
+
+        self.assertIsNotNone(chip4, "Step 4: Why4 chip must be present")
+        self.assertFalse(self._has_opacity_effect(chip4),
+                         "Step 4: chip must NOT be dimmed (Ignore was cleared)")
+        self.assertIn("Why4", row4._ignore_checks)
+        self.assertFalse(row4._ignore_checks["Why4"].isChecked(),
+                         "Step 4: Why4 Ignore box must be unticked")
+
+        # ── Step 5: All why texts byte-identical to start ─────────────────
+        print("\nSTEP 5: byte-identical why texts check")
+        for key, expected in self.TEXTS.items():
+            actual = row4._why_texts[key].toPlainText()
+            print(f"  {key}: {repr(actual[:40])} ← expected {repr(expected)}")
+            self.assertEqual(actual, expected, f"Step 5: {key} text changed")
+
+        print("\n--- NORMAL SEQUENCE PROOF PASSED ---\n")
+
 
 if __name__ == "__main__":
     unittest.main()

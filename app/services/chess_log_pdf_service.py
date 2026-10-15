@@ -372,10 +372,6 @@ class ChessLogPDFService(BasePDFReportService):
 
         header_br = painter.boundingRect(QRectF(0, 0, w_inner, 1000), flags, row.move_label)
         header_h = float(header_br.height())
-        tri_size = 0.0
-        if row.show_ignore and row.preset != "3x3":
-            tri_size = bold_line_h
-            header_h = max(header_h, tri_size)
 
         if row.preset == "3x3":
             cats: List[str] = []
@@ -440,18 +436,17 @@ class ChessLogPDFService(BasePDFReportService):
         painter.setPen(self._text)
         painter.drawText(QRectF(x_inner, y_inner, w_inner, header_h + 2), flags, row.move_label)
 
-        # Header: warning triangle + Ignore text (right-aligned).
-        # 3x3 rows skip the header triangle — Ignore appears per-chip in the body.
+        # Header: Ignore text (right-aligned). No triangle for any preset.
+        # 3x3 rows show Ignore per-chip in the body instead.
         if row.show_ignore and row.preset != "3x3":
             is_ignored = any(e.get("ignore_shallow") for e in row.entries)
             ignore_text = f"Ignore: {'Yes' if is_ignored else 'No'}"
             text_w = float(fm_bold.horizontalAdvance(ignore_text))
-            tri_x = x_inner + w_inner - text_w - 4.0 - tri_size
-            self._draw_warning_triangle(painter, tri_x, y_inner, tri_size)
+            text_x = x_inner + w_inner - text_w - 4.0
             painter.setFont(self._font_body_bold)
             painter.setPen(self._text)
             painter.drawText(
-                QRectF(tri_x + tri_size + 4.0, y_inner, text_w + 4.0, bold_line_h + 2),
+                QRectF(text_x, y_inner, text_w + 4.0, bold_line_h + 2),
                 int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
                 ignore_text,
             )
@@ -485,7 +480,7 @@ class ChessLogPDFService(BasePDFReportService):
                 if row.show_ignore:
                     is_ignored = any(e.get("ignore_shallow") for e in row.entries)
                     ignore_text = f"Ignore: {'Yes' if is_ignored else 'No'}"
-                    ignore_section_w = float(fm_bold.horizontalAdvance(ignore_text)) + 4.0 + tri_size + 12.0
+                    ignore_section_w = float(fm_bold.horizontalAdvance(ignore_text)) + 4.0 + 12.0
                 chip_x = x_inner + w_inner - ignore_section_w - chip_total_w
                 chip_y = y_inner + (header_h - bold_line_h) / 2
                 for chip_text, bg_rgb, tc_rgb, chip_w in chip_specs:

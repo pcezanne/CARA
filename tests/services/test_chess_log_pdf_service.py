@@ -1090,8 +1090,8 @@ class TestThreeByThreeIgnorePerChip(unittest.TestCase):
         self.assertGreaterEqual(len(ignore_texts), 1, f"Expected 'Ignore: ...' drawn; got: {all_drawn}")
         self.assertIn("Ignore: Yes", ignore_texts, f"Expect honoured entry → 'Ignore: Yes'; got: {ignore_texts}")
 
-    def test_clamp_show_ignore_still_draws_triangle(self):
-        """CLAMP rows with show_ignore=True must still draw the header warning triangle."""
+    def test_clamp_show_ignore_no_triangle(self):
+        """CLAMP rows with show_ignore=True must NOT draw the header warning triangle."""
         row = TagRowSnapshot(
             move_label="2. Nf3",
             preset="CLAMP",
@@ -1103,9 +1103,9 @@ class TestThreeByThreeIgnorePerChip(unittest.TestCase):
             is_shallow=True,
         )
         painter = self._run_draw(row)
-        self.assertGreater(
+        self.assertEqual(
             painter.drawPolygon.call_count, 0,
-            "CLAMP header warning triangle must still be drawn when show_ignore=True",
+            "CLAMP header warning triangle must not be drawn when show_ignore=True",
         )
 
 

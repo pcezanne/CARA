@@ -220,7 +220,7 @@ class AIService:
         thinking: Optional[Dict[str, Any]] = None,
     ) -> AIResult:
         """Send a message to an AI provider and get response.
-
+        
         Args:
             provider: Provider name ("openai", "anthropic", or "custom").
             model: Model ID (e.g., "gpt-4", "claude-3-5-sonnet-20241022").
@@ -230,7 +230,7 @@ class AIService:
             base_url_override: For custom provider, the base URL (e.g. http://localhost:1234/v1).
             timeout_seconds: Request timeout in seconds.
             thinking: Optional thinking config dict (e.g. {"type": "disabled"}).
-
+            
         Returns:
             AIResult with success, text, error, usage, and model fields.
         """
@@ -323,7 +323,7 @@ class AIService:
         )
         
         limit = token_limit if token_limit is not None else (4000 if model.startswith("o3-") else 2000)
-
+        
         if requires_max_completion:
             payload = {
                 "model": model,
@@ -809,7 +809,7 @@ class AIService:
                 # Retry succeeded — fall through to response parsing below.
             else:
                 return AIResult(success=False, text="", error=error_message, usage=None, model=model)
-
+        
         data = response.json()
         content_blocks = data.get("content", [])
         content = self.anthropic_message_text(data)

@@ -218,7 +218,6 @@ class AIService:
         base_url_override: Optional[str] = None,
         timeout_seconds: int = 60,
         thinking: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
     ) -> AIResult:
         """Send a message to an AI provider and get response.
 
@@ -231,24 +230,19 @@ class AIService:
             base_url_override: For custom provider, the base URL (e.g. http://localhost:1234/v1).
             timeout_seconds: Request timeout in seconds.
             thinking: Optional thinking config dict (e.g. {"type": "disabled"}).
-            temperature: Optional temperature override.  When None: OpenAI path uses 0.7
-                (default); Anthropic path sends no temperature key (API default 1.0).
-                When set: both paths send the supplied value, subject to the thinking-is-live
-                rule on the Anthropic path (temperature is dropped when adaptive/between_tools
-                thinking is active, but IS sent when thinking={"type":"disabled"}).
 
         Returns:
             AIResult with success, text, error, usage, and model fields.
         """
         try:
             if provider == AIProvider.OPENAI:
-                return self._send_openai_message(model, api_key, messages, system_prompt, token_limit, timeout_seconds=timeout_seconds, temperature=temperature)
+                return self._send_openai_message(model, api_key, messages, system_prompt, token_limit, timeout_seconds=timeout_seconds)
             elif provider == AIProvider.ANTHROPIC:
-                return self._send_anthropic_message(model, api_key, messages, system_prompt, token_limit=token_limit, timeout_seconds=timeout_seconds, thinking=thinking, temperature=temperature)
+                return self._send_anthropic_message(model, api_key, messages, system_prompt, token_limit=token_limit, timeout_seconds=timeout_seconds, thinking=thinking)
             elif provider == AIProvider.CUSTOM and base_url_override:
                 chat_url = base_url_override.rstrip("/") + "/chat/completions"
                 return self._send_openai_message(
-                    model, api_key or "", messages, system_prompt, token_limit, chat_url=chat_url, timeout_seconds=timeout_seconds, temperature=temperature
+                    model, api_key or "", messages, system_prompt, token_limit, chat_url=chat_url, timeout_seconds=timeout_seconds
                 )
             else:
                 return AIResult(
@@ -267,8 +261,7 @@ class AIService:
         system_prompt: Optional[str] = None,
         token_limit: Optional[int] = None,
         chat_url: Optional[str] = None,
-        timeout_seconds: int = 60,
-        temperature: Optional[float] = None,
+        timeout_seconds: int = 60
     ) -> AIResult:
         """Send message to OpenAI API or OpenAI-compatible endpoint.
         
@@ -330,11 +323,6 @@ class AIService:
         )
         
         limit = token_limit if token_limit is not None else (4000 if model.startswith("o3-") else 2000)
-        
-        # Resolve the temperature value to send.
-        # If the caller supplied an override, use it; otherwise default to 0.7.
-        # Either way, suppress if the model is known not to support temperature.
-        effective_temp = temperature if temperature is not None else 0.7
 
         if requires_max_completion:
             payload = {
@@ -351,7 +339,7 @@ class AIService:
             }
             # Only add temperature if model supports it
             if not no_temperature:
-                payload["temperature"] = effective_temp
+                payload["temperature"] = 0.7
         
         # Debug outbound: log request payload (hide API key)
         debug_payload = payload.copy()
@@ -651,7 +639,6 @@ class AIService:
         token_limit: Optional[int] = None,
         timeout_seconds: int = 60,
         thinking: Optional[Dict[str, Any]] = None,
-        temperature: Optional[float] = None,
     ) -> AIResult:
         """Send message to Anthropic API.
         
@@ -703,17 +690,6 @@ class AIService:
             for key in ("thinking", "output_config"):
                 payload.pop(key, None)
             payload.update(self._models_thinking_override[model])
-
-        # Apply temperature — but only when thinking is NOT actively on.
-        # {"type": "disabled"} is NOT actively on: temperature IS sent (e.g. classifier
-        # calls with Sonnet 5 / Opus 5 land here and need temperature=0).
-        # adaptive / between_tools / output_config.effort ARE actively on: temperature
-        # is dropped because the Anthropic API rejects it in those modes.
-        if temperature is not None:
-            thinking_type = payload.get("thinking", {}).get("type")
-            thinking_is_live = thinking_type in ("adaptive", "between_tools") or "output_config" in payload
-            if not thinking_is_live:
-                payload["temperature"] = temperature
 
         # Debug outbound: log request payload (hide API key)
         debug_payload = payload.copy()
@@ -788,13 +764,6 @@ class AIService:
                 payload_retry = {k: v for k, v in payload.items()
                                  if k not in ("thinking", "output_config")}
                 payload_retry.update(thinking_override)
-                # Re-apply thinking-is-live rule: if the new thinking mode is live,
-                # temperature must be dropped from the retry payload.
-                retry_thinking_type = payload_retry.get("thinking", {}).get("type")
-                retry_thinking_is_live = (retry_thinking_type in ("adaptive", "between_tools")
-                                          or "output_config" in payload_retry)
-                if retry_thinking_is_live:
-                    payload_retry.pop("temperature", None)
                 self._debug_console(
                     "POST (RETRY) " + str(self.ANTHROPIC_MESSAGES_URL) + "\nPayload: " +
                     json.dumps(payload_retry, indent=2), "SEND")
@@ -839,55 +808,7 @@ class AIService:
                                     usage=None, model=model)
                 # Retry succeeded — fall through to response parsing below.
             else:
-                # Belt-and-braces temperature fallback.  If the error mentions
-                # temperature and we supplied one, retry once without it so the
-                # call can still succeed (rather than failing the whole classifier
-                # run).  Logs a WARNING so Paul can see it happened and we can
-                # investigate whether the thinking-is-live rule needs updating.
-                if temperature is not None and "temperature" in error_message.lower():
-                    LoggingService.get_instance().warning(
-                        f"Anthropic rejected temperature parameter for model={model!r}; "
-                        f"retrying without temperature. Error: {error_message}"
-                    )
-                    payload_temp_retry = {k: v for k, v in payload.items() if k != "temperature"}
-                    self._debug_console(
-                        "POST (TEMP-RETRY) " + str(self.ANTHROPIC_MESSAGES_URL) + "\nPayload: " +
-                        json.dumps(payload_temp_retry, indent=2), "SEND")
-                    try:
-                        _t0_temp_retry = time.monotonic()
-                        response = requests.post(
-                            self.ANTHROPIC_MESSAGES_URL,
-                            headers=headers,
-                            json=payload_temp_retry,
-                            timeout=timeout_seconds,
-                        )
-                    except requests.exceptions.Timeout:
-                        _elapsed = time.monotonic() - _t0_temp_retry
-                        LoggingService.get_instance().error(
-                            f"AI request timeout: model={model}, timeout={timeout_seconds}s, "
-                            f"elapsed={_elapsed:.1f}s, endpoint=anthropic-temp-retry"
-                        )
-                        return AIResult(
-                            success=False, text="",
-                            error=f"Request timed out after {timeout_seconds}s",
-                            usage=None, model=model,
-                        )
-                    try:
-                        debug_resp = response.json() if response.content else {}
-                        self._debug_console(
-                            "Status (TEMP-RETRY): " + str(response.status_code) + "\nResponse: " +
-                            json.dumps(debug_resp, indent=2), "RECV")
-                    except Exception:
-                        self._debug_console(
-                            "Status (TEMP-RETRY): " + str(response.status_code) +
-                            "\nResponse: (non-JSON or error)", "RECV")
-                    if response.status_code != 200:
-                        err_retry = (response.json() if response.content else {}).get(
-                            "error", {}).get("message", f"API error: {response.status_code}")
-                        return AIResult(success=False, text="", error=err_retry, usage=None, model=model)
-                    # Temperature-retry succeeded — fall through to response parsing below.
-                else:
-                    return AIResult(success=False, text="", error=error_message, usage=None, model=model)
+                return AIResult(success=False, text="", error=error_message, usage=None, model=model)
 
         data = response.json()
         content_blocks = data.get("content", [])

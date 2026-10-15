@@ -258,11 +258,10 @@ def classify_notes(
     prompt = classifier_body + notes_text
 
     token_limit = _classifier_token_limit(len(notes))
-    temp_sent = 0
     service = AIService(config=config)
     LoggingService.get_instance().debug(
-        "chess_log classifier dispatch: model=%s, thinking=%r, temperature=%s, notes=%d, max_tokens=%d%s"
-        % (model, thinking, temp_sent, len(notes), token_limit,
+        "chess_log classifier dispatch: model=%s, thinking=%r, notes=%d, max_tokens=%d%s"
+        % (model, thinking, len(notes), token_limit,
            ", IS_RETRY=True" if _is_retry else "")
     )
     result = service.send_message(
@@ -274,7 +273,6 @@ def classify_notes(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
-        temperature=temp_sent,
     )
 
     if not result.success:
@@ -410,11 +408,10 @@ def classify_notes_3x3(
 
     thinking = AIService.disable_thinking_for(model)
     token_limit = _classifier_token_limit(len(notes), per_note=90)
-    temp_sent = 0
     service = AIService(config=config)
     LoggingService.get_instance().debug(
-        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, temperature=%s, notes=%d, max_tokens=%d%s"
-        % (model, thinking, temp_sent, len(notes), token_limit,
+        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, notes=%d, max_tokens=%d%s"
+        % (model, thinking, len(notes), token_limit,
            ", IS_RETRY=True" if _is_retry else "")
     )
     result = service.send_message(
@@ -426,7 +423,6 @@ def classify_notes_3x3(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
-        temperature=temp_sent,
     )
 
     if not result.success:

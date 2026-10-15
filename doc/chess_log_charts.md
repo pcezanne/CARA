@@ -34,6 +34,8 @@ All 6 settings persist under `user_settings.chess_log.charts.{target_progression
 
 Smooth Catmull-Rom lines via `smooth_polyline_path()` when `series.progression_line_style == "smooth"`. `ChessLogPresetSeries` carries `t_min`/`t_max` populated by `_bin_preset()` in `chess_log_stats_service.py`.
 
+**Check Logs PDF header**: three header lines below the logo — `Source: <combo-text>: <pgn-stem>[, …]`, `Generated: YYYY-MM-DD HH:MM`, `AI model: <model-id>`. No warning triangle (⚠️) anywhere in Check Logs PDFs.
+
 ## Shared helpers
 
 **Shared chart helpers** (`app/views/widgets/_chart_layout_helpers.py`): `smooth_polyline_path`, `ordinal_to_chart_x`, `calendar_axis_ticks`, `effective_calendar_mode`, `week_start_monday_ordinal`, `GapCompressedTimeLayout`, `build_gap_compressed_time_layout` — used by both `ChessLogCategoryChartWidget` and the Player Stats chart widgets. A third chart tab can import from this module without creating a third copy.
@@ -93,6 +95,8 @@ The controller's `get_available_models()` / `get_default_narrative_model()` / `g
 
 **Help icon**: a ⓘ `QToolButton` in the dialog header (via `app/utils/help_icon.py`) opens a modal with the text from `ui.dialogs.shallow.help_text` in `config.json`. Wording explains each chip's meaning, when Ignore stops a chip from returning, and the edit→hash-mismatch auto-clear rule.
 
+**Stale chips**: a chip in ShowTagsDialog (Show Logged Moments) can only be stale when the AI changed its verdict without the text being edited — because editing an answer already clears its chip before Check Logs can run. A chip that survives to ShowTagsDialog reflects the AI's last verdict on unchanged text.
+
 Each row's miniature board is oriented so the mover at the tagged ply is at the bottom — see the "Miniature board orientation" note in `doc/chess_log.md`. The `_export_pdf_report` path on `DetailChessLogChartsView` synthesizes `TagRowSnapshot` objects directly (bypassing the dialog) and populates `is_flipped` from `node_info()` the same way, so charts-tab PDF exports orient Check Logs rows identically.
 
 ### `ignore_shallow` schema field
@@ -146,15 +150,13 @@ Classification logic in `app/services/chess_log_shallow_service.py`. `ChessLogSh
 
 **CLAMP/CCT classifier** (`classify_notes`): sends notes built as `(idx, gn, pk, preset, why)` 5-tuples to `prompts.chess_log.classifier`. Reply format: `<idx>: SHALLOW` or `<idx>: DEEP`. Line-anchored MULTILINE regex `_LINE_RE`; preprocesses glued blocks (SHALLOW/DEEP immediately followed by a digit). Returns `ShallowResult(shallow_keys, classified_keys, vague_keys=frozenset(), ...)`.
 
-**3x3 classifier** (`classify_notes_3x3`): sends notes built as `(idx, gn, pk, "3x3", why1, why2, why3, why4)` 8-tuples to `prompts.chess_log.classifier_3x3`. Empty answers are sent as `(blank)`. The classifier_3x3 prompt body contains `{why1_q}`/`{why2_q}`/`{why3_q}`/`{why4_q}` placeholders filled at build time from `THREE_BY_THREE_PROMPTS` in `app/utils/chess_log_prompts.py` — same wording the 3x3 dialog shows. Reply format: `<idx>: WHY1=<SPECIFIC|GENERIC|BLANK> WHY2=<SPECIFIC|GENERIC|BLANK> WHY3=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>`. Line-anchored MULTILINE regex `_LINE_RE_3X3`; requires all four fields on the same line in order. Prose mid-sentence is rejected (the entire line must be the verdict). After parsing, Python expands each 4-tuple verdict into per-cat 4-tuple keys: `(gn, pk, "3x3", "Why1")` in `shallow_keys` iff WHY1==GENERIC, `(gn, pk, "3x3", "Why4")` in `vague_keys` iff LESSON==FILLER, etc. Verdicts for ignored answers (hash-matched) are discarded before key expansion. (See per-answer rules table in the `is_vague` section above.)
+**3x3 classifier** (`classify_notes_3x3`): sends notes built as `(idx, gn, pk, "3x3", why1, why2, why3, why4)` 8-tuples to `prompts.chess_log.classifier_3x3`. Empty answers are sent as `(blank)`. The classifier_3x3 prompt body (see `prompts.chess_log.classifier_3x3` in `config.json`) contains `{why1_q}`/`{why2_q}`/`{why3_q}`/`{why4_q}` placeholders filled at build time from `THREE_BY_THREE_PROMPTS` in `app/utils/chess_log_prompts.py` — same wording the 3x3 dialog shows. The v2 prompt provides richer INTENT and LESSON rubrics: INTENT is SPECIFIC when the answer identifies the concrete plan or piece, GENERIC when it names a vague category without concrete detail, and BLANK when the answer is empty or a non-answer; LESSON is REAL when it names a concrete, transferable rule, FILLER when it is a platitude or truism that could apply to any mistake, and BLANK when absent. Full text is in `config.json`. Reply format: `<idx>: WHY1=<SPECIFIC|GENERIC|BLANK> WHY2=<SPECIFIC|GENERIC|BLANK> WHY3=<SPECIFIC|GENERIC|BLANK> LESSON=<REAL|FILLER|BLANK>`. Line-anchored MULTILINE regex `_LINE_RE_3X3`; requires all four fields on the same line in order. Prose mid-sentence is rejected (the entire line must be the verdict). After parsing, Python expands each 4-tuple verdict into per-cat 4-tuple keys: `(gn, pk, "3x3", "Why1")` in `shallow_keys` iff WHY1==GENERIC, `(gn, pk, "3x3", "Why4")` in `vague_keys` iff LESSON==FILLER, etc. Verdicts for ignored answers (hash-matched) are discarded before key expansion. (See per-answer rules table in the `is_vague` section above.)
 
 **Unparsed indices**: an index is "parsed" when the reply contains a matching verdict line with all required fields. Unparsed indices are never flagged — they remain unflagged. `ShallowResult.unparsed_indices` carries them. When non-empty: `shallow_partial(msg)` then `shallow_ready(...)`. When all fail: `shallow_failed(msg)` only. **B11 defensive fix**: when `result.success == False`, `ChessLogShallowThread.run()` treats all notes in that call as unparsed regardless of `unparsed_indices` — a failed call contributes nothing to `classified_keys`.
 
 **Token budget**: `max(2000, n_notes * 60 + 500)` for CLAMP/CCT; `max(2000, n_notes * 90 + 500)` for 3x3 — the four-field reply is roughly 3× longer per note than the SHALLOW/DEEP response. Applied separately to each classifier call.
 
-**Temperature**: both `classify_notes` and `classify_notes_3x3` pass `temperature=0` to `AIService.send_message()` for deterministic output across runs. See "Temperature and thinking rule" in the AI integration section below.
-
-**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail. Each classifier call logs at DEBUG before dispatch: model id, thinking payload, and effective temperature.
+**Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail. Each classifier call logs at DEBUG before dispatch: model id and thinking payload.
 
 ## Right-click context menu
 
@@ -245,23 +247,6 @@ All 12 keys are registered in `ConfigLoader._REQUIRED_CONFIG_KEY_PATHS` — a mi
 `generate_narrative()` checks `(config or {}).get("prompts", {}).get("chess_log")` before calling `build_prompt()`. If the section is absent it returns `NarrativeResult(success=False, text="Chess Log prompts are missing from config.json — reinstall or restore the file.")` without touching the network. `classify_notes()` does the same, returning a `ShallowResult(success=False, …)`. `AIChatController.send_message()` emits `error_occurred` and returns `False` before appending any message to the conversation. The guards fire before state is mutated — they mirror the existing model-config checks at lines 476–484 of `ai_chat_controller.py`.
 
 Tests: `TestNarrativeMissingConfig`, `TestClassifyNotesMissingConfig`, `TestAIChatMissingConfig` in the relevant test files.
-
-### Temperature and thinking rule
-
-**Upstream note for Philipp**: `ai_service.py` gained one new optional kwarg as part of the per-Why classifier redesign. This section flags the change and its interaction with the thinking-disable logic for review when the Chess Log feature reaches upstream.
-
-`AIService.send_message` now accepts `temperature: Optional[float] = None`. When `None` (the default), all callers behave exactly as before: OpenAI/custom path sends `temperature=0.7`; Anthropic path sends no `temperature` key. The classifier call sites (`classify_notes`, `classify_notes_3x3`) pass `temperature=0` explicitly for deterministic output — no other callers are affected.
-
-**Interaction with the thinking-disable logic (Anthropic path only)**: the Anthropic Messages API rejects `temperature != 1.0` when a real thinking mode is active (`"adaptive"`, `"between_tools"`, or `output_config.effort` set). The rule in `_send_anthropic_message`, applied after the retry-override merge step on the final outgoing payload:
-
-```python
-thinking_type = payload.get("thinking", {}).get("type")
-thinking_is_live = thinking_type in ("adaptive", "between_tools") or "output_config" in payload
-if thinking_is_live:
-    payload.pop("temperature", None)
-```
-
-Breakdown: `thinking={"type":"disabled"}` sets `thinking_is_live = False`, so `temperature=0` **is sent** — correct for Sonnet 5 / Opus 5 initial requests. After the one-shot retry for Sonnet 5.5 (`{"type":"between_tools"}`) or Opus 5.5 (`{"type":"adaptive"} + output_config`), `thinking_is_live = True` and `temperature` is dropped. If the API rejects a payload that passes the rule above, a single belt-and-braces retry without `temperature` is made and a WARNING is logged with the model id and API error message.
 
 ### `THREE_BY_THREE_PROMPTS` and config divergence
 

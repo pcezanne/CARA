@@ -110,7 +110,15 @@ class _TagRowWidget(QFrame):
                 "ignore_text_hash": ignore_text_hash,
                 "is_shallow": is_shallow,
                 "is_vague": is_vague,
+                "original_why": why,
             }
+
+        # Original why text for CLAMP/CCT text-change detection (all entries share one why).
+        self._original_why_clamp_cct: str = (
+            (entries[0].get("why") or "").strip()
+            if entries and preset != "3x3"
+            else ""
+        )
 
         self._preserved_ignore_shallow: bool = any(
             d.get("ignore_shallow", False) for d in self._preserved_per_cat.values()
@@ -457,16 +465,26 @@ class _TagRowWidget(QFrame):
                         entry["is_shallow"] = True
                     if per_cat.get("is_vague") and key == "Why4":
                         entry["is_vague"] = True
+                entry = ChessLogStorageService.clear_verdict_if_text_changed(
+                    entry, per_cat.get("original_why", "")
+                )
                 result.append(entry)
             return result
 
         why = self._why_texts.get("why", QPlainTextEdit()).toPlainText().strip()
         selected = [cat for cat, cb in self._checkboxes.items() if cb.isChecked()]
+
+        def _build(cat: str) -> Dict[str, Any]:
+            return ChessLogStorageService.clear_verdict_if_text_changed(
+                _annotate({"preset": self._preset, "cat": cat, "why": why}),
+                self._original_why_clamp_cct,
+            )
+
         if not selected:
             # Mirror MomentDialog.get_entries(): zero boxes + why → cat="" entry;
             # zero boxes + empty why → [] (intentional delete gesture).
-            return [_annotate({"preset": self._preset, "cat": "", "why": why})] if why else []
-        return [_annotate({"preset": self._preset, "cat": cat, "why": why}) for cat in selected]
+            return [_build("")] if why else []
+        return [_build(cat) for cat in selected]
 
     def snapshot(self):
         """Return current widget state as a TagRowSnapshot for PDF export."""

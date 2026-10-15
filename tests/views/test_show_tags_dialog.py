@@ -530,11 +530,23 @@ class TestIgnoreShallowPreservation(unittest.TestCase):
             show_ignore_checkbox=False,
         )
 
-    def test_ignore_shallow_preserved_through_edit_roundtrip(self):
-        """Editing why-text in Show Tags does not strip an existing ignore_shallow flag."""
+    def test_ignore_shallow_cleared_when_text_changes(self):
+        """Editing why-text in Show Tags clears the ignore_shallow flag."""
+        import hashlib
         entry = _make_entry("CLAMP", "C", "original note", ignore_shallow=True)
+        entry["ignore_text_hash"] = hashlib.sha256(b"original note").hexdigest()
         row = self._make_row([entry])
         row._why_texts["why"].setPlainText("edited note")
+        entries = row.get_current_entries()
+        self.assertFalse(any(e.get("ignore_shallow") for e in entries))
+
+    def test_ignore_shallow_preserved_when_text_unchanged(self):
+        """No text change → ignore_shallow is preserved through get_current_entries."""
+        import hashlib
+        entry = _make_entry("CLAMP", "C", "same note", ignore_shallow=True)
+        entry["ignore_text_hash"] = hashlib.sha256(b"same note").hexdigest()
+        row = self._make_row([entry])
+        # Text unchanged — widget was initialised with "same note"
         entries = row.get_current_entries()
         self.assertTrue(all(e.get("ignore_shallow") for e in entries))
 
@@ -1230,6 +1242,248 @@ class TestChipRealTimeOpacity(unittest.TestCase):
         chip = row._chips_per_cat.get("Why1")
         self.assertIsNotNone(chip)
         self.assertTrue(self._has_opacity_effect(chip), "chip must be dimmed at open for ignored entry")
+
+
+# ---------------------------------------------------------------------------
+# Editing an answer clears its chip and Ignore
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestClearVerdictOnEdit(unittest.TestCase):
+    """When why-text changes, chip + Ignore fields are wiped on get_current_entries."""
+
+    def _make_3x3_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="5. d4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _make_clamp_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            move_label="5. d4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _why4_honoured_entry(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        text = "Need to slow down"
+        return ChessLogStorageService.make_entry(
+            "3x3", "Why4", text, is_vague=True, ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+
+    def _why1_honoured_entry(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        text = "Moved impulsively"
+        return ChessLogStorageService.make_entry(
+            "3x3", "Why1", text, is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+
+    def _clamp_honoured_entry(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        text = "Calculation error"
+        return ChessLogStorageService.make_entry(
+            "CLAMP", "C", text, is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+
+    # --- 3x3 Why4 (Vague chip) ---
+
+    def test_3x3_why4_edit_clears_is_vague(self):
+        row = self._make_3x3_row([self._why4_honoured_entry()], show_ignore=True)
+        row._why_texts["Why4"].setPlainText("Actually a good lesson")
+        entries = row.get_current_entries()
+        why4 = next((e for e in entries if e.get("cat") == "Why4"), None)
+        self.assertIsNotNone(why4)
+        self.assertNotIn("is_vague", why4)
+        self.assertNotIn("ignore_shallow", why4)
+        self.assertNotIn("ignore_text_hash", why4)
+        self.assertNotIn("is_shallow", why4)
+
+    def test_3x3_why4_edit_leaves_why1_untouched(self):
+        """Only the edited answer is cleared; other Why answers keep their flags."""
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        why1_text = "Moved impulsively"
+        why1 = ChessLogStorageService.make_entry(
+            "3x3", "Why1", why1_text, is_shallow=True, ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(why1_text.encode()).hexdigest(),
+        )
+        row = self._make_3x3_row([why1, self._why4_honoured_entry()], show_ignore=True)
+        # Only edit Why4
+        row._why_texts["Why4"].setPlainText("Actually a good lesson")
+        entries = row.get_current_entries()
+        why1_out = next((e for e in entries if e.get("cat") == "Why1"), None)
+        self.assertIsNotNone(why1_out)
+        self.assertTrue(why1_out.get("is_shallow"), "Why1 chip must be untouched")
+        self.assertTrue(why1_out.get("ignore_shallow"), "Why1 Ignore must be untouched")
+
+    # --- 3x3 Why1 (Shallow chip) ---
+
+    def test_3x3_why1_edit_clears_is_shallow(self):
+        row = self._make_3x3_row([self._why1_honoured_entry()], show_ignore=True)
+        row._why_texts["Why1"].setPlainText("Actually fine")
+        entries = row.get_current_entries()
+        why1 = next((e for e in entries if e.get("cat") == "Why1"), None)
+        self.assertIsNotNone(why1)
+        self.assertNotIn("is_shallow", why1)
+        self.assertNotIn("ignore_shallow", why1)
+        self.assertNotIn("ignore_text_hash", why1)
+
+    # --- CLAMP/CCT note ---
+
+    def test_clamp_edit_clears_is_shallow(self):
+        row = self._make_clamp_row([self._clamp_honoured_entry()], show_ignore=True)
+        row._why_texts["why"].setPlainText("Better explanation")
+        entries = row.get_current_entries()
+        self.assertFalse(any(e.get("is_shallow") for e in entries))
+        self.assertFalse(any(e.get("ignore_shallow") for e in entries))
+        self.assertFalse(any("ignore_text_hash" in e for e in entries))
+
+    # --- Unchanged text ---
+
+    def test_3x3_unchanged_text_preserves_chip(self):
+        entry = self._why4_honoured_entry()
+        row = self._make_3x3_row([entry], show_ignore=True)
+        entries = row.get_current_entries()
+        why4 = next((e for e in entries if e.get("cat") == "Why4"), None)
+        self.assertTrue(why4.get("is_vague"), "chip must survive when text unchanged")
+
+    def test_3x3_whitespace_only_diff_preserves_chip(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        text = "Need to slow down"
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why4", text, is_vague=True, ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(text.encode()).hexdigest(),
+        )
+        row = self._make_3x3_row([entry], show_ignore=True)
+        # The QPlainTextEdit was initialised with the stored text; no change needed.
+        entries = row.get_current_entries()
+        why4 = next((e for e in entries if e.get("cat") == "Why4"), None)
+        self.assertTrue(why4.get("is_vague"), "chip must survive whitespace-only non-change")
+
+    def test_clamp_unchanged_text_preserves_chip(self):
+        entry = self._clamp_honoured_entry()
+        row = self._make_clamp_row([entry], show_ignore=True)
+        entries = row.get_current_entries()
+        self.assertTrue(any(e.get("is_shallow") for e in entries))
+
+    # --- Display: mismatched hash shows unticked box ---
+
+    def test_3x3_mismatched_hash_shows_unticked_ignore_box(self):
+        """Entry with stale hash (outside edit) → Ignore box unticked on open."""
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry(
+            "3x3", "Why4", "New text after outside edit", is_vague=True,
+            ignore_shallow=True,
+            ignore_text_hash=hashlib.sha256(b"old text before outside edit").hexdigest(),
+        )
+        row = self._make_3x3_row([entry], show_ignore=True)
+        ign_cb = row._ignore_checks.get("Why4")
+        self.assertIsNotNone(ign_cb, "Ignore checkbox must be present when chip exists")
+        self.assertFalse(ign_cb.isChecked(), "Ignore box must be unticked when hash does not match")
+
+
+@requires_qt
+class TestPaulSequenceEndToEnd(unittest.TestCase):
+    """End-to-end: Ignore → Save → edit lesson → save game → Show Logged Moments."""
+
+    def setUp(self):
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        self.hashlib = hashlib
+        self.CSvc = ChessLogStorageService
+
+    def _make_3x3_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="7. Nf3",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def test_paul_sequence(self):
+        hashlib = self.hashlib
+        CSvc = self.CSvc
+
+        # Step 1: initial entry — vague lesson, Ignore honoured.
+        original_lesson = "Need to slow down and check candidate moves"
+        h1 = hashlib.sha256(original_lesson.encode()).hexdigest()
+        entry_after_ignore = CSvc.make_entry(
+            "3x3", "Why4", original_lesson, is_vague=True,
+            ignore_shallow=True, ignore_text_hash=h1,
+        )
+        print("\n[Step 1] After Ignore + Save:")
+        why4 = entry_after_ignore
+        print(f"  is_vague={why4.get('is_vague')} ignore_shallow={why4.get('ignore_shallow')}"
+              f" has_hash={bool(why4.get('ignore_text_hash'))} text='{why4.get('why')}'")
+        self.assertTrue(why4.get("is_vague"))
+        self.assertTrue(why4.get("ignore_shallow"))
+        self.assertEqual(why4.get("ignore_text_hash"), h1)
+
+        # Step 2: Check Logs correctly skips it (Ignore honoured → not sent to classifier).
+        self.assertTrue(CSvc.is_entry_ignore_honoured(entry_after_ignore))
+        print("[Step 2] Check Logs: entry is ignored → classifier skips it. Correct.")
+
+        # Step 3: user edits the lesson in Show Logged Moments → Save.
+        new_lesson = "This move was fine — analysed the line thoroughly"
+        row = self._make_3x3_row([entry_after_ignore], show_ignore=True)
+        ign_cb = row._ignore_checks.get("Why4")
+        # Ignore box was ticked from stored honoured entry
+        self.assertTrue(ign_cb.isChecked(), "Ignore box must start ticked for honoured entry")
+        row._why_texts["Why4"].setPlainText(new_lesson)
+        new_entries = row.get_current_entries()
+        why4_saved = next(e for e in new_entries if e.get("cat") == "Why4")
+        print("[Step 3] After editing lesson + Save:")
+        print(f"  is_vague={why4_saved.get('is_vague')} ignore_shallow={why4_saved.get('ignore_shallow')}"
+              f" has_hash={bool(why4_saved.get('ignore_text_hash'))} text='{why4_saved.get('why')}'")
+        self.assertNotIn("is_vague", why4_saved, "is_vague must be cleared after text edit")
+        self.assertNotIn("ignore_shallow", why4_saved)
+        self.assertNotIn("ignore_text_hash", why4_saved)
+        self.assertEqual(why4_saved.get("why"), new_lesson)
+
+        # Step 4: Check Logs — entry has no chip and no Ignore → processed fresh.
+        self.assertFalse(CSvc.is_entry_ignore_honoured(why4_saved))
+        print("[Step 4] Check Logs: entry has no chip, not ignored → classifier sees it fresh.")
+
+        # Step 5: Show Logged Moments reopens with the saved entry.
+        row2 = self._make_3x3_row([why4_saved], show_ignore=True)
+        ign_cb2 = row2._ignore_checks.get("Why4")
+        # No chip → no Ignore checkbox rendered
+        chip2 = row2._chips_per_cat.get("Why4")
+        print("[Step 5] Show Logged Moments after edit:")
+        print(f"  chip_present={chip2 is not None}  ignore_cb_present={ign_cb2 is not None}")
+        self.assertIsNone(chip2, "no chip must be shown for the cleared entry")
+        self.assertIsNone(ign_cb2, "no Ignore checkbox must be shown without a chip")
+        print("[Step 5] PASS — new text, no chip, no Ignore box.")
 
 
 if __name__ == "__main__":

@@ -271,6 +271,58 @@ class TestMakeEntryIgnoreShallow(unittest.TestCase):
         self.assertNotIn("ignore_shallow", normal_entry)
 
 
+class TestClearVerdictIfTextChanged(unittest.TestCase):
+    """clear_verdict_if_text_changed removes chip/Ignore fields iff text changed."""
+
+    def _entry(self, why="note", is_shallow=False, is_vague=False,
+               ignore_shallow=False, ignore_text_hash=None):
+        e = ChessLogStorageService.make_entry("3x3", "Why4", why,
+                                              is_shallow=is_shallow,
+                                              is_vague=is_vague,
+                                              ignore_shallow=ignore_shallow,
+                                              ignore_text_hash=ignore_text_hash)
+        return e
+
+    def test_text_unchanged_preserves_all_fields(self):
+        e = self._entry("note", is_vague=True, ignore_shallow=True, ignore_text_hash="h")
+        result = ChessLogStorageService.clear_verdict_if_text_changed(e, "note")
+        self.assertTrue(result.get("is_vague"))
+        self.assertTrue(result.get("ignore_shallow"))
+        self.assertEqual(result.get("ignore_text_hash"), "h")
+
+    def test_text_changed_clears_all_four_fields(self):
+        e = self._entry("old", is_shallow=True, is_vague=True,
+                        ignore_shallow=True, ignore_text_hash="h")
+        result = ChessLogStorageService.clear_verdict_if_text_changed(e, "old")
+        # Sanity: unchanged → still present
+        self.assertIn("is_shallow", result)
+        result2 = ChessLogStorageService.clear_verdict_if_text_changed(result, "different")
+        self.assertNotIn("is_shallow", result2)
+        self.assertNotIn("is_vague", result2)
+        self.assertNotIn("ignore_shallow", result2)
+        self.assertNotIn("ignore_text_hash", result2)
+
+    def test_whitespace_only_difference_counts_as_unchanged(self):
+        e = self._entry("note", is_vague=True, ignore_shallow=True, ignore_text_hash="h")
+        result = ChessLogStorageService.clear_verdict_if_text_changed(e, "  note  ")
+        self.assertTrue(result.get("is_vague"))
+
+    def test_non_verdict_fields_preserved_after_change(self):
+        e = self._entry("old", is_vague=True, ignore_shallow=True)
+        e["id"] = "my-uuid"
+        e["preset"] = "3x3"
+        e["cat"] = "Why4"
+        result = ChessLogStorageService.clear_verdict_if_text_changed(e, "new text")
+        self.assertEqual(result["id"], "my-uuid")
+        self.assertEqual(result["why"], "old")
+        self.assertEqual(result["preset"], "3x3")
+
+    def test_returns_same_dict_when_unchanged(self):
+        e = self._entry("note", is_vague=True)
+        result = ChessLogStorageService.clear_verdict_if_text_changed(e, "note")
+        self.assertIs(result, e)
+
+
 class TestNoneAndInvalidGame(unittest.TestCase):
     def test_none_game(self):
         self.assertFalse(ChessLogStorageService.has_chess_log_tags(None))

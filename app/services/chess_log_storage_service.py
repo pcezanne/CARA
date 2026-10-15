@@ -288,6 +288,23 @@ class ChessLogStorageService:
         return hashlib.sha256(why.encode("utf-8")).hexdigest() == h
 
     @staticmethod
+    def clear_verdict_if_text_changed(
+        entry: Dict[str, Any], original_why: str
+    ) -> Dict[str, Any]:
+        """Return entry with chip/Ignore fields cleared when why text changed.
+
+        Compares entry["why"].strip() to original_why.strip(). When they
+        differ, returns a copy with is_shallow, is_vague, ignore_shallow, and
+        ignore_text_hash removed. Returns the same dict unchanged when the
+        text is identical (including whitespace-only differences after strip).
+        """
+        new_why = (entry.get("why") or "").strip()
+        if new_why == (original_why or "").strip():
+            return entry
+        return {k: v for k, v in entry.items()
+                if k not in ("is_shallow", "is_vague", "ignore_shallow", "ignore_text_hash")}
+
+    @staticmethod
     def _remove_chess_log_tags(game: GameData) -> None:
         """Remove CARAChessLog* tags from game PGN (in-memory, best-effort)."""
         try:

@@ -690,7 +690,6 @@ class ShowTagsDialog(QDialog):
             self._rows_layout.setContentsMargins(0, 0, 0, 0)
             self._rows_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
-            multi_game = len(self._games) > 1
             last_game = None
             row_count = 0
             orphan_count = 0
@@ -707,7 +706,7 @@ class ShowTagsDialog(QDialog):
                     orphan_count += 1
                     continue
 
-                if multi_game and game is not last_game:
+                if game is not last_game:
                     self._rows_layout.addWidget(self._make_game_header(game))
                     last_game = game
                 elif row_count > 0:
@@ -845,7 +844,6 @@ class ShowTagsDialog(QDialog):
         current_game = None
         current_rows = []
         current_header: Optional[str] = None
-        multi_game = len(self._games) > 1
 
         for i, row_widget in enumerate(self._row_widgets):
             game = self._row_games[i]
@@ -854,15 +852,12 @@ class ShowTagsDialog(QDialog):
                     tag_groups.append({"header": current_header, "rows": current_rows})
                 current_game = game
                 current_rows = []
-                if multi_game:
-                    white = str(getattr(game, "white", "") or "").strip() or "Unknown"
-                    black = str(getattr(game, "black", "") or "").strip() or "Unknown"
-                    result = str(getattr(game, "result", "") or "").strip() or "*"
-                    date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
-                    moves = getattr(game, "moves", 0) or 0
-                    current_header = f"{white} - {black} {result} ({date} - {moves} moves)"
-                else:
-                    current_header = None
+                white = str(getattr(game, "white", "") or "").strip() or "Unknown"
+                black = str(getattr(game, "black", "") or "").strip() or "Unknown"
+                result = str(getattr(game, "result", "") or "").strip() or "*"
+                date = str(getattr(game, "date", "") or "").strip() or "????.??.??"
+                moves = getattr(game, "moves", 0) or 0
+                current_header = f"{white} - {black} {result} ({date} - {moves} moves)"
             current_rows.append(row_widget.snapshot())
 
         if current_rows:

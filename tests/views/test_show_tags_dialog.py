@@ -420,7 +420,7 @@ class TestMultiGameDialog(unittest.TestCase):
         # At least one label should contain Carol (game2 header)
         self.assertTrue(any("Carol" in t for t in label_texts))
 
-    def test_single_game_no_game_header_with_player_name(self):
+    def test_single_game_shows_game_header(self):
         from app.models.database_model import GameData
         from app.views.dialogs.show_tags_dialog import ShowTagsDialog
 
@@ -428,11 +428,12 @@ class TestMultiGameDialog(unittest.TestCase):
         ctrl = MagicMock()
         ctrl.get_tags_for_game.return_value = {"0": [_make_entry("CLAMP", "C")]}
         dlg = ShowTagsDialog({}, [game], ctrl)
-        # With a single game, no game-header QLabel is added — the move label
-        # won't contain the player name
         labels = dlg.findChildren(QLabel)
         label_texts = [lbl.text() for lbl in labels]
-        self.assertFalse(any("UniqueNameXYZ" in t for t in label_texts))
+        self.assertTrue(
+            any("UniqueNameXYZ" in t for t in label_texts),
+            "Single-game Show Logged Moments must show the game header",
+        )
 
     def test_multi_game_row_count_spans_all_games(self):
         dlg, _, _, _ = self._make_multi_game_dialog(
@@ -450,6 +451,36 @@ class TestMultiGameDialog(unittest.TestCase):
         call_args = ctrl.replace_entries_at_path_for_game.call_args[0]
         # First arg should be game2
         self.assertIs(call_args[0], game2)
+
+    def test_single_game_pdf_export_sets_header(self):
+        """Issue #55: single-game PDF export must pass a non-None header to the PDF service."""
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+
+        game = GameData(game_number=1, pgn=MAINLINE_PGN, white="PDFWhite", black="PDFBlack",
+                        result="1-0", date="2026.01.01", moves=10)
+        ctrl = MagicMock()
+        ctrl.get_tags_for_game.return_value = {"0": [_make_entry("CLAMP", "C", "note")]}
+        ctrl.replace_entries_at_path_for_game = MagicMock()
+        dlg = ShowTagsDialog({}, [game], ctrl)
+
+        captured = {}
+
+        def fake_export(path, groups, **kwargs):
+            captured["groups"] = groups
+
+        with patch("PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+                   return_value=("/tmp/test_show_tags.pdf", "")):
+            with patch("app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+                       side_effect=fake_export):
+                dlg._on_export_pdf()
+
+        self.assertIn("groups", captured, "export_tags must have been called")
+        groups = captured["groups"]
+        self.assertEqual(len(groups), 1)
+        header = groups[0]["header"]
+        self.assertIsNotNone(header, "Single-game PDF must have a non-None header")
+        self.assertIn("PDFWhite", header)
 
 
 # ---------------------------------------------------------------------------

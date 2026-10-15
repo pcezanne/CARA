@@ -1690,5 +1690,82 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
         print("\n--- NORMAL SEQUENCE PROOF PASSED ---\n")
 
 
+# ---------------------------------------------------------------------------
+# Issue #55 — single-game dialog and PDF always show the game header
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestSingleGameHeader(unittest.TestCase):
+    """Issue #55: the game header must appear even when only one game has flagged moments."""
+
+    def _make_single_game_dialog(self, white="SoloWhite", black="SoloBlack"):
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        pgn = (
+            f'[Event "T"][Site "?"][Date "2026.06.01"]'
+            f'[Round "?"][White "{white}"][Black "{black}"][Result "1-0"]\n\n'
+            "1. e4 e5 *\n"
+        )
+        game = GameData(game_number=1, pgn=pgn, white=white, black=black,
+                        result="1-0", date="2026.06.01", moves=2)
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
+        ctrl = _make_controller({1: tags})
+        return ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP", "")},
+        ), game
+
+    def test_single_game_dialog_shows_game_header(self):
+        """Single-game Check Logs dialog must display a QLabel containing the player name."""
+        from PyQt6.QtWidgets import QLabel
+        dlg, _ = self._make_single_game_dialog("SoloWhite", "SoloBlack")
+        label_texts = [lbl.text() for lbl in dlg.findChildren(QLabel)]
+        self.assertTrue(
+            any("SoloWhite" in t for t in label_texts),
+            f"Expected game header with 'SoloWhite' in dialog labels; got: {label_texts}",
+        )
+
+    def test_single_game_pdf_export_sets_header(self):
+        """Single-game Check Logs PDF must pass a non-None header to export_tags."""
+        from unittest.mock import patch
+        from app.models.database_model import GameData
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        pgn = (
+            '[Event "T"][Site "?"][Date "2026.06.01"]'
+            '[Round "?"][White "PDFSolo"][Black "Opponent"][Result "1-0"]\n\n'
+            "1. e4 e5 *\n"
+        )
+        game = GameData(game_number=1, pgn=pgn, white="PDFSolo", black="Opponent",
+                        result="1-0", date="2026.06.01", moves=2)
+        tags = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
+        ctrl = _make_controller({1: tags})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys={(1, "0", "CLAMP", "")},
+        )
+
+        captured = {}
+
+        def fake_export(path, groups, **kwargs):
+            captured["groups"] = groups
+
+        with patch("PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+                   return_value=("/tmp/test_check_logs.pdf", "")):
+            with patch("app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+                       side_effect=fake_export):
+                dlg._on_export_pdf()
+
+        self.assertIn("groups", captured, "export_tags must have been called")
+        groups = captured["groups"]
+        self.assertEqual(len(groups), 1)
+        header = groups[0]["header"]
+        self.assertIsNotNone(header, "Single-game Check Logs PDF must have a non-None header")
+        self.assertIn("PDFSolo", header)
+
+
 if __name__ == "__main__":
     unittest.main()

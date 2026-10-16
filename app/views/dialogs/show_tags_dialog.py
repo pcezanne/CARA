@@ -179,7 +179,11 @@ class _TagRowWidget(QFrame):
         bg = chip_cfg.get("background_color", def_bg)
         tc = chip_cfg.get("text_color", def_tc)
         text = chip_cfg.get("text", def_text)
-        tooltip = chip_cfg.get("tooltip", "")
+        if kind == "shallow":
+            tooltip_key = "tooltip_3x3" if self._preset == "3x3" else "tooltip_clamp_cct"
+            tooltip = chip_cfg.get(tooltip_key, "")
+        else:
+            tooltip = chip_cfg.get("tooltip", "")
         lbl = QLabel(text)
         lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
         lbl.setStyleSheet(

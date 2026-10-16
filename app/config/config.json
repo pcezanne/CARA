@@ -742,11 +742,12 @@
         "labels": {
           "shallow": {
             "text": "Shallow",
-            "tooltip": "This note describes the board, not your thinking. Revisit why you played it — or what to take away from it — in your own words."
+            "tooltip_3x3": "This answer could fit almost any move. Name a piece, square, plan or threat from this position. Tick Ignore if you disagree.",
+            "tooltip_clamp_cct": "This note doesn't diagnose the move. Say what you missed, what you intended, or what you should have played. Tick Ignore if you disagree."
           },
           "vague_lesson": {
             "text": "Vague lesson",
-            "tooltip": "Your analysis is real, but the takeaway names nothing specific to watch for. Try to name a pattern, piece, square, or checklist item."
+            "tooltip": "This lesson gives you nothing to do next game. Name a concrete habit or check, such as \"count attackers and defenders\". Tick Ignore if you disagree."
           }
         }
       },

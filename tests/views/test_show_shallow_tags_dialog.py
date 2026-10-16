@@ -634,7 +634,7 @@ class TestChipLabels(unittest.TestCase):
         entries = {"0": [_make_entry("CLAMP", "C", "shallow")]}
         ctrl = _make_controller({1: entries})
         config = {"ui": {"dialogs": {"shallow": {"labels": {
-            "shallow": {"text": "S", "tooltip": "Custom tip",
+            "shallow": {"text": "S", "tooltip_clamp_cct": "Custom tip",
                         "background_color": [100, 0, 0], "text_color": [255, 255, 255]},
         }}}}}
         dlg = ShowShallowTagsDialog(
@@ -643,6 +643,107 @@ class TestChipLabels(unittest.TestCase):
             classified_keys=frozenset({(1, "0", "CLAMP", "")}),
         )
         self.assertEqual(dlg._row_widgets[0]._shallow_chip.toolTip(), "Custom tip")
+
+
+# ---------------------------------------------------------------------------
+# Chip tooltips — preset-aware (CLAMP/CCT vs 3x3)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipTooltips(unittest.TestCase):
+    """Chip tooltips pick the correct key based on preset."""
+
+    @classmethod
+    def setUpClass(cls):
+        from app.config.config_loader import ConfigLoader
+        cls._cfg = ConfigLoader().load()
+        shallow_cfg = (
+            cls._cfg.get("ui", {}).get("dialogs", {})
+            .get("shallow", {}).get("labels", {})
+        )
+        cls._tooltip_clamp_cct = shallow_cfg.get("shallow", {}).get("tooltip_clamp_cct", "")
+        cls._tooltip_3x3 = shallow_cfg.get("shallow", {}).get("tooltip_3x3", "")
+        cls._tooltip_vague = shallow_cfg.get("vague_lesson", {}).get("tooltip", "")
+
+    def _make_clamp_shallow_dlg(self, preset="CLAMP"):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry(preset, "C", "I blundered the knight")]}
+        ctrl = _make_controller({1: entries})
+        sk = frozenset({(1, "0", preset, "")})
+        return ShowShallowTagsDialog(
+            config=self._cfg, games=[game], controller=ctrl,
+            shallow_keys=sk, classified_keys=sk,
+        )
+
+    def _make_3x3_shallow_dlg(self):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("3x3", "Why1", "I moved")]}
+        ctrl = _make_controller({1: entries})
+        sk = frozenset({(1, "0", "3x3", "Why1")})
+        return ShowShallowTagsDialog(
+            config=self._cfg, games=[game], controller=ctrl,
+            shallow_keys=sk, classified_keys=sk,
+        )
+
+    def _make_3x3_vague_dlg(self):
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("3x3", "Why4", "Try harder")]}
+        ctrl = _make_controller({1: entries})
+        vk = frozenset({(1, "0", "3x3", "Why4")})
+        return ShowShallowTagsDialog(
+            config=self._cfg, games=[game], controller=ctrl,
+            shallow_keys=frozenset(), vague_keys=vk, classified_keys=vk,
+        )
+
+    def test_clamp_shallow_chip_tooltip(self):
+        dlg = self._make_clamp_shallow_dlg("CLAMP")
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertEqual(row._shallow_chip.toolTip(), self._tooltip_clamp_cct)
+
+    def test_cct_shallow_chip_tooltip(self):
+        dlg = self._make_clamp_shallow_dlg("CCT")
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertEqual(row._shallow_chip.toolTip(), self._tooltip_clamp_cct)
+
+    def test_3x3_shallow_chip_tooltip(self):
+        dlg = self._make_3x3_shallow_dlg()
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._shallow_chip)
+        self.assertEqual(row._shallow_chip.toolTip(), self._tooltip_3x3)
+
+    def test_3x3_vague_chip_tooltip(self):
+        dlg = self._make_3x3_vague_dlg()
+        row = dlg._row_widgets[0]
+        self.assertIsNotNone(row._vague_chip)
+        self.assertEqual(row._vague_chip.toolTip(), self._tooltip_vague)
+
+    def test_config_tooltip_clamp_cct_exact_text(self):
+        expected = (
+            "This note doesn't diagnose the move. Say what you missed, "
+            "what you intended, or what you should have played. "
+            "Tick Ignore if you disagree."
+        )
+        self.assertEqual(self._tooltip_clamp_cct, expected)
+
+    def test_config_tooltip_3x3_exact_text(self):
+        expected = (
+            "This answer could fit almost any move. Name a piece, square, "
+            "plan or threat from this position. Tick Ignore if you disagree."
+        )
+        self.assertEqual(self._tooltip_3x3, expected)
+
+    def test_config_tooltip_vague_exact_text(self):
+        expected = (
+            "This lesson gives you nothing to do next game. Name a concrete "
+            'habit or check, such as "count attackers and defenders". '
+            "Tick Ignore if you disagree."
+        )
+        self.assertEqual(self._tooltip_vague, expected)
 
 
 # ---------------------------------------------------------------------------

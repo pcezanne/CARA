@@ -2,6 +2,10 @@
 
 Reporting and visualization layer for Chess Log — the detail tab (index 9, F10) that lets players see how their mistake mix shifts over time and get an AI narrative summary.
 
+## Show/Hide
+
+The Chess Log tab can be hidden via **View → Show/Hide → Chess Log**. Hiding it removes the tab and disables F10; the Time series settings submenu (and its preceding separator) in the Chess Log menu are also hidden. The top-level Chess Log menu itself remains visible so logging operations (Settings, Clear, Save, Show Logged Moments, Highlight) still work from the Moves List. Showing the tab again restores all three. The choice persists across restarts.
+
 **Presets in scope**: CLAMP, CCT, and 3x3. Charts show only CLAMP and CCT (3x3 has no comparable category axis). The Check Logs classifier supports all three presets.
 
 See also: `doc/chess_log.md` for the tagging layer itself.

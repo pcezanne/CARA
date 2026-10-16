@@ -52,7 +52,7 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     mw.highlight_chess_log_moves_action.triggered.connect(mw._on_highlight_chess_log_moves_toggled)
     chess_log_menu.addAction(mw.highlight_chess_log_moves_action)
 
-    chess_log_menu.addSeparator()
+    mw._chess_log_charts_settings_separator = chess_log_menu.addSeparator()
 
     _setup_chess_log_charts_submenu(mw, chess_log_menu)
 

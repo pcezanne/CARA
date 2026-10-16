@@ -4013,10 +4013,21 @@ class MainWindow(QMainWindow):
             "annotations": "view_annotations_action",
             "ai_summary": "view_ai_summary_action",
             "notes": "view_notes_action",
+            "chess_log_charts": "view_chess_log_charts_action",
         }.get(unit_id)
         if not attr:
             return None
         return getattr(self, attr, None)
+
+    def _apply_unit_submenus(self, unit_id: str, visible: bool) -> None:
+        """Hide/show submenus that belong to a visibility unit."""
+        if unit_id == "chess_log_charts":
+            submenu = getattr(self, "chess_log_charts_settings_menu", None)
+            if submenu is not None:
+                submenu.menuAction().setVisible(visible)
+            sep = getattr(self, "_chess_log_charts_settings_separator", None)
+            if sep is not None:
+                sep.setVisible(visible)
 
     def _apply_detail_panel_visibility(self) -> None:
         """Apply Show/Hide settings to detail tabs, related menus, and View shortcuts."""
@@ -4024,6 +4035,10 @@ class MainWindow(QMainWindow):
 
         visibility = self._get_detail_panel_visibility()
         tab_widget = getattr(getattr(self, "detail_panel", None), "tab_widget", None)
+
+        # Capture current tab before any setTabVisible call; Qt may auto-advance the
+        # current index when the current tab is hidden, so we must record it now.
+        pre_hide_current = tab_widget.currentIndex() if tab_widget is not None else -1
 
         for unit in DETAIL_PANEL_VISIBILITY_UNITS:
             visible = bool(visibility.get(unit.id, True))
@@ -4050,17 +4065,39 @@ class MainWindow(QMainWindow):
                 action.setChecked(visible)
                 action.blockSignals(False)
 
-        self._ensure_visible_detail_tab()
+            self._apply_unit_submenus(unit.id, visible)
 
-    def _ensure_visible_detail_tab(self) -> None:
-        """If the current detail tab is hidden, switch to a visible fallback."""
+        self._ensure_visible_detail_tab(pre_hide_current=pre_hide_current)
+
+    def _ensure_visible_detail_tab(self, pre_hide_current: int = -1) -> None:
+        """If the current detail tab is hidden, switch to a visible fallback.
+
+        Args:
+            pre_hide_current: Tab index that was current *before* any ``setTabVisible``
+                calls in the caller.  Qt may auto-advance the current index when the
+                active tab is hidden; passing the pre-hide index lets us detect that
+                case even after the auto-advance.
+        """
         if not hasattr(self, "detail_panel") or not hasattr(self.detail_panel, "tab_widget"):
             return
         tab_widget = self.detail_panel.tab_widget
         current = tab_widget.currentIndex()
-        if current >= 0 and (
-            not hasattr(tab_widget, "isTabVisible") or tab_widget.isTabVisible(current)
-        ):
+
+        # Determine whether a fallback is needed.  A fallback is needed if:
+        #   (a) the current tab is hidden, OR
+        #   (b) Qt already auto-advanced away from a tab that was just hidden
+        #       (pre_hide_current is now invisible at its original index).
+        needs_fallback = current < 0 or (
+            hasattr(tab_widget, "isTabVisible") and not tab_widget.isTabVisible(current)
+        )
+        if not needs_fallback and pre_hide_current >= 0 and pre_hide_current != current:
+            # Current has changed — check whether the original tab is now hidden.
+            if hasattr(tab_widget, "isTabVisible") and not tab_widget.isTabVisible(
+                pre_hide_current
+            ):
+                needs_fallback = True
+
+        if not needs_fallback:
             return
         # Prefer Moves List, then first visible tab.
         if self._switch_detail_tab_by_id("moves_list"):
@@ -4115,7 +4152,8 @@ class MainWindow(QMainWindow):
 
         Args:
             index: Tab index (0=Moves List, 1=Metadata, 2=Manual Analysis, 3=Opening Explorer,
-                   4=Game Summary, 5=Player Stats, 6=Annotations, 7=AI Summary, 8=Notes).
+                   4=Game Summary, 5=Player Stats, 6=Annotations, 7=AI Summary, 8=Notes,
+                   9=Chess Log).
 
         Returns:
             True if the tab was selected, False otherwise.

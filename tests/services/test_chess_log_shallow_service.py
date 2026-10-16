@@ -1436,10 +1436,10 @@ def _sha(text: str) -> str:
 
 
 class TestBuildNotesClamp(unittest.TestCase):
-    """CLAMP/CCT paths: one entry emitted per category; blank skipped; Ignore honoured."""
+    """CLAMP/CCT paths: one entry per distinct note per moment; blank skipped; Ignore honoured."""
 
     def test_one_entry_per_category_at_a_path(self):
-        """C+L+A on one path produces three legacy_notes with the same gn/pk."""
+        """C+L+A with the same note on one path produces exactly one legacy_notes entry."""
         from app.services.chess_log_shallow_service import build_notes
         game = _FakeGame(7)
         tags = {
@@ -1450,15 +1450,15 @@ class TestBuildNotesClamp(unittest.TestCase):
             ]
         }
         legacy, three, ignored_sets = build_notes([game], lambda g: tags)
-        self.assertEqual(len(legacy), 3)
+        self.assertEqual(len(legacy), 1)
         self.assertEqual(three, [])
         self.assertEqual(ignored_sets, [])
-        for i, n in enumerate(legacy):
-            self.assertEqual(n[0], i)
-            self.assertEqual(n[1], 7)
-            self.assertEqual(n[2], "0.0")
-            self.assertEqual(n[3], "CLAMP")
-            self.assertEqual(n[4], "Hung the knight.")
+        n = legacy[0]
+        self.assertEqual(n[0], 0)
+        self.assertEqual(n[1], 7)
+        self.assertEqual(n[2], "0.0")
+        self.assertEqual(n[3], "CLAMP")
+        self.assertEqual(n[4], "Hung the knight.")
 
     def test_blank_why_is_skipped(self):
         """CLAMP entry with empty why is not emitted."""
@@ -1518,6 +1518,159 @@ class TestBuildNotesClamp(unittest.TestCase):
         self.assertEqual(len(legacy), 1)
         self.assertEqual(legacy[0][3], "CCT")
         self.assertEqual(three, [])
+
+
+class TestBuildNotesClampDedup(unittest.TestCase):
+    """Deduplication: one entry per distinct note per CLAMP/CCT moment."""
+
+    def test_two_moments_same_game_one_entry_each(self):
+        """Two moments in one game, same path under CLAMP and CCT → one entry per (path, preset)."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(5)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "note-clamp"),
+                _entry("CLAMP", "L", "note-clamp"),
+                _entry("CCT", "C", "note-cct"),
+                _entry("CCT", "T", "note-cct"),
+            ],
+            "0.0.0": [
+                _entry("CLAMP", "C", "other-clamp"),
+                _entry("CLAMP", "A", "other-clamp"),
+            ],
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 3)
+        notes_by_pk = {}
+        for n in legacy:
+            notes_by_pk.setdefault((n[2], n[3]), []).append(n[4])
+        self.assertEqual(notes_by_pk[("0.0", "CLAMP")], ["note-clamp"])
+        self.assertEqual(notes_by_pk[("0.0", "CCT")], ["note-cct"])
+        self.assertEqual(notes_by_pk[("0.0.0", "CLAMP")], ["other-clamp"])
+
+    def test_two_different_notes_on_one_moment_both_emitted(self):
+        """Old-data edge case: two different texts on one moment → two entries, first-seen order."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "first note"),
+                _entry("CLAMP", "L", "second note"),
+                _entry("CLAMP", "A", "first note"),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 2)
+        self.assertEqual(legacy[0][4], "first note")
+        self.assertEqual(legacy[1][4], "second note")
+
+    def test_why_only_entry_cat_empty_emits_once(self):
+        """An entry with cat='' (why-only) still emits exactly one legacy entry."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "", "why-only note"),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][4], "why-only note")
+
+    def test_all_copies_ignored_matching_hash_no_entry(self):
+        """All copies ignored with matching hash → no entry emitted."""
+        from app.services.chess_log_shallow_service import build_notes
+        why = "Hung the knight."
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", why, ignore=True, hash_=_sha(why)),
+                _entry("CLAMP", "L", why, ignore=True, hash_=_sha(why)),
+                _entry("CLAMP", "A", why, ignore=True, hash_=_sha(why)),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(legacy, [])
+
+    def test_all_copies_legacy_ignored_no_hash_no_entry(self):
+        """All copies legacy-ignored (no hash) → no entry emitted."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "note", ignore=True),
+                _entry("CLAMP", "L", "note", ignore=True),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(legacy, [])
+
+    def test_some_copies_ignored_one_not_emits_once(self):
+        """C+L with C ignored, L not → one entry (the un-ignored copy unlocks the text)."""
+        from app.services.chess_log_shallow_service import build_notes
+        why = "Missed tactic."
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", why, ignore=True, hash_=_sha(why)),
+                _entry("CLAMP", "L", why),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][4], why)
+
+    def test_ignored_with_mismatched_hash_emits_once(self):
+        """Text was edited after Ignore was set — hash mismatch → entry is sent once."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "edited text", ignore=True, hash_=_sha("original text")),
+                _entry("CLAMP", "L", "edited text", ignore=True, hash_=_sha("original text")),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][4], "edited text")
+
+    def test_idx_values_are_contiguous_zero_based(self):
+        """idx values across all emitted legacy entries are 0..n-1, contiguous."""
+        from app.services.chess_log_shallow_service import build_notes
+        games = [_FakeGame(1), _FakeGame(2)]
+        tags_g1 = {
+            "0.0": [_entry("CLAMP", "C", "a"), _entry("CLAMP", "L", "a")],
+            "0.0.0": [_entry("CLAMP", "C", "b"), _entry("CLAMP", "L", "c")],
+        }
+        tags_g2 = {
+            "0.0": [_entry("CCT", "C", "d"), _entry("CCT", "T", "d")],
+        }
+        def resolver(g):
+            return tags_g1 if g.game_number == 1 else tags_g2
+        legacy, _, _ = build_notes(games, resolver)
+        self.assertEqual([n[0] for n in legacy], list(range(len(legacy))))
+
+    def test_3x3_output_unaffected_by_clamp_dedup(self):
+        """3x3 entries are byte-identical before and after dedup on a mixed fixture."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "same note"),
+                _entry("CLAMP", "L", "same note"),
+                _entry("3x3", "Why1", "intent"),
+                _entry("3x3", "Why2", ""),
+                _entry("3x3", "Why3", ""),
+                _entry("3x3", "Why4", "lesson"),
+            ]
+        }
+        legacy, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(len(three), 1)
+        n = three[0]
+        self.assertEqual((n[1], n[2], n[3]), (1, "0.0", "3x3"))
+        self.assertEqual((n[4], n[5], n[6], n[7]), ("intent", "", "", "lesson"))
+        self.assertEqual(ignored_sets, [frozenset()])
 
 
 class TestBuildNotes3x3(unittest.TestCase):

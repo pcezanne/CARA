@@ -19,7 +19,7 @@ Key tuples
 ----------
 All key sets use a uniform 4-tuple ``(game_number, path_key, preset, cat)``:
 
-- CLAMP/CCT: ``cat=""`` (empty string) — one entry per path per preset.
+- CLAMP/CCT: ``cat=""`` (empty string) — one entry per distinct note per moment.
 - 3x3: ``cat`` is one of ``"Why1"``, ``"Why2"``, ``"Why3"``, ``"Why4"`` —
   each answer is judged independently.
 
@@ -210,6 +210,24 @@ def _classifier_token_limit(note_count: int, per_note: int = 60) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Ignore-honour check (mirrors ChessLogStorageService.is_entry_ignore_honoured
+# without pulling in Qt-dependent imports)
+# ---------------------------------------------------------------------------
+
+def _is_ignore_honoured(entry: Dict[str, Any]) -> bool:
+    """Return True when this entry's ignore_shallow flag is in effect."""
+    if not entry.get("ignore_shallow", False):
+        return False
+    h = entry.get("ignore_text_hash")
+    if not h:
+        return True  # legacy: no hash → honour unconditionally
+    why = (entry.get("why") or "").strip()
+    if not why:
+        return False
+    return hashlib.sha256(why.encode("utf-8")).hexdigest() == h
+
+
+# ---------------------------------------------------------------------------
 # Note builder (shared with Qt controller and acceptance harness)
 # ---------------------------------------------------------------------------
 
@@ -224,11 +242,16 @@ def build_notes(
     """Build classifier-ready note tuples by replicating Check Logs' filter rules.
 
     Splits entries by preset: CLAMP/CCT emit one legacy_notes entry per
-    (game, path, category); 3x3 emits one three_notes entry per moment
-    bundling Why1..Why4. Blank-only 3x3 moments are skipped; moments whose
-    non-blank answers are all ignored are skipped. Ignore is honoured only
-    when the entry's ignore_text_hash matches the current ``why`` text —
-    an edit that cleared the hash restores the entry to the queue.
+    distinct non-blank note text per moment (first-seen order); 3x3 emits one
+    three_notes entry per moment bundling Why1..Why4.  Blank-only 3x3 moments
+    are skipped; moments whose non-blank answers are all ignored are skipped.
+    Ignore is honoured only when the entry's ignore_text_hash matches the
+    current ``why`` text — an edit that cleared the hash restores the entry to
+    the queue.
+
+    For CLAMP/CCT, a text is skipped only when *every* copy of it across the
+    moment's category entries has an honoured ignore.  If any copy is
+    un-ignored the text is sent exactly once.
 
     Args:
         games: Iterable of game-like objects exposing a ``game_number`` int.
@@ -294,18 +317,20 @@ def build_notes(
                     three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
                     three_ignored_sets.append(frozenset(ignored_cats))
                 else:
+                    # One entry per distinct non-blank note text, first-seen order.
+                    # A text is skipped only when every copy of it has an honoured ignore.
+                    why_all_ignored: Dict[str, bool] = {}
                     for entry in preset_entries:
                         why = (entry.get("why") or "").strip()
-                        ign = bool(entry.get("ignore_shallow", False))
-                        h = entry.get("ignore_text_hash")
-                        if ign:
-                            if h:
-                                if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
-                                    continue  # hash matches → skip
-                                # hash mismatch → don't skip (edit cleared ignore)
-                            else:
-                                continue  # legacy: no hash → honour ignore
-                        if why:
+                        if not why:
+                            continue
+                        ign = _is_ignore_honoured(entry)
+                        if why not in why_all_ignored:
+                            why_all_ignored[why] = ign
+                        elif not ign:
+                            why_all_ignored[why] = False
+                    for why, all_ignored in why_all_ignored.items():
+                        if not all_ignored:
                             idx = len(legacy_notes)
                             legacy_notes.append((idx, game.game_number, path_key, preset, why))
 

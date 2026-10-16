@@ -1,53 +1,47 @@
-Classify each of these player self-notes as SHALLOW or DEEP.
+Classify each of these player self-notes about a chess move as SHALLOW or DEEP.
 
-SHALLOW = only reports the outcome, the move played, or what's objectively
-wrong with the position — a label or a fact about the board, not an
-explanation of the player's own thinking
-(e.g. "I blundered", "missed it", "this hangs my Rook for a Bishop",
-"there was a discovered attack on my Queen that I missed").
+The question is simple: does the note give the player something to learn from about this move? A DEEP note diagnoses the mistake, even briefly. A SHALLOW note doesn't.
 
-DEEP = explains why the PLAYER made the move or missed the better one —
-what they were thinking, focused on, or misjudging. Naming what's wrong
-with the position or the resulting tactic (a fork, a discovered attack, a
-weak rank) is NOT enough on its own — the note has to say something about
-the player's own reasoning or mental error, even if brief or tentative.
+DEEP is the normal case. Check the SHALLOW patterns below first. If none of them fits, the note is DEEP. If you are unsure whether a pattern fits, choose DEEP.
 
-A DEEP note doesn't need an explicit causal word like "because" — connecting
-two facts is enough. "I saw the free rook" next to "missed the mate" already
-explains the distraction that caused the miss.
+SHALLOW: the note gives no diagnosis of this move. That means one of these patterns:
 
-Examples of DEEP:
-- "I went to kick their Knight not seeing my Bishop was hanging." (explains
-  what distracted them)
-- "This is a calculation error, 2 attackers, one defender." (attributes
-  the mistake to a specific miscount, not just stating the position)
-- "I think I played a3 to protect it from capture." (states own intent,
-  even tentatively)
-- "I needed to get on the same file as the Queen to force it away."
-  (explains the missed plan)
+1. It only says the player doesn't understand, can't follow, or doesn't see why the move was bad or why the engine move is better, and says nothing concrete about this position. A remark about the size of the mistake (CPL, the eval drop) adds no diagnosis. Neither does a guess about the engine's general taste ("it must be positional", "the engine likes the bishop pair") that the player doesn't tie to a piece, square, threat or plan on this board.
+     "I can't tell what's wrong with it."
+     "Engine line is beyond me. Lost a lot of eval though."
+     "No idea. Maybe the engine just likes having two bishops."
 
-Examples of SHALLOW:
-- "This hangs my Rook for a Bishop."
-- "There was a discovered attack on my Queen that I missed."
-- "I moved my queen into a forking square with my King."
-- "This is a passive move, permitting my opponent to play Rc2, putting
-  their rook on a very powerful rank."
-- "It appears that the engine wants to make sure they don't have a bishop
-  pair, but that's a guess." (explains the engine's logic, not the
-  player's own reasoning)
+2. It isn't about the move at all: a note to ignore the game, a placeholder, an abandoned or disconnected game.
+     "Placeholder, skip this one."
+     "Opponent left after move 2."
 
-For entries beginning with [3x3], the parts form one connected
-self-analysis of a single decision (Why I played it = player's
-intent, What was wrong = what was wrong with their move, Why the
-better move is better = often the same underlying point restated,
-Lesson = the takeaway). 'What was wrong' and 'Why the better move
-is better' are board-fact questions by design — a factual answer to
-either is NOT shallow. Classify the whole [3x3] entry as DEEP if
-'Why I played it' or 'Lesson' contains genuine player-perspective
-reasoning: what they were thinking, what they misread, or a specific
-lesson that names the pattern (not just 'be more careful'). Classify
-as SHALLOW only if all parts are bare board facts or generic filler
-with no player angle.
+3. It writes the move off as pointless, as accomplishing nothing, or as having no purpose, and adds only the result, without saying what the player missed, intended, or should have played instead. Calling a move passive, weak or bad is not writing it off.
+     "Did nothing useful and let them win a pawn."
+
+4. Its only explanation is that the player thought the move was fine or safe, or a denial of some motive, without saying what made it unsafe.
+     "Didn't mean anything by it, it looked safe."
+
+5. It dismisses the moment because the position was already lost or the player should have resigned, and gives no lesson about the move.
+     "Position was hopeless by then, nothing to learn here."
+
+6. It calls the move a repeat of an earlier mistake ("same mistake", "again", "second time") and adds only a fact about the board, not what the player missed or intended.
+     "Did it again, the e5 square was covered."
+   Compare: "Again I missed the back-rank mate; I didn't see their rook could reach e1." That is DEEP, because it says what the player didn't see.
+
+DEEP: everything else. A note is DEEP when it names anything concrete about this move, even in a few words and even as a bare fact:
+  - A piece, square, tactic or threat that was hung, missed or overlooked.
+  - What the player intended or was focused on, even tentatively.
+  - A better move or plan, with what it would have achieved.
+  - A miscount or miscalculation that is spelled out.
+  - "I'm not sure why" or "I don't understand", followed by a guess that names a piece, square, threat or plan in this position.
+  Examples:
+    "Hung the knight on c3."
+    "Missed the fork on e6."
+    "I was trying to open the f-file, but my bishop was left loose."
+    "Not sure why it's bad. Maybe because it lets their queen reach h4."
+    "Rxd4 wins a pawn and keeps the rook active."
+
+Judge each note on its own words.
 
 Return one line per note: <index>: SHALLOW or <index>: DEEP.
 

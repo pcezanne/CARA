@@ -12,7 +12,6 @@ wiring in AppController / MainWindow.
 
 from __future__ import annotations
 
-import hashlib
 from typing import Any, Callable, Dict, FrozenSet, List, Optional, Set, Tuple
 
 from PyQt6.QtCore import QMutex, QMutexLocker, QObject, QThread, QTimer, pyqtSignal
@@ -799,66 +798,8 @@ class ChessLogChartsController(QObject):
         model = self._narrative_model_override or default_model
 
         games = self._resolve_games()
-        # Build two separate note lists: legacy (CLAMP/CCT) and 3x3.
-        legacy_notes: List[Tuple[int, int, str, str, str]] = []
-        three_notes: List[Tuple[int, int, str, str, str, str, str, str]] = []
-        three_ignored_sets: List[FrozenSet[str]] = []
-
-        for game in games:
-            tags = self.get_tags_for_game(game)
-            for path_key, entries in tags.items():
-                if not entries:
-                    continue
-                by_preset: Dict[str, list] = {}
-                for entry in entries:
-                    p = entry.get("preset", "")
-                    by_preset.setdefault(p, []).append(entry)
-                for preset, preset_entries in by_preset.items():
-                    if preset == "3x3":
-                        why_map = {e.get("cat", ""): (e.get("why") or "").strip() for e in preset_entries}
-                        # Per-entry hash check: honour ignore only when hash matches current text.
-                        ignored_cats: Set[str] = set()
-                        for e in preset_entries:
-                            cat = e.get("cat", "")
-                            why = (e.get("why") or "").strip()
-                            ign = bool(e.get("ignore_shallow", False))
-                            h = e.get("ignore_text_hash")
-                            if ign:
-                                if h:
-                                    if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
-                                        ignored_cats.add(cat)
-                                    # hash mismatch → don't ignore (edit cleared it)
-                                else:
-                                    ignored_cats.add(cat)  # legacy: no hash → honour
-                        why1 = why_map.get("Why1", "")
-                        why2 = why_map.get("Why2", "")
-                        why3 = why_map.get("Why3", "")
-                        why4 = why_map.get("Why4", "")
-                        # Skip moment if all four whys are empty.
-                        if not any([why1, why2, why3, why4]):
-                            continue
-                        # Skip moment if every non-blank answer is ignored.
-                        non_blank = {c for c, w in (("Why1", why1), ("Why2", why2), ("Why3", why3), ("Why4", why4)) if w}
-                        if non_blank and non_blank.issubset(ignored_cats):
-                            continue
-                        idx = len(three_notes)
-                        three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
-                        three_ignored_sets.append(frozenset(ignored_cats))
-                    else:
-                        for entry in preset_entries:
-                            why = (entry.get("why") or "").strip()
-                            ign = bool(entry.get("ignore_shallow", False))
-                            h = entry.get("ignore_text_hash")
-                            if ign:
-                                if h:
-                                    if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
-                                        continue  # hash matches → skip
-                                    # hash mismatch → don't skip (edit cleared ignore)
-                                else:
-                                    continue  # legacy: no hash → honour ignore
-                            if why:
-                                idx = len(legacy_notes)
-                                legacy_notes.append((idx, game.game_number, path_key, preset, why))
+        from app.services.chess_log_shallow_service import build_notes
+        legacy_notes, three_notes, three_ignored_sets = build_notes(games, self.get_tags_for_game)
 
         if not legacy_notes and not three_notes:
             self.shallow_ready.emit(set(), set(), frozenset(), None)

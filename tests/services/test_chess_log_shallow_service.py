@@ -1416,5 +1416,221 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         self.assertIn("retry", info_msg.lower())
 
 
+class _FakeGame:
+    """Minimal stand-in for GameData — only ``game_number`` is read."""
+
+    def __init__(self, game_number: int) -> None:
+        self.game_number = game_number
+
+
+def _entry(preset: str, cat: str, why: str, *, ignore: bool = False, hash_: str = None) -> dict:
+    e = {"preset": preset, "cat": cat, "why": why, "ignore_shallow": ignore}
+    if hash_ is not None:
+        e["ignore_text_hash"] = hash_
+    return e
+
+
+def _sha(text: str) -> str:
+    import hashlib
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+class TestBuildNotesClamp(unittest.TestCase):
+    """CLAMP/CCT paths: one entry emitted per category; blank skipped; Ignore honoured."""
+
+    def test_one_entry_per_category_at_a_path(self):
+        """C+L+A on one path produces three legacy_notes with the same gn/pk."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(7)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "Hung the knight."),
+                _entry("CLAMP", "L", "Hung the knight."),
+                _entry("CLAMP", "A", "Hung the knight."),
+            ]
+        }
+        legacy, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 3)
+        self.assertEqual(three, [])
+        self.assertEqual(ignored_sets, [])
+        for i, n in enumerate(legacy):
+            self.assertEqual(n[0], i)
+            self.assertEqual(n[1], 7)
+            self.assertEqual(n[2], "0.0")
+            self.assertEqual(n[3], "CLAMP")
+            self.assertEqual(n[4], "Hung the knight.")
+
+    def test_blank_why_is_skipped(self):
+        """CLAMP entry with empty why is not emitted."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {"0.0": [_entry("CLAMP", "C", "   "), _entry("CLAMP", "L", "real diagnosis")]}
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][4], "real diagnosis")
+
+    def test_ignore_with_matching_hash_skips_entry(self):
+        """Ignore honoured when the stored hash matches the current why text."""
+        from app.services.chess_log_shallow_service import build_notes
+        why = "Hung the knight."
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", why, ignore=True, hash_=_sha(why)),
+                _entry("CLAMP", "L", why),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual([n[4] for n in legacy], [why])  # only the non-ignored L entry
+
+    def test_ignore_with_mismatched_hash_emits_entry(self):
+        """An edit cleared the ignore: the hash no longer matches, so the entry is sent."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "edited since", ignore=True, hash_=_sha("original")),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][4], "edited since")
+
+    def test_legacy_ignore_without_hash_is_honoured(self):
+        """Pre-hash data: ignore_shallow=True with no hash → skipped."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "note", ignore=True),  # no hash key
+                _entry("CLAMP", "L", "other"),
+            ]
+        }
+        legacy, _, _ = build_notes([game], lambda g: tags)
+        self.assertEqual([n[4] for n in legacy], ["other"])
+
+    def test_cct_preset_uses_legacy_path(self):
+        """CCT (same shape as CLAMP, non-3x3) emits legacy_notes."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(3)
+        tags = {"0.0": [_entry("CCT", "C", "a note")]}
+        legacy, three, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][3], "CCT")
+        self.assertEqual(three, [])
+
+
+class TestBuildNotes3x3(unittest.TestCase):
+
+    def test_blank_only_moment_is_skipped(self):
+        """A 3x3 moment with all four Whys blank → not emitted."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("3x3", "Why1", ""),
+                _entry("3x3", "Why2", "   "),
+                _entry("3x3", "Why3", ""),
+                _entry("3x3", "Why4", ""),
+            ]
+        }
+        legacy, three, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(three, [])
+        self.assertEqual(legacy, [])
+
+    def test_all_non_blank_ignored_moment_is_skipped(self):
+        """Moment skipped when every non-blank answer has an honoured ignore."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("3x3", "Why1", "a", ignore=True, hash_=_sha("a")),
+                _entry("3x3", "Why2", ""),
+                _entry("3x3", "Why3", "b", ignore=True, hash_=_sha("b")),
+                _entry("3x3", "Why4", ""),
+            ]
+        }
+        _, three, _ = build_notes([game], lambda g: tags)
+        self.assertEqual(three, [])
+
+    def test_moment_emitted_with_ignored_set_recorded(self):
+        """Partial ignore: moment still emitted; ignored cats captured in parallel list."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("3x3", "Why1", "clear intent"),
+                _entry("3x3", "Why2", "stale", ignore=True, hash_=_sha("stale")),
+                _entry("3x3", "Why3", ""),
+                _entry("3x3", "Why4", "real lesson"),
+            ]
+        }
+        _, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual(len(three), 1)
+        n = three[0]
+        self.assertEqual((n[1], n[2], n[3]), (1, "0.0", "3x3"))
+        self.assertEqual((n[4], n[5], n[6], n[7]), ("clear intent", "stale", "", "real lesson"))
+        self.assertEqual(ignored_sets, [frozenset({"Why2"})])
+
+    def test_mismatched_hash_clears_ignore(self):
+        """3x3 ignore with mismatched hash is not honoured — cat not in ignored_sets[0]."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {
+            "0.0": [
+                _entry("3x3", "Why1", "edited since", ignore=True, hash_=_sha("original")),
+                _entry("3x3", "Why2", ""),
+                _entry("3x3", "Why3", ""),
+                _entry("3x3", "Why4", ""),
+            ]
+        }
+        _, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual(len(three), 1)
+        self.assertEqual(ignored_sets, [frozenset()])
+
+
+class TestBuildNotesMixed(unittest.TestCase):
+
+    def test_split_by_preset_within_same_game(self):
+        """Multiple presets at a single path split into legacy_notes and three_notes."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(2)
+        tags = {
+            "0.0": [
+                _entry("CLAMP", "C", "clamp note"),
+                _entry("3x3", "Why1", "triage intent"),
+                _entry("3x3", "Why4", "sit on hands"),
+            ]
+        }
+        legacy, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual(len(legacy), 1)
+        self.assertEqual(legacy[0][3], "CLAMP")
+        self.assertEqual(len(three), 1)
+        self.assertEqual((three[0][4], three[0][7]), ("triage intent", "sit on hands"))
+        self.assertEqual(ignored_sets, [frozenset()])
+
+    def test_empty_entries_list_is_skipped(self):
+        """A path with an empty entries list produces no output."""
+        from app.services.chess_log_shallow_service import build_notes
+        game = _FakeGame(1)
+        tags = {"0.0": []}
+        legacy, three, ignored_sets = build_notes([game], lambda g: tags)
+        self.assertEqual((legacy, three, ignored_sets), ([], [], []))
+
+    def test_tags_resolver_called_per_game(self):
+        """The resolver is called once per input game; game_number threads through."""
+        from app.services.chess_log_shallow_service import build_notes
+        games = [_FakeGame(10), _FakeGame(11)]
+        calls: list = []
+
+        def resolver(g):
+            calls.append(g.game_number)
+            return {"0.0": [_entry("CLAMP", "C", f"note-{g.game_number}")]}
+
+        legacy, _, _ = build_notes(games, resolver)
+        self.assertEqual(calls, [10, 11])
+        self.assertEqual([n[1] for n in legacy], [10, 11])
+
+
 if __name__ == "__main__":
     unittest.main()

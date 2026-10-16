@@ -38,9 +38,10 @@ Each answer stands alone.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
-from typing import FrozenSet, List, Optional, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
 from app.services.ai_service import AIService, TokenUsage
 from app.services.logging_service import LoggingService
@@ -206,6 +207,109 @@ def _classifier_token_limit(note_count: int, per_note: int = 60) -> int:
     former default so no small-library regression.
     """
     return max(2000, note_count * per_note + 500)
+
+
+# ---------------------------------------------------------------------------
+# Note builder (shared with Qt controller and acceptance harness)
+# ---------------------------------------------------------------------------
+
+def build_notes(
+    games: Iterable[Any],
+    tags_resolver: Callable[[Any], Dict[str, List[Dict[str, Any]]]],
+) -> Tuple[
+    List[Tuple[int, int, str, str, str]],
+    List[Tuple[int, int, str, str, str, str, str, str]],
+    List[FrozenSet[str]],
+]:
+    """Build classifier-ready note tuples by replicating Check Logs' filter rules.
+
+    Splits entries by preset: CLAMP/CCT emit one legacy_notes entry per
+    (game, path, category); 3x3 emits one three_notes entry per moment
+    bundling Why1..Why4. Blank-only 3x3 moments are skipped; moments whose
+    non-blank answers are all ignored are skipped. Ignore is honoured only
+    when the entry's ignore_text_hash matches the current ``why`` text —
+    an edit that cleared the hash restores the entry to the queue.
+
+    Args:
+        games: Iterable of game-like objects exposing a ``game_number`` int.
+        tags_resolver: Callable that returns ``{path_key: [entry, ...]}`` for
+            a game. The resolver is expected to apply any orphan-filtering
+            the caller requires (controller: ``get_tags_for_game``; service
+            harness: ``ChessLogStorageService.load_resolved_paths``).
+
+    Returns:
+        ``(legacy_notes, three_notes, three_ignored_sets)``.
+
+        ``legacy_notes``: 5-tuples ``(idx, game_number, path_key, preset, why)``
+        for CLAMP/CCT, one per emitted entry.
+
+        ``three_notes``: 8-tuples
+        ``(idx, game_number, path_key, "3x3", why1, why2, why3, why4)``.
+
+        ``three_ignored_sets``: parallel to ``three_notes``; each element is
+        the set of ``cat`` strings whose Ignore was honoured for that moment.
+    """
+    legacy_notes: List[Tuple[int, int, str, str, str]] = []
+    three_notes: List[Tuple[int, int, str, str, str, str, str, str]] = []
+    three_ignored_sets: List[FrozenSet[str]] = []
+
+    for game in games:
+        tags = tags_resolver(game)
+        for path_key, entries in tags.items():
+            if not entries:
+                continue
+            by_preset: Dict[str, list] = {}
+            for entry in entries:
+                p = entry.get("preset", "")
+                by_preset.setdefault(p, []).append(entry)
+            for preset, preset_entries in by_preset.items():
+                if preset == "3x3":
+                    why_map = {e.get("cat", ""): (e.get("why") or "").strip() for e in preset_entries}
+                    # Per-entry hash check: honour ignore only when hash matches current text.
+                    ignored_cats: Set[str] = set()
+                    for e in preset_entries:
+                        cat = e.get("cat", "")
+                        why = (e.get("why") or "").strip()
+                        ign = bool(e.get("ignore_shallow", False))
+                        h = e.get("ignore_text_hash")
+                        if ign:
+                            if h:
+                                if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
+                                    ignored_cats.add(cat)
+                                # hash mismatch → don't ignore (edit cleared it)
+                            else:
+                                ignored_cats.add(cat)  # legacy: no hash → honour
+                    why1 = why_map.get("Why1", "")
+                    why2 = why_map.get("Why2", "")
+                    why3 = why_map.get("Why3", "")
+                    why4 = why_map.get("Why4", "")
+                    # Skip moment if all four whys are empty.
+                    if not any([why1, why2, why3, why4]):
+                        continue
+                    # Skip moment if every non-blank answer is ignored.
+                    non_blank = {c for c, w in (("Why1", why1), ("Why2", why2), ("Why3", why3), ("Why4", why4)) if w}
+                    if non_blank and non_blank.issubset(ignored_cats):
+                        continue
+                    idx = len(three_notes)
+                    three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
+                    three_ignored_sets.append(frozenset(ignored_cats))
+                else:
+                    for entry in preset_entries:
+                        why = (entry.get("why") or "").strip()
+                        ign = bool(entry.get("ignore_shallow", False))
+                        h = entry.get("ignore_text_hash")
+                        if ign:
+                            if h:
+                                if why and hashlib.sha256(why.encode("utf-8")).hexdigest() == h:
+                                    continue  # hash matches → skip
+                                # hash mismatch → don't skip (edit cleared ignore)
+                            else:
+                                continue  # legacy: no hash → honour ignore
+                        if why:
+                            idx = len(legacy_notes)
+                            legacy_notes.append((idx, game.game_number, path_key, preset, why))
+
+    return legacy_notes, three_notes, three_ignored_sets
 
 
 # ---------------------------------------------------------------------------

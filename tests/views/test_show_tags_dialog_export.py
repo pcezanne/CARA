@@ -243,5 +243,139 @@ class TestSnapshot3x3PerCatFields(unittest.TestCase):
         self.assertEqual(snap.vague_cats, frozenset(), "CLAMP must not populate vague_cats")
 
 
+@requires_qt
+class TestChessLogPDFIgnoresDialogSettings(unittest.TestCase):
+    """PDF export ignores View → Miniature Boards → Chess Log scale and arrow toggles.
+
+    Proved in two parts:
+    (a) snapshot() preserves both moves even when the dialog arrows are off —
+        the snapshot is the source of truth for the PDF, and its played_move /
+        best_move fields are never filtered by show_played / show_best.
+    (b) ChessLogPDFService._render_board uses a fixed size_override
+        (_BOARD_DISPLAY_PT * _BOARD_RENDER_SCALE) independent of any user
+        setting — patching MiniChessBoardWidget confirms the argument.
+    """
+
+    def _make_row_with_moves(self, show_played=True, show_best=True, scale_factor=1.25):
+        import chess
+        played = chess.Move.from_uci("e2e4")
+        best = chess.Move.from_uci("d2d4")
+        fen = chess.STARTING_FEN
+        entries = [{"preset": "CLAMP", "cat": "C", "why": "note", "id": "x", "created": "y"}]
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            move_label="1. e4",
+            fen=fen,
+            played_move=played,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            best_move=best,
+            show_played=show_played,
+            show_best=show_best,
+            scale_factor=scale_factor,
+        )
+
+    def test_snapshot_preserves_played_move_when_show_played_false(self):
+        """snapshot() carries played_move regardless of show_played toggle."""
+        row = self._make_row_with_moves(show_played=False, show_best=False)
+        snap = row.snapshot()
+        import chess
+        self.assertEqual(snap.played_move, chess.Move.from_uci("e2e4"))
+
+    def test_snapshot_preserves_best_move_when_show_best_false(self):
+        """snapshot() carries best_move regardless of show_best toggle."""
+        row = self._make_row_with_moves(show_played=False, show_best=False)
+        snap = row.snapshot()
+        import chess
+        self.assertEqual(snap.best_move, chess.Move.from_uci("d2d4"))
+
+    def test_pdf_board_size_fixed_at_400px(self):
+        """PDF render always uses 400px (100pt * 4) regardless of Chess Log scale."""
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+        expected_px = int(ChessLogPDFService._BOARD_DISPLAY_PT * ChessLogPDFService._BOARD_RENDER_SCALE)
+        self.assertEqual(expected_px, 400)
+
+    def test_pdf_render_passes_fixed_size_not_dialog_scale(self):
+        """_render_board uses size_override=400, never the Chess Log dialog scale."""
+        import chess
+        from unittest.mock import patch, MagicMock
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        captured = {}
+
+        class FakeWidget:
+            def __init__(self, *a, **kw):
+                captured["size_override"] = kw.get("size_override")
+                captured["scale_factor"] = kw.get("scale_factor")
+            def set_played_and_best(self, played, best):
+                captured["played"] = played
+                captured["best"] = best
+            def size(self):
+                from PyQt6.QtCore import QSize
+                return QSize(400, 400)
+            def render(self, image):
+                pass
+
+        svc = ChessLogPDFService({})
+        played = chess.Move.from_uci("e2e4")
+        best = chess.Move.from_uci("d2d4")
+        fen = chess.STARTING_FEN
+
+        with patch("app.views.widgets.mini_chessboard_widget.MiniChessBoardWidget", FakeWidget):
+            svc._render_board(fen, played, best, is_flipped=False)
+
+        # size_override must be the fixed PDF size (400px), not derived from dialog scale
+        self.assertEqual(captured.get("size_override"), 400,
+                         "PDF must use fixed 400px, not Chess Log dialog scale")
+        # scale_factor must NOT be passed (PDF uses size_override instead)
+        self.assertIsNone(captured.get("scale_factor"),
+                          "PDF must not pass scale_factor to MiniChessBoardWidget")
+
+    def test_pdf_render_passes_both_arrows_when_arrows_off_in_dialog(self):
+        """PDF calls set_played_and_best with both moves even if dialog arrows were off.
+
+        The dialog's show_played / show_best flags only affect the live dialog board.
+        snapshot() always carries the original moves, so the PDF always gets both.
+        """
+        import chess
+        from unittest.mock import patch
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        captured = {}
+
+        class FakeWidget:
+            def __init__(self, *a, **kw):
+                pass
+            def set_played_and_best(self, played, best):
+                captured["played"] = played
+                captured["best"] = best
+            def size(self):
+                from PyQt6.QtCore import QSize
+                return QSize(400, 400)
+            def render(self, image):
+                pass
+
+        svc = ChessLogPDFService({})
+        played = chess.Move.from_uci("e2e4")
+        best = chess.Move.from_uci("d2d4")
+        fen = chess.STARTING_FEN
+
+        # Simulate a snapshot taken from a row where arrows were OFF: the snapshot
+        # still carries both moves (they come from _played_move / _best_move, not
+        # filtered by show_played / show_best).
+        row = self._make_row_with_moves(show_played=False, show_best=False, scale_factor=1.75)
+        snap = row.snapshot()
+
+        with patch("app.views.widgets.mini_chessboard_widget.MiniChessBoardWidget", FakeWidget):
+            svc._render_board(snap.fen, snap.played_move, snap.best_move)
+
+        self.assertEqual(captured.get("played"), played,
+                         "PDF must receive played_move even when dialog show_played=False")
+        self.assertEqual(captured.get("best"), best,
+                         "PDF must receive best_move even when dialog show_best=False")
+
+
 if __name__ == "__main__":
     unittest.main()

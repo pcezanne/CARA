@@ -2006,6 +2006,264 @@ class TestChipColumnLayout(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Chip text alignment (#58)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipTextAlignment(unittest.TestCase):
+    """_make_chip must produce a QLabel with centered text alignment (#58)."""
+
+    def _make_row(self, **kw):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entries = [ChessLogStorageService.make_entry("3x3", "Why1", "test", is_shallow=True)]
+        return _TagRowWidget(
+            config={}, preset="3x3", entries=entries,
+            move_label="1. e4", fen=None, played_move=None,
+            bg_rgb=[40, 40, 45], text_color=[200, 200, 200],
+            **kw,
+        )
+
+    def test_shallow_chip_alignment_is_center(self):
+        """Shallow chip label alignment must include AlignHCenter and AlignVCenter."""
+        from PyQt6.QtCore import Qt
+        row = self._make_row()
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertTrue(
+            bool(chip.alignment() & Qt.AlignmentFlag.AlignHCenter),
+            f"chip.alignment()={int(chip.alignment())} must include AlignHCenter",
+        )
+        self.assertTrue(
+            bool(chip.alignment() & Qt.AlignmentFlag.AlignVCenter),
+            f"chip.alignment()={int(chip.alignment())} must include AlignVCenter",
+        )
+
+    def test_vague_chip_alignment_is_center(self):
+        """Vague chip label alignment must include AlignHCenter and AlignVCenter."""
+        from PyQt6.QtCore import Qt
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        entries = [ChessLogStorageService.make_entry("3x3", "Why4", "lesson", is_vague=True)]
+        row = _TagRowWidget(
+            config={}, preset="3x3", entries=entries,
+            move_label="1. e4", fen=None, played_move=None,
+            bg_rgb=[40, 40, 45], text_color=[200, 200, 200],
+        )
+        chip = row._chips_per_cat.get("Why4")
+        self.assertIsNotNone(chip)
+        self.assertTrue(
+            bool(chip.alignment() & Qt.AlignmentFlag.AlignHCenter),
+            f"chip.alignment()={int(chip.alignment())} must include AlignHCenter",
+        )
+
+    def test_clamp_header_chip_alignment_is_center(self):
+        """CLAMP header Shallow chip must also have AlignCenter (#58 applies to _make_chip)."""
+        from PyQt6.QtCore import Qt
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        row = _TagRowWidget(
+            config={}, preset="CLAMP", entries=[entry],
+            move_label="1. e4", fen=None, played_move=None,
+            bg_rgb=[40, 40, 45], text_color=[200, 200, 200],
+        )
+        chip = row._shallow_chip
+        self.assertIsNotNone(chip)
+        self.assertTrue(
+            bool(chip.alignment() & Qt.AlignmentFlag.AlignHCenter),
+            f"CLAMP chip alignment={int(chip.alignment())} must include AlignHCenter",
+        )
+
+
+# ---------------------------------------------------------------------------
+# chip_col_widget width must cover every child sizeHint (#58)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestThreeByThreeChipColumnWidth(unittest.TestCase):
+    """chip_col_widget fixed width must be >= every child's sizeHint.width() (#58).
+
+    The old formula used QFontMetrics.horizontalAdvance() + hand-tuned fudges
+    that missed stylesheet padding (QLabel chip) and platform checkbox-indicator
+    size (QCheckBox Ignore), clipping "Shallow" and "Ignore" on macOS.
+    The fix probes real widget sizeHint().width() values instead.
+    """
+
+    def _make_row(self, config=None, entries=None, show_ignore=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        if entries is None:
+            from app.services.chess_log_storage_service import ChessLogStorageService
+            entries = [
+                ChessLogStorageService.make_entry("3x3", "Why1", "test", is_shallow=True),
+                ChessLogStorageService.make_entry("3x3", "Why4", "lesson", is_vague=True),
+            ]
+        return _TagRowWidget(
+            config=config or {},
+            preset="3x3",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def test_chip_col_width_fits_shallow_chip(self):
+        """chip_col_widget fixed width >= shallow chip sizeHint.width()."""
+        row = self._make_row()
+        chip = row._chips_per_cat.get("Why1")
+        col_widget = row._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertIsNotNone(col_widget)
+        chip.ensurePolished()
+        self.assertGreaterEqual(
+            col_widget.minimumWidth(), chip.sizeHint().width(),
+            f"chip_col_widget min width={col_widget.minimumWidth()} must be >= "
+            f"shallow chip sizeHint.width()={chip.sizeHint().width()}",
+        )
+
+    def test_chip_col_width_fits_vague_chip(self):
+        """chip_col_widget fixed width >= vague chip sizeHint.width()."""
+        row = self._make_row()
+        chip = row._chips_per_cat.get("Why4")
+        col_widget = row._chip_col_widgets.get("Why4")
+        self.assertIsNotNone(chip)
+        self.assertIsNotNone(col_widget)
+        chip.ensurePolished()
+        self.assertGreaterEqual(
+            col_widget.minimumWidth(), chip.sizeHint().width(),
+            f"chip_col_widget min width={col_widget.minimumWidth()} must be >= "
+            f"vague chip sizeHint.width()={chip.sizeHint().width()}",
+        )
+
+    def test_chip_col_width_fits_ignore_checkbox(self):
+        """chip_col_widget fixed width >= Ignore checkbox sizeHint.width().
+
+        Regression for #58: old formula gave _chip_col_w = 66 but
+        QCheckBox('Ignore').sizeHint().width() = 68 on the offscreen platform
+        (indicator+spacing = ~31px >> the 24px fudge), clipping "Ignore" on every
+        platform.
+        """
+        row = self._make_row(show_ignore=True)
+        ign_cb = row._ignore_checks.get("Why1")
+        col_widget = row._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(ign_cb, "Why1 Ignore checkbox must exist (show_ignore=True)")
+        self.assertIsNotNone(col_widget)
+        ign_cb.ensurePolished()
+        self.assertGreaterEqual(
+            col_widget.minimumWidth(), ign_cb.sizeHint().width(),
+            f"chip_col_widget min width={col_widget.minimumWidth()} must be >= "
+            f"Ignore checkbox sizeHint.width()={ign_cb.sizeHint().width()} (#58)",
+        )
+
+    def test_chip_not_squeezed_shallow(self):
+        """Placed shallow chip.width() >= chip.sizeHint().width() after layout.
+
+        Root cause of #58: chip_col QVBoxLayout has default 9px content margins
+        on each side.  With col_widget=72px, available = 72-9-9 = 54px, but
+        Shallow chip sizeHint = 63px → placed chip.width() = 54 < 63.
+        Fix: chip_col.setContentsMargins(0,0,0,0) so available = full 72px.
+        """
+        row = self._make_row()
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why1"]
+        chip.ensurePolished()
+        self.assertGreaterEqual(
+            chip.width(), chip.sizeHint().width(),
+            f"placed chip.width()={chip.width()} must be >= sizeHint.width()={chip.sizeHint().width()} "
+            f"(default layout margins would steal 18px, leaving chip squeezed — #58)",
+        )
+
+    def test_chip_not_squeezed_vague(self):
+        """Placed vague chip.width() >= chip.sizeHint().width() after layout."""
+        row = self._make_row()
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why4"]
+        chip.ensurePolished()
+        self.assertGreaterEqual(
+            chip.width(), chip.sizeHint().width(),
+            f"placed chip.width()={chip.width()} must be >= sizeHint.width()={chip.sizeHint().width()}",
+        )
+
+    def test_ignore_not_squeezed(self):
+        """Placed Ignore checkbox.width() >= checkbox.sizeHint().width() after layout.
+
+        With default 9px margins the Ignore checkbox (sizeHint=68) is squeezed
+        to 54px available and clips.  Fix: zero layout margins.
+        """
+        row = self._make_row(show_ignore=True)
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        ign_cb = row._ignore_checks.get("Why1")
+        self.assertIsNotNone(ign_cb)
+        ign_cb.ensurePolished()
+        self.assertGreaterEqual(
+            ign_cb.width(), ign_cb.sizeHint().width(),
+            f"placed Ignore cb.width()={ign_cb.width()} must be >= "
+            f"sizeHint.width()={ign_cb.sizeHint().width()} (#58)",
+        )
+
+    def test_chip_not_squeezed_long_label(self):
+        """A chip with a long configured label ('Shallowwwww') must not be squeezed.
+
+        Proves test sensitivity: with old formula (advance+20 fudge) AND default
+        layout margins, col_width - 18px < sizeHint('Shallowwwww') → chip clips.
+        With probe-based sizing + zero margins, col_width = max(sizeHints) + 4,
+        avail = col_width, chip fits.
+        """
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        long_config = {
+            "ui": {"dialogs": {"shallow": {"labels": {
+                "shallow": {"text": "Shallowwwww"},
+            }}}}
+        }
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "test", is_shallow=True)
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        row = _TagRowWidget(
+            config=long_config, preset="3x3",
+            entries=[entry],
+            move_label="1. e4", fen=None, played_move=None,
+            bg_rgb=[40, 40, 45], text_color=[200, 200, 200],
+            show_ignore_checkbox=True,
+        )
+        row.setFixedWidth(800)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why1"]
+        chip.ensurePolished()
+        self.assertGreaterEqual(
+            chip.width(), chip.sizeHint().width(),
+            f"long-label chip.width()={chip.width()} must be >= "
+            f"sizeHint.width()={chip.sizeHint().width()} ('Shallowwwww')",
+        )
+
+    def test_chip_col_widgets_populated_for_chipped_keys(self):
+        """_chip_col_widgets must have entries for every Why key that has a chip."""
+        row = self._make_row()
+        for key in row._chips_per_cat:
+            self.assertIn(key, row._chip_col_widgets,
+                          f"_chip_col_widgets missing key {key!r} that has a chip")
+
+    def test_chip_col_widgets_not_populated_for_chipless_keys(self):
+        """_chip_col_widgets must NOT have entries for Why keys without a chip."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "no chip here"),
+            ChessLogStorageService.make_entry("3x3", "Why2", "no chip here either"),
+        ]
+        row = self._make_row(entries=entries)
+        self.assertEqual(row._chip_col_widgets, {},
+                         "_chip_col_widgets must be empty when no chips exist")
+
+
+# ---------------------------------------------------------------------------
 # Item 4: AI hint text points to correct menu
 # ---------------------------------------------------------------------------
 

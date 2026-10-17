@@ -1393,6 +1393,44 @@ class TestThreeByThreePDFLayout(unittest.TestCase):
                 f"Chip rect width {rect.width()} must not exceed chip_col_w {chip_col_w}",
             )
 
+    def test_3x3_chip_text_rect_has_tolerance(self):
+        """chip drawText rect must be at least advance+4px wide (not a pixel-tight fit).
+
+        On macOS with real Helvetica the exact-advance rect clips the rightmost glyphs.
+        The fix adds 4.0 to cw so the text rect is advance+4 wide (#58).
+        """
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QFontMetrics
+        svc = self._make_svc()
+        entries = [{"preset": "3x3", "cat": "Why1", "why": "test", "is_shallow": True}]
+        row = self._make_3x3_row(entries, shallow_cats=frozenset({"Why1"}))
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, MagicMock(), content, 0.0, row)
+
+        fm_bold = QFontMetrics(svc._font_body_bold)
+        chip_label = "Shallow"  # default when config={}
+        advance = float(fm_bold.horizontalAdvance(chip_label))
+
+        chip_text_calls = [
+            c.args[0] for c in painter.drawText.call_args_list
+            if c.args and len(c.args) >= 3 and c.args[-1] == chip_label
+        ]
+        self.assertGreater(
+            len(chip_text_calls), 0,
+            f"Expected a drawText call with chip label '{chip_label}'",
+        )
+        for rect in chip_text_calls:
+            self.assertGreaterEqual(
+                rect.width(), advance + 4.0,
+                f"chip text rect width {rect.width()} must be >= advance {advance} + 4.0 "
+                f"(tight exact-fit clips on macOS real Helvetica)",
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

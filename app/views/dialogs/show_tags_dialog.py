@@ -197,6 +197,8 @@ class _TagRowWidget(QFrame):
         self._ignore_checks: Dict[str, QCheckBox] = {}
         # Per-answer chips for 3x3 rows — used for real-time opacity updates.
         self._chips_per_cat: Dict[str, QLabel] = {}
+        # Per-answer chip column container widgets — accessed by tests to check width.
+        self._chip_col_widgets: Dict[str, QWidget] = {}
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -238,6 +240,7 @@ class _TagRowWidget(QFrame):
             tooltip = chip_cfg.get("tooltip", "")
         lbl = QLabel(text)
         lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl.setStyleSheet(
             f"background-color: rgb({bg[0]},{bg[1]},{bg[2]}); "
             f"color: rgb({tc[0]},{tc[1]},{tc[2]}); "
@@ -349,22 +352,28 @@ class _TagRowWidget(QFrame):
         txt_col.setSpacing(4)
         txt_col.setAlignment(Qt.AlignmentFlag.AlignTop)
         if self._preset == "3x3":
-            from PyQt6.QtGui import QFontMetrics
             from PyQt6.QtWidgets import QGraphicsOpacityEffect
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
 
-            # Fixed chip-column width: sized from configured chip texts + Ignore checkbox.
-            _chip_font = QFont(self._label_font_family, max(8, self._label_font_size - 1))
-            _fm_chip = QFontMetrics(_chip_font)
-            _labels_cfg = (self._config.get("ui", {}).get("dialogs", {})
-                           .get("shallow", {}).get("labels", {}))
-            _chip_text_shallow = _labels_cfg.get("shallow", {}).get("text", "Shallow")
-            _chip_text_vague = _labels_cfg.get("vague_lesson", {}).get("text", "Vague")
+            # Fixed chip-column width: probe real widget sizeHints instead of
+            # guessing with QFontMetrics + hand-tuned fudges.  The old formula
+            # under-counted stylesheet padding and platform checkbox-indicator
+            # sizes, clipping "Shallow" and "Ignore" on macOS (#58).
+            _probe_shallow = self._make_chip("shallow")
+            _probe_vague   = self._make_chip("vague_lesson")
+            _probe_ignore  = QCheckBox("Ignore")
+            _probe_ignore.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
+            for _pw in (_probe_shallow, _probe_vague, _probe_ignore):
+                _pw.setParent(self)
+                _pw.ensurePolished()
             _chip_col_w = max(
-                _fm_chip.horizontalAdvance(_chip_text_shallow) + 20,
-                _fm_chip.horizontalAdvance(_chip_text_vague) + 20,
-                _fm_chip.horizontalAdvance("Ignore") + 24,
-            )
+                _probe_shallow.sizeHint().width(),
+                _probe_vague.sizeHint().width(),
+                _probe_ignore.sizeHint().width(),
+            ) + 4
+            for _pw in (_probe_shallow, _probe_vague, _probe_ignore):
+                _pw.setParent(None)
+            del _probe_shallow, _probe_vague, _probe_ignore
 
             for key in _3X3_KEYS:
                 per_cat = self._preserved_per_cat.get(key, {})
@@ -409,6 +418,7 @@ class _TagRowWidget(QFrame):
 
                     chip_col = QVBoxLayout()
                     chip_col.setSpacing(4)
+                    chip_col.setContentsMargins(0, 0, 0, 0)
                     chip_col.setAlignment(Qt.AlignmentFlag.AlignTop)
                     chip_col.addWidget(chip)
 
@@ -427,7 +437,10 @@ class _TagRowWidget(QFrame):
 
                     chip_col_widget = QWidget()
                     chip_col_widget.setLayout(chip_col)
-                    chip_col_widget.setFixedWidth(_chip_col_w)
+                    chip.ensurePolished()
+                    _actual_col_w = max(_chip_col_w, chip.sizeHint().width())
+                    chip_col_widget.setFixedWidth(_actual_col_w)
+                    self._chip_col_widgets[key] = chip_col_widget
                     answer_row.addWidget(chip_col_widget, 0, Qt.AlignmentFlag.AlignTop)
 
                 txt_col.addLayout(answer_row)

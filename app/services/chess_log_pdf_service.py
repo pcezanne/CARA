@@ -307,8 +307,11 @@ class ChessLogPDFService(BasePDFReportService):
             _chip_w_est = max(
                 float(fm_bold.horizontalAdvance(_labels_cfg_m.get("shallow", {}).get("text", "Shallow"))),
                 float(fm_bold.horizontalAdvance(_labels_cfg_m.get("vague_lesson", {}).get("text", "Vague"))),
-            ) + chip_pad * 2
-            _ignore_w_est = float(fm_body.horizontalAdvance("Ignore: Yes"))
+            ) + chip_pad * 2 + 4.0
+            _ignore_w_est = max(
+                float(fm_body.horizontalAdvance("Ignore: Yes")),
+                float(fm_body.horizontalAdvance("Ignore: No")),
+            )
             chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
             chip_h = bold_line_h
             for key in ("Why1", "Why2", "Why3", "Why4"):
@@ -400,8 +403,11 @@ class ChessLogPDFService(BasePDFReportService):
             _chip_w_est = max(
                 float(fm_bold.horizontalAdvance(labels_cfg_3x3.get("shallow", {}).get("text", "Shallow"))),
                 float(fm_bold.horizontalAdvance(labels_cfg_3x3.get("vague_lesson", {}).get("text", "Vague"))),
-            ) + chip_pad * 2
-            _ignore_w_est = float(fm_body.horizontalAdvance("Ignore: Yes"))
+            ) + chip_pad * 2 + 4.0
+            _ignore_w_est = max(
+                float(fm_body.horizontalAdvance("Ignore: Yes")),
+                float(fm_body.horizontalAdvance("Ignore: No")),
+            )
             chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
             chip_h = bold_line_h
             for key in ("Why1", "Why2", "Why3", "Why4"):
@@ -581,7 +587,7 @@ class ChessLogPDFService(BasePDFReportService):
                     bg = cfg.get("background_color", def_bg)
                     tc = cfg.get("text_color", def_tc)
                     txt = cfg.get("text", def_txt)
-                    cw = float(fm_bold.horizontalAdvance(txt)) + chip_pad * 2
+                    cw = float(fm_bold.horizontalAdvance(txt)) + chip_pad * 2 + 4.0
                     chip_x = col2_x + full_w - chip_col_w
                     chip_y = y_col  # top-aligned with answer
                     painter.save()

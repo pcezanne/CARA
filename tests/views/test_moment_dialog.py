@@ -340,5 +340,56 @@ class TestOnOkBehavior(unittest.TestCase):
         self.assertEqual(dlg.result(), QDialog.DialogCode.Accepted)
 
 
+@requires_qt
+class TestMomentDialogHeight(unittest.TestCase):
+    """MomentDialog must open at a compact height (approx. 1/3 shorter than old default)."""
+
+    # Before: sizeHint without the resize() call was 380 (CLAMP/CCT) and 1009 (3x3).
+    _OLD_CLAMP_CCT_HEIGHT = 380
+    _OLD_3X3_HEIGHT = 1009
+
+    def _shown_height(self, preset):
+        dlg = _make(preset)
+        dlg.show()
+        _APP.processEvents()
+        return dlg.height()
+
+    def test_clamp_height_at_least_25pct_shorter(self):
+        h = self._shown_height("CLAMP")
+        self.assertLess(
+            h, self._OLD_CLAMP_CCT_HEIGHT * 0.75,
+            f"CLAMP dialog height {h} must be at least 25% shorter than old height "
+            f"{self._OLD_CLAMP_CCT_HEIGHT}",
+        )
+
+    def test_clamp_height_above_sane_minimum(self):
+        h = self._shown_height("CLAMP")
+        self.assertGreater(h, 150, f"CLAMP dialog height {h} must stay above 150px")
+
+    def test_cct_height_at_least_25pct_shorter(self):
+        h = self._shown_height("CCT")
+        self.assertLess(
+            h, self._OLD_CLAMP_CCT_HEIGHT * 0.75,
+            f"CCT dialog height {h} must be at least 25% shorter than old height "
+            f"{self._OLD_CLAMP_CCT_HEIGHT}",
+        )
+
+    def test_cct_height_above_sane_minimum(self):
+        h = self._shown_height("CCT")
+        self.assertGreater(h, 150, f"CCT dialog height {h} must stay above 150px")
+
+    def test_3x3_height_at_least_25pct_shorter(self):
+        h = self._shown_height("3x3")
+        self.assertLess(
+            h, self._OLD_3X3_HEIGHT * 0.75,
+            f"3x3 dialog height {h} must be at least 25% shorter than old sizeHint "
+            f"{self._OLD_3X3_HEIGHT}",
+        )
+
+    def test_3x3_height_above_sane_minimum(self):
+        h = self._shown_height("3x3")
+        self.assertGreater(h, 250, f"3x3 dialog height {h} must stay above 250px")
+
+
 if __name__ == "__main__":
     unittest.main()

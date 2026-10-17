@@ -192,6 +192,8 @@ class MomentDialog(QDialog):
         root.addSpacing(self._bottom_button_top_padding)
         root.addLayout(btn_row)
 
+        self.resize(self._dialog_width, self.minimumSizeHint().height())
+
     def _label(self, text: str, parent_layout: QVBoxLayout) -> QLabel:
         lbl = QLabel(text)
         lbl.setFont(QFont(self._label_font, self._label_size - 1))

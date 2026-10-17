@@ -267,6 +267,24 @@ class ShowShallowTagsDialog(QDialog):
         msg.exec()
 
     def _setup_ui(self) -> None:
+        # Read Chess Log display settings once (scale + arrow toggles).
+        try:
+            from app.services.user_settings_service import UserSettingsService as _USS
+            from app.utils.miniature_board_scales import CHESS_LOG as _CL_SCALE_KEY
+            from app.utils.miniature_board_arrows import (
+                CHESS_LOG_PLAYED as _CL_PLAYED,
+                CHESS_LOG_BEST_ALTERNATIVE as _CL_BEST,
+            )
+            _uss = _USS.get_instance()
+            _board_scale = float(_uss.get_miniature_boards().get(_CL_SCALE_KEY, 1.25))
+            _cl_arrows = _uss.get_miniature_board_arrows()
+            _show_played = bool(_cl_arrows.get(_CL_PLAYED, True))
+            _show_best = bool(_cl_arrows.get(_CL_BEST, True))
+        except Exception:
+            _board_scale = 1.25
+            _show_played = True
+            _show_best = True
+
         br, bg, bb = self._bg_rgb
         self.setStyleSheet(f"QDialog {{ background-color: rgb({br},{bg},{bb}); }}")
 
@@ -352,6 +370,9 @@ class ShowShallowTagsDialog(QDialog):
                     show_ignore_checkbox=True,
                     best_move=best_move,
                     is_flipped=mover_is_black,
+                    scale_factor=_board_scale,
+                    show_played=_show_played,
+                    show_best=_show_best,
                 )
                 rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

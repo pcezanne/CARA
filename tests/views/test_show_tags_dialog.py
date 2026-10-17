@@ -1517,5 +1517,128 @@ class TestPaulSequenceEndToEnd(unittest.TestCase):
         print("[Step 5] PASS — new text, no chip, no Ignore box.")
 
 
+@requires_qt
+class TestChessLogMiniatureBoardSettings(unittest.TestCase):
+    """Chess Log boards follow View → Miniature Boards → Chess Log settings."""
+
+    def _make_row(self, scale_factor=1.25, show_played=True, show_best=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        entry = _make_entry("CLAMP", "C", "note")
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            scale_factor=scale_factor,
+            show_played=show_played,
+            show_best=show_best,
+        )
+
+    def test_scale_175_gives_larger_placeholder_than_125(self):
+        from PyQt6.QtWidgets import QLabel
+        row_125 = self._make_row(scale_factor=1.25)
+        row_175 = self._make_row(scale_factor=1.75)
+        # Find the placeholder QLabel (empty string, fixed size)
+        def _placeholder_size(row):
+            for w in row.findChildren(QLabel):
+                if w.text() == "" and w.minimumWidth() == w.maximumWidth():
+                    return w.width()
+            return None
+        size_125 = _placeholder_size(row_125)
+        size_175 = _placeholder_size(row_175)
+        self.assertIsNotNone(size_125, "Expected a fixed-size placeholder at 1.25x")
+        self.assertIsNotNone(size_175, "Expected a fixed-size placeholder at 1.75x")
+        self.assertGreater(size_175, size_125, "1.75x placeholder must be larger than 1.25x")
+
+    def test_placeholder_tracks_scale(self):
+        """Placeholder size at 1.25x should equal int(163 * 1.25 + 0.5) = 204."""
+        from PyQt6.QtWidgets import QLabel
+        row = self._make_row(scale_factor=1.25)
+        sizes = [w.width() for w in row.findChildren(QLabel)
+                 if w.text() == "" and w.minimumWidth() == w.maximumWidth()]
+        self.assertIn(204, sizes, "1.25x placeholder must be 204px")
+
+    def test_scale_stored_on_row(self):
+        row = self._make_row(scale_factor=1.75)
+        self.assertAlmostEqual(row._scale_factor, 1.75)
+
+    def test_default_scale_is_125(self):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        entry = _make_entry("CLAMP", "C", "note")
+        row = _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+        self.assertAlmostEqual(row._scale_factor, 1.25)
+
+    def test_show_played_false_stored(self):
+        row = self._make_row(show_played=False)
+        self.assertFalse(row._show_played)
+
+    def test_show_best_false_stored(self):
+        row = self._make_row(show_best=False)
+        self.assertFalse(row._show_best)
+
+    def test_dialog_with_scale_175_rows_have_that_scale(self):
+        """ShowTagsDialog reads scale from UserSettingsService and passes it to rows."""
+        from unittest.mock import patch, MagicMock
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        game_data = _make_game_data(MAINLINE_PGN)
+        ctrl = _make_controller(paths_data)
+
+        mock_uss = MagicMock()
+        mock_uss.get_miniature_boards.return_value = {"chess_log": 1.75}
+        mock_uss.get_miniature_board_arrows.return_value = {
+            "chess_log_played": True,
+            "chess_log_best_alternative": True,
+        }
+
+        with patch(
+            "app.services.user_settings_service.UserSettingsService.get_instance",
+            return_value=mock_uss,
+        ):
+            dlg = ShowTagsDialog({}, [game_data], ctrl)
+
+        self.assertTrue(len(dlg._row_widgets) > 0)
+        for row in dlg._row_widgets:
+            self.assertAlmostEqual(row._scale_factor, 1.75)
+
+    def test_dialog_arrows_off_passed_to_rows(self):
+        """ShowTagsDialog passes show_played=False when toggle is off."""
+        from unittest.mock import patch, MagicMock
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        paths_data = {"0": [_make_entry("CLAMP", "C", "note")]}
+        game_data = _make_game_data(MAINLINE_PGN)
+        ctrl = _make_controller(paths_data)
+
+        mock_uss = MagicMock()
+        mock_uss.get_miniature_boards.return_value = {"chess_log": 1.25}
+        mock_uss.get_miniature_board_arrows.return_value = {
+            "chess_log_played": False,
+            "chess_log_best_alternative": False,
+        }
+
+        with patch(
+            "app.services.user_settings_service.UserSettingsService.get_instance",
+            return_value=mock_uss,
+        ):
+            dlg = ShowTagsDialog({}, [game_data], ctrl)
+
+        for row in dlg._row_widgets:
+            self.assertFalse(row._show_played)
+            self.assertFalse(row._show_best)
+
+
 if __name__ == "__main__":
     unittest.main()

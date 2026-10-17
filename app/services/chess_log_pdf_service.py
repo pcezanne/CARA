@@ -1154,6 +1154,9 @@ class ChessLogPDFService(BasePDFReportService):
         is_flipped: bool = False,
     ) -> Optional[QPixmap]:
         """Rasterize a MiniChessBoardWidget for PDF embedding."""
+        # Board size and arrows are fixed for print quality; View → Miniature Boards →
+        # Chess Log settings are intentionally ignored here, matching Game Report PDF
+        # behavior. See GitHub issue #50.
         try:
             import chess as chess_lib
             from app.views.widgets.mini_chessboard_widget import MiniChessBoardWidget

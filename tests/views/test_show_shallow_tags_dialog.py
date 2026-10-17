@@ -1868,5 +1868,73 @@ class TestSingleGameHeader(unittest.TestCase):
         self.assertIn("PDFSolo", header)
 
 
+@requires_qt
+class TestChessLogMiniatureBoardSettingsShallow(unittest.TestCase):
+    """ShowShallowTagsDialog respects View → Miniature Boards → Chess Log settings."""
+
+    def _make_shallow_dialog(self, scale=1.25, played=True, best=True):
+        from unittest.mock import patch, MagicMock
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
+        ctrl = _make_controller({1: entries})
+        sk = frozenset({(1, "0", "CLAMP", "")})
+
+        mock_uss = MagicMock()
+        mock_uss.get_miniature_boards.return_value = {"chess_log": scale}
+        mock_uss.get_miniature_board_arrows.return_value = {
+            "chess_log_played": played,
+            "chess_log_best_alternative": best,
+        }
+
+        with patch(
+            "app.services.user_settings_service.UserSettingsService.get_instance",
+            return_value=mock_uss,
+        ):
+            dlg = ShowShallowTagsDialog(
+                config={},
+                games=[game],
+                controller=ctrl,
+                shallow_keys=sk,
+                classified_keys=sk,
+            )
+        return dlg
+
+    def test_scale_175_stored_on_rows(self):
+        dlg = self._make_shallow_dialog(scale=1.75)
+        self.assertTrue(len(dlg._row_widgets) > 0)
+        for row in dlg._row_widgets:
+            self.assertAlmostEqual(row._scale_factor, 1.75)
+
+    def test_default_scale_125_when_uss_not_mocked(self):
+        """Without mocking UserSettingsService, rows default to 1.25."""
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entries = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
+        ctrl = _make_controller({1: entries})
+        sk = frozenset({(1, "0", "CLAMP", "")})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=sk,
+        )
+        for row in dlg._row_widgets:
+            self.assertAlmostEqual(row._scale_factor, 1.25)
+
+    def test_arrows_off_passed_to_rows(self):
+        dlg = self._make_shallow_dialog(played=False, best=False)
+        for row in dlg._row_widgets:
+            self.assertFalse(row._show_played)
+            self.assertFalse(row._show_best)
+
+    def test_arrows_on_by_default(self):
+        dlg = self._make_shallow_dialog(played=True, best=True)
+        for row in dlg._row_widgets:
+            self.assertTrue(row._show_played)
+            self.assertTrue(row._show_best)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3553,10 +3553,15 @@ class MainWindow(QMainWindow):
     def _apply_miniature_board_arrow(self, arrow_key: str, enabled: bool) -> None:
         """Push arrow visibility into live miniature-board surfaces."""
         from app.utils.miniature_board_arrows import (
+            CHESS_LOG_BEST_ALTERNATIVE,
+            CHESS_LOG_PLAYED,
             GAME_SUMMARY_BEST_ALTERNATIVE,
             GAME_SUMMARY_PLAYED,
             OPENING_EXPLORER,
         )
+
+        if arrow_key in (CHESS_LOG_PLAYED, CHESS_LOG_BEST_ALTERNATIVE):
+            return  # Chess Log dialogs are modal (exec()); arrows are read on open.
 
         if arrow_key == OPENING_EXPLORER:
             explorer = getattr(getattr(self, "detail_panel", None), "opening_explorer_view", None)
@@ -3587,12 +3592,16 @@ class MainWindow(QMainWindow):
     def _apply_miniature_board_scale(self, surface_key: str, scale_factor: float) -> None:
         """Push a new scale into live UI that already shows miniature boards."""
         from app.utils.miniature_board_scales import (
+            CHESS_LOG,
             GAME_SUMMARY_HIGHLIGHTS,
             MANUAL_ANALYSIS,
             MOVE_LINK_POPUPS,
             OPENING_ENCYCLOPEDIA,
             OPENING_EXPLORER,
         )
+
+        if surface_key == CHESS_LOG:
+            return  # Chess Log dialogs are modal (exec()); scale is read on open.
 
         if surface_key == MANUAL_ANALYSIS:
             return  # PV hover recreates its board on next hover using the model value.

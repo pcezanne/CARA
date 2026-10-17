@@ -39,9 +39,9 @@ _PRESET_ORDER = ["CLAMP", "CCT", "3x3"]
 
 _3X3_KEYS = list(_3X3_PROMPTS.keys())
 
-# Scale matching manual analysis default (1.25 × 160 base = 200px board ≈ 204px widget)
-_MINI_BOARD_SCALE = 1.25
-_MINI_BOARD_PLACEHOLDER_PX = 204
+# Base pixel size at 1× scale; multiply by scale_factor for the actual placeholder size.
+# 163 * 1.25 ≈ 204, preserving the original 204px placeholder at the default 1.25× scale.
+_MINI_BOARD_BASE_PX = 163
 
 
 def _normalize_entries(entries: List[Dict[str, Any]]) -> List[Tuple]:
@@ -85,6 +85,9 @@ class _TagRowWidget(QFrame):
         show_ignore_checkbox: bool = False,
         best_move: Optional[chess.Move] = None,
         is_flipped: bool = False,
+        scale_factor: float = 1.25,
+        show_played: bool = True,
+        show_best: bool = True,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -94,6 +97,9 @@ class _TagRowWidget(QFrame):
         self._bg_rgb = bg_rgb
         self._text_color = text_color
         self._show_ignore_checkbox = show_ignore_checkbox
+        self._scale_factor: float = float(scale_factor)
+        self._show_played: bool = bool(show_played)
+        self._show_best: bool = bool(show_best)
 
         # Per-entry preserved flags, keyed by cat. For each entry, validate
         # ignore_text_hash against the stored why text; drop Ignore on mismatch.
@@ -250,27 +256,30 @@ class _TagRowWidget(QFrame):
         cols.setSpacing(10)
         outer.addLayout(cols)
 
-        # Column 1: board miniature (played move arrow, manual-analysis scale)
+        # Column 1: board miniature (played move arrow, scale from View → Miniature Boards → Chess Log)
+        _ph_px = int(_MINI_BOARD_BASE_PX * self._scale_factor + 0.5)
         if fen:
             try:
                 board_widget = MiniChessBoardWidget(
                     self._config,
                     fen,
                     is_flipped=self._is_flipped,
-                    scale_factor=_MINI_BOARD_SCALE,
+                    scale_factor=self._scale_factor,
                     embedded=True,
                 )
-                board_widget.set_played_and_best(played_move, self._best_move)
+                _played = played_move if self._show_played else None
+                _best = self._best_move if self._show_best else None
+                board_widget.set_played_and_best(_played, _best)
                 cols.addWidget(board_widget, 0, Qt.AlignmentFlag.AlignTop)
             except Exception:
                 ph = QLabel("Board\nunavailable")
                 ph.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                ph.setFixedSize(_MINI_BOARD_PLACEHOLDER_PX, _MINI_BOARD_PLACEHOLDER_PX)
+                ph.setFixedSize(_ph_px, _ph_px)
                 ph.setStyleSheet(f"color: rgb({tr},{tg},{tb});")
                 cols.addWidget(ph, 0, Qt.AlignmentFlag.AlignTop)
         else:
             ph = QLabel("")
-            ph.setFixedSize(_MINI_BOARD_PLACEHOLDER_PX, _MINI_BOARD_PLACEHOLDER_PX)
+            ph.setFixedSize(_ph_px, _ph_px)
             cols.addWidget(ph, 0, Qt.AlignmentFlag.AlignTop)
 
         # Column 2: checkboxes (blank for 3x3)
@@ -667,6 +676,24 @@ class ShowTagsDialog(QDialog):
         return label
 
     def _setup_ui(self) -> None:
+        # Read Chess Log display settings once (scale + arrow toggles).
+        try:
+            from app.services.user_settings_service import UserSettingsService as _USS
+            from app.utils.miniature_board_scales import CHESS_LOG as _CL_SCALE_KEY
+            from app.utils.miniature_board_arrows import (
+                CHESS_LOG_PLAYED as _CL_PLAYED,
+                CHESS_LOG_BEST_ALTERNATIVE as _CL_BEST,
+            )
+            _uss = _USS.get_instance()
+            _board_scale = float(_uss.get_miniature_boards().get(_CL_SCALE_KEY, 1.25))
+            _cl_arrows = _uss.get_miniature_board_arrows()
+            _show_played = bool(_cl_arrows.get(_CL_PLAYED, True))
+            _show_best = bool(_cl_arrows.get(_CL_BEST, True))
+        except Exception:
+            _board_scale = 1.25
+            _show_played = True
+            _show_best = True
+
         br, bg, bb = self._bg_rgb
         self.setStyleSheet(
             f"QDialog {{ background-color: rgb({br},{bg},{bb}); }}"
@@ -730,6 +757,9 @@ class ShowTagsDialog(QDialog):
                     show_ignore_checkbox=row_is_shallow,
                     best_move=best_move,
                     is_flipped=mover_is_black,
+                    scale_factor=_board_scale,
+                    show_played=_show_played,
+                    show_best=_show_best,
                 )
                 self._rows_layout.addWidget(row_widget)
                 self._row_widgets.append(row_widget)

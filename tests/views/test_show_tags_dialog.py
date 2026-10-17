@@ -35,6 +35,7 @@ _QT_OK = _qt_starts_cleanly()
 requires_qt = unittest.skipUnless(_QT_OK, "Qt platform plugin unavailable")
 
 if _QT_OK:
+    from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QApplication, QCheckBox, QLabel, QPlainTextEdit, QScrollArea
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
 
@@ -761,21 +762,30 @@ class TestShowTagsFontAndHeightWiring(unittest.TestCase):
         row = self._make_row({"inputs": {"font_family": "Monaco"}})
         self.assertIn("Monaco", row._input_font_family)
 
-    def test_why_minimum_lines_from_config(self):
-        row_small = self._make_row({"why_minimum_lines": 3})
-        row_large = self._make_row({"why_minimum_lines": 6})
-        te_small = row_small._why_texts.get("why")
-        te_large = row_large._why_texts.get("why")
-        self.assertIsNotNone(te_small)
-        self.assertIsNotNone(te_large)
-        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
+    def test_fit_min_lines_from_config(self):
+        row = self._make_row({"fit_min_lines": 1, "fit_max_lines": 6})
+        self.assertEqual(row._fit_min_lines, 1)
+        self.assertEqual(row._fit_max_lines, 6)
+        te = row._why_texts.get("why")
+        self.assertIsNotNone(te)
+        self.assertGreater(te.minimumHeight(), 0)
 
-    def test_three_by_three_edit_minimum_lines_from_config(self):
-        row_small = self._make_row({"three_by_three_edit_minimum_lines": 3}, preset="3x3")
-        row_large = self._make_row({"three_by_three_edit_minimum_lines": 6}, preset="3x3")
-        te_small = list(row_small._why_texts.values())[0]
-        te_large = list(row_large._why_texts.values())[0]
-        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
+    def test_fit_max_lines_caps_height(self):
+        from app.views.dialogs.show_tags_dialog import _FitTextEdit
+        te = _FitTextEdit("", fit_min_lines=1, fit_max_lines=3)
+        te.setFixedWidth(400)
+        long_text = "\n".join(f"Line {i}" for i in range(10))
+        te.setPlainText(long_text)
+        te_max = _FitTextEdit("", fit_min_lines=1, fit_max_lines=6)
+        te_max.setFixedWidth(400)
+        te_max.setPlainText(long_text)
+        self.assertLessEqual(te.height(), te_max.height())
+
+    def test_fit_min_lines_3x3_from_config(self):
+        row = self._make_row({"fit_min_lines": 2, "fit_max_lines": 6}, preset="3x3")
+        self.assertEqual(row._fit_min_lines, 2)
+        te = list(row._why_texts.values())[0]
+        self.assertGreater(te.minimumHeight(), 0)
 
     def test_why_text_edit_has_font_applied(self):
         row = self._make_row({"inputs": {"font_size": 13}})
@@ -792,12 +802,14 @@ class TestShowTagsFontAndHeightWiring(unittest.TestCase):
         row = self._make_row({})
         self.assertEqual(row._label_font_size, 11)
         self.assertEqual(row._input_font_size, 11)
+        self.assertEqual(row._fit_min_lines, 1)
+        self.assertEqual(row._fit_max_lines, 6)
         te_why = row._why_texts.get("why")
         self.assertIsNotNone(te_why)
         self.assertGreater(te_why.minimumHeight(), 0)
         row3 = self._make_row({}, preset="3x3")
         te_3x3 = list(row3._why_texts.values())[0]
-        # Both default to 3 lines; same font gives same height
+        # Both use same defaults; same empty content gives same height
         self.assertEqual(te_why.minimumHeight(), te_3x3.minimumHeight())
 
     def test_moment_namespace_not_read_for_fonts(self):
@@ -1638,6 +1650,359 @@ class TestChessLogMiniatureBoardSettings(unittest.TestCase):
         for row in dlg._row_widgets:
             self.assertFalse(row._show_played)
             self.assertFalse(row._show_best)
+
+
+# ---------------------------------------------------------------------------
+# Item 1: Fit-to-text answer boxes
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestFitTextEdit(unittest.TestCase):
+    """_FitTextEdit sizes to content: exact pixel-equality checks at fixed widths."""
+
+    def _make(self, text="", fit_min_lines=1, fit_max_lines=6, width=400):
+        from app.views.dialogs.show_tags_dialog import _FitTextEdit
+        te = _FitTextEdit(text, fit_min_lines=fit_min_lines, fit_max_lines=fit_max_lines)
+        te.setFixedWidth(width)
+        te._update_height()
+        return te
+
+    def _make_shown(self, text="", fit_min_lines=1, fit_max_lines=6, width=400):
+        """Create, show, and process events so wrapping is computed."""
+        from app.views.dialogs.show_tags_dialog import _FitTextEdit
+        te = _FitTextEdit(text, fit_min_lines=fit_min_lines, fit_max_lines=fit_max_lines)
+        te.setFixedWidth(width)
+        te.show()
+        _APP.processEvents()
+        te._update_height()
+        return te
+
+    def test_short_text_height_equals_one_line(self):
+        te = self._make("Short", fit_min_lines=1, fit_max_lines=6)
+        self.assertEqual(te.height(), te._height_for_lines(1))
+
+    def test_three_newline_paragraphs_height_equals_three_lines(self):
+        te = self._make("a\nb\nc", fit_min_lines=1, fit_max_lines=6)
+        self.assertEqual(te.height(), te._height_for_lines(3))
+
+    def test_wrapping_paragraph_height(self):
+        """Long single paragraph wraps to 2+ lines at width=200; height reflects wrap count."""
+        long_para = "This is a deliberately long sentence that will wrap to multiple lines at a narrow width."
+        te = self._make_shown(long_para, fit_min_lines=1, fit_max_lines=6, width=200)
+        wrapped_lines = max(1, int(te.document().size().height()))
+        self.assertGreater(wrapped_lines, 1, "text should wrap to more than 1 line at width=200")
+        self.assertEqual(te.height(), te._height_for_lines(wrapped_lines))
+        self.assertGreater(te.height(), te._height_for_lines(1))
+
+    def test_ten_lines_capped_at_max_with_scrollbar(self):
+        ten_lines = "\n".join(f"Line {i}" for i in range(10))
+        te = self._make(ten_lines, fit_min_lines=1, fit_max_lines=6)
+        self.assertEqual(te.height(), te._height_for_lines(6))
+        self.assertEqual(
+            te.verticalScrollBarPolicy(),
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded,
+        )
+
+    def test_typing_from_one_line_to_three_grows_strictly(self):
+        te = self._make("Short", fit_min_lines=1, fit_max_lines=6)
+        h1 = te.height()
+        te.setPlainText("Line 1\nLine 2\nLine 3")
+        _APP.processEvents()
+        h3 = te.height()
+        self.assertGreater(h3, h1, "3 lines must be strictly taller than 1 line")
+
+    def test_deleting_back_to_one_line_shrinks_strictly(self):
+        te = self._make("Line 1\nLine 2\nLine 3", fit_min_lines=1, fit_max_lines=6)
+        h3 = te.height()
+        te.setPlainText("Short")
+        _APP.processEvents()
+        h1 = te.height()
+        self.assertLess(h1, h3, "back to 1 line must be strictly shorter than 3 lines")
+
+    def test_narrowing_widget_grows_height_due_to_wrapping(self):
+        """Resize from 600px to 200px; a long line that now wraps must be taller."""
+        long_para = "This is a long sentence that wraps when the widget is narrowed."
+        te = self._make_shown(long_para, fit_min_lines=1, fit_max_lines=6, width=600)
+        h_wide = te.height()
+        te.setFixedWidth(200)
+        _APP.processEvents()
+        h_narrow = te.height()
+        self.assertGreater(h_narrow, h_wide, "narrowing must increase height when text wraps")
+
+    def test_empty_text_gives_minimum_height(self):
+        te1 = self._make("", fit_min_lines=1)
+        te3 = self._make("", fit_min_lines=3)
+        self.assertEqual(te1.height(), te1._height_for_lines(1))
+        self.assertEqual(te3.height(), te3._height_for_lines(3))
+        self.assertGreater(te3.height(), te1.height())
+
+    def test_clamp_row_te_is_fit_text_edit(self):
+        from app.views.dialogs.show_tags_dialog import _FitTextEdit, _TagRowWidget
+        row = _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=[_make_entry("CLAMP", "C", "note")],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+        te = row._why_texts.get("why")
+        self.assertIsInstance(te, _FitTextEdit)
+
+    def test_3x3_row_te_is_fit_text_edit(self):
+        from app.views.dialogs.show_tags_dialog import _FitTextEdit, _TagRowWidget
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "test")
+        row = _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+        te = row._why_texts.get("Why1")
+        self.assertIsInstance(te, _FitTextEdit)
+
+
+# ---------------------------------------------------------------------------
+# Item 2: Chip and Ignore column layout (3x3 only)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipColumnLayout(unittest.TestCase):
+    """Issue B: 3x3 chip and Ignore sit right of the answer box, not on the question line."""
+
+    def _make_3x3_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="3x3",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _make_clamp_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _make_cct_row(self, entries, show_ignore=False):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config={},
+            preset="CCT",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def test_3x3_chip_not_in_question_label_parent(self):
+        """Chip must NOT be a sibling of the prompt QLabel in the question row layout."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from PyQt6.QtWidgets import QLabel, QHBoxLayout
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        # Chip's parent must NOT be the same row widget whose direct children include prompt labels
+        # (i.e. chip lives in the answer row, not in the question row).
+        # We verify by checking that chip's parent is NOT the _TagRowWidget itself
+        # but a QWidget chip column container.
+        from PyQt6.QtWidgets import QWidget
+        chip_parent = chip.parent()
+        self.assertIsNotNone(chip_parent)
+        # The chip column widget is a plain QWidget, not the row frame
+        self.assertIsNot(chip_parent, row)
+
+    def test_3x3_chip_above_ignore_same_column(self):
+        """Chip and Ignore must be in the same parent container widget."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why1")
+        ign_cb = row._ignore_checks.get("Why1")
+        self.assertIsNotNone(chip)
+        self.assertIsNotNone(ign_cb)
+        self.assertIs(chip.parent(), ign_cb.parent(), "Chip and Ignore must share the same container")
+
+    def test_3x3_chipless_why_has_no_chip_column(self):
+        """A Why without a chip should produce no entry in _chips_per_cat."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why2", "plain answer")
+        row = self._make_3x3_row([entry])
+        self.assertNotIn("Why2", row._chips_per_cat)
+
+    def test_clamp_chip_in_header_row(self):
+        """CLAMP chip must still be stored in _shallow_chip (on the header row)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        row = self._make_clamp_row([entry], show_ignore=True)
+        self.assertIsNotNone(row._shallow_chip, "CLAMP shallow chip must be in header")
+        # CLAMP chip is NOT in _chips_per_cat (that dict is for 3x3 per-answer chips)
+        self.assertNotIn("C", row._chips_per_cat)
+
+    def test_3x3_chip_opacity_with_new_layout(self):
+        """Chip opacity mechanics must still work after layout refactor."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from PyQt6.QtWidgets import QGraphicsOpacityEffect
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        chip = row._chips_per_cat.get("Why1")
+        self.assertIsNotNone(chip)
+        row._ignore_checks["Why1"].setChecked(True)
+        eff = chip.graphicsEffect()
+        self.assertIsInstance(eff, QGraphicsOpacityEffect)
+        self.assertAlmostEqual(eff.opacity(), 0.4, places=2)
+
+    def test_chip_above_ignore_by_position(self):
+        """chip.y() < ignore_cb.y() within their shared container after layout."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why1"]
+        ign_cb = row._ignore_checks["Why1"]
+        self.assertLess(chip.pos().y(), ign_cb.pos().y(),
+                        "chip must sit above the Ignore checkbox in the chip column")
+
+    def test_chip_top_aligned_with_answer_box(self):
+        """Chip column top y must equal answer box top y (within 2px) after layout."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry], show_ignore=True)
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        chip_col = row._chips_per_cat["Why1"].parent()  # the chip_col_widget
+        te = row._why_texts["Why1"]
+        # Both chip_col and te share _TagRowWidget as parent; compare their y positions.
+        self.assertAlmostEqual(
+            chip_col.pos().y(), te.pos().y(), delta=2,
+            msg="chip column must be top-aligned with the answer box",
+        )
+
+    def test_chipless_why_answer_wider_than_chipped_answer(self):
+        """A chipless Why's answer box must be wider than a chipped Why's in the same row."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        e_chipped = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        e_chipless = ChessLogStorageService.make_entry("3x3", "Why2", "plain answer")
+        row = self._make_3x3_row([e_chipped, e_chipless])
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        te_chipped = row._why_texts["Why1"]
+        te_chipless = row._why_texts["Why2"]
+        self.assertGreater(
+            te_chipless.width(), te_chipped.width(),
+            "chipless answer box must be wider than chipped one (no chip column steals space)",
+        )
+
+    def test_shallow_chip_fits_in_chip_column(self):
+        """Shallow chip sizeHint width must not exceed the chip column's fixed width."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "attacked", is_shallow=True)
+        row = self._make_3x3_row([entry])
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why1"]
+        col_widget = chip.parent()
+        self.assertLessEqual(
+            chip.sizeHint().width(), col_widget.width(),
+            f"Shallow chip sizeHint.width()={chip.sizeHint().width()} must not exceed "
+            f"chip column width={col_widget.width()}",
+        )
+
+    def test_vague_chip_fits_in_chip_column(self):
+        """Vague chip sizeHint width must not exceed the chip column's fixed width."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why4", "Think more", is_vague=True)
+        row = self._make_3x3_row([entry])
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        chip = row._chips_per_cat["Why4"]
+        col_widget = chip.parent()
+        self.assertLessEqual(
+            chip.sizeHint().width(), col_widget.width(),
+            f"Vague chip sizeHint.width()={chip.sizeHint().width()} must not exceed "
+            f"chip column width={col_widget.width()}",
+        )
+
+    def _note_top_y_equals_first_checkbox_y(self, row, delta=2):
+        """Assert FitTextEdit top y ≈ first checkbox top y (within delta px)."""
+        row.setFixedWidth(600)
+        row.show()
+        _APP.processEvents()
+        te = row._why_texts["why"]
+        first_cb = list(row._checkboxes.values())[0]
+        self.assertAlmostEqual(
+            te.pos().y(), first_cb.pos().y(), delta=delta,
+            msg=f"note box y={te.pos().y()} must be top-aligned with "
+                f"first checkbox y={first_cb.pos().y()} (within {delta}px)",
+        )
+
+    def test_clamp_short_note_top_aligned_with_first_checkbox(self):
+        """CLAMP note box must be top-aligned with first checkbox (short note)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "brief note")
+        row = self._make_clamp_row([entry])
+        self._note_top_y_equals_first_checkbox_y(row)
+
+    def test_clamp_long_note_top_aligned_with_first_checkbox(self):
+        """CLAMP note box must be top-aligned with first checkbox (long multi-line note)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        long_note = "Line one.\nLine two.\nLine three.\nLine four.\nLine five."
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", long_note)
+        row = self._make_clamp_row([entry])
+        self._note_top_y_equals_first_checkbox_y(row)
+
+    def test_cct_short_note_top_aligned_with_first_checkbox(self):
+        """CCT note box must be top-aligned with first checkbox (short note)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CCT", "Checks", "brief note")
+        row = self._make_cct_row([entry])
+        self._note_top_y_equals_first_checkbox_y(row)
+
+    def test_cct_long_note_top_aligned_with_first_checkbox(self):
+        """CCT note box must be top-aligned with first checkbox (long multi-line note)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        long_note = "Line one.\nLine two.\nLine three.\nLine four.\nLine five."
+        entry = ChessLogStorageService.make_entry("CCT", "Checks", long_note)
+        row = self._make_cct_row([entry])
+        self._note_top_y_equals_first_checkbox_y(row)
+
+    def test_show_logged_moments_has_800px_minimum_width(self):
+        """ShowTagsDialog must enforce ≥800px minimum width (confirms no regression)."""
+        from app.views.dialogs.show_tags_dialog import ShowTagsDialog
+        game = _make_game_data(MAINLINE_PGN)
+        ctrl = _make_controller({"0": [_make_entry("CLAMP", "C", "note")]})
+        dlg = ShowTagsDialog({}, [game], ctrl)
+        self.assertGreaterEqual(dlg.minimumWidth(), 800)
 
 
 if __name__ == "__main__":

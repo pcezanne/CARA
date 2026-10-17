@@ -295,19 +295,21 @@ class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
         row = dlg._row_widgets[0]
         self.assertEqual(row._input_font_size, 14)
 
-    def test_why_minimum_lines_from_config(self):
-        dlg_small = self._make_shallow_dialog({"why_minimum_lines": 3})
-        dlg_large = self._make_shallow_dialog({"why_minimum_lines": 6})
-        te_small = dlg_small._row_widgets[0]._why_texts.get("why")
-        te_large = dlg_large._row_widgets[0]._why_texts.get("why")
-        self.assertIsNotNone(te_small)
-        self.assertIsNotNone(te_large)
-        self.assertGreater(te_large.minimumHeight(), te_small.minimumHeight())
+    def test_fit_lines_from_config(self):
+        dlg = self._make_shallow_dialog({"fit_min_lines": 1, "fit_max_lines": 6})
+        row = dlg._row_widgets[0]
+        self.assertEqual(row._fit_min_lines, 1)
+        self.assertEqual(row._fit_max_lines, 6)
+        te = row._why_texts.get("why")
+        self.assertIsNotNone(te)
+        self.assertGreater(te.minimumHeight(), 0)
 
     def test_defaults_when_config_empty(self):
         dlg = self._make_shallow_dialog({})
         row = dlg._row_widgets[0]
         self.assertEqual(row._input_font_size, 11)
+        self.assertEqual(row._fit_min_lines, 1)
+        self.assertEqual(row._fit_max_lines, 6)
         te = row._why_texts.get("why")
         self.assertIsNotNone(te)
         self.assertGreater(te.minimumHeight(), 0)

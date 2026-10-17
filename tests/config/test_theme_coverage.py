@@ -68,8 +68,8 @@ _SHOW_TAGS_DIALOG_KEYS = [
     "ui.dialogs.show_tags.label_font_size",
     "ui.dialogs.show_tags.inputs.font_family",
     "ui.dialogs.show_tags.inputs.font_size",
-    "ui.dialogs.show_tags.why_minimum_lines",
-    "ui.dialogs.show_tags.three_by_three_edit_minimum_lines",
+    "ui.dialogs.show_tags.fit_min_lines",
+    "ui.dialogs.show_tags.fit_max_lines",
 ]
 
 _SHALLOW_CHIP_KEYS = [

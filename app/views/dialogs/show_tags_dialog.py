@@ -25,6 +25,52 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+
+class _FitTextEdit(QPlainTextEdit):
+    """QPlainTextEdit that sizes itself to fit content (min/max in lines, scrolls beyond max)."""
+
+    def __init__(self, *args, fit_min_lines: int = 1, fit_max_lines: int = 6, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._fit_min_lines = fit_min_lines
+        self._fit_max_lines = fit_max_lines
+        self._updating_height = False
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.document().contentsChanged.connect(self._update_height)
+        # Initial height — the base class sets text before we connected, so call now.
+        self._update_height()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if not self._updating_height:
+            self._update_height()
+
+    def _height_for_lines(self, n: int) -> int:
+        self.ensurePolished()
+        fm = self.fontMetrics()
+        doc_margin = int(self.document().documentMargin())
+        frame = self.frameWidth()
+        return fm.lineSpacing() * n + doc_margin * 2 + frame * 2 + fm.descent() + 2
+
+    def _update_height(self) -> None:
+        if self._updating_height:
+            return
+        self._updating_height = True
+        try:
+            vp_w = self.viewport().width()
+            self.document().setTextWidth(vp_w if vp_w > 0 else -1)
+            # QPlainTextDocumentLayout.documentSize().height() returns visual line count
+            line_count = max(1, int(self.document().size().height()))
+            clamped = max(self._fit_min_lines, min(line_count, self._fit_max_lines))
+            self.setFixedHeight(self._height_for_lines(clamped))
+            policy = (
+                Qt.ScrollBarPolicy.ScrollBarAsNeeded
+                if line_count > self._fit_max_lines
+                else Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+            )
+            self.setVerticalScrollBarPolicy(policy)
+        finally:
+            self._updating_height = False
+
 from app.models.chess_log_snapshot import TagRowSnapshot
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.chess_log_best_move import resolve_best_move_for_path
@@ -168,14 +214,14 @@ class _TagRowWidget(QFrame):
         st_inp = st.get("inputs", {})
         self._input_font_family = resolve_font_family(st_inp.get("font_family", "Helvetica Neue"))
         self._input_font_size = int(scale_font_size(st_inp.get("font_size", 11)))
-        self._why_min_lines = int(st.get("why_minimum_lines", 3))
-        self._3x3_min_lines = int(st.get("three_by_three_edit_minimum_lines", 3))
+        self._fit_min_lines = int(st.get("fit_min_lines", 1))
+        self._fit_max_lines = int(st.get("fit_max_lines", 6))
 
     def _make_chip(self, kind: str) -> QLabel:
         """Return a styled QLabel chip for 'shallow' or 'vague_lesson'."""
         defaults = {
             "shallow": ([185, 70, 70], [255, 255, 255], "Shallow"),
-            "vague_lesson": ([195, 145, 55], [255, 255, 255], "Vague lesson"),
+            "vague_lesson": ([195, 145, 55], [255, 255, 255], "Vague"),
         }
         def_bg, def_tc, def_text = defaults.get(kind, ([128, 128, 128], [255, 255, 255], kind))
         chip_cfg = (
@@ -301,22 +347,53 @@ class _TagRowWidget(QFrame):
         # Column 3: text / notes (always editable).
         txt_col = QVBoxLayout()
         txt_col.setSpacing(4)
+        txt_col.setAlignment(Qt.AlignmentFlag.AlignTop)
         if self._preset == "3x3":
+            from PyQt6.QtGui import QFontMetrics
             from PyQt6.QtWidgets import QGraphicsOpacityEffect
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
+
+            # Fixed chip-column width: sized from configured chip texts + Ignore checkbox.
+            _chip_font = QFont(self._label_font_family, max(8, self._label_font_size - 1))
+            _fm_chip = QFontMetrics(_chip_font)
+            _labels_cfg = (self._config.get("ui", {}).get("dialogs", {})
+                           .get("shallow", {}).get("labels", {}))
+            _chip_text_shallow = _labels_cfg.get("shallow", {}).get("text", "Shallow")
+            _chip_text_vague = _labels_cfg.get("vague_lesson", {}).get("text", "Vague")
+            _chip_col_w = max(
+                _fm_chip.horizontalAdvance(_chip_text_shallow) + 20,
+                _fm_chip.horizontalAdvance(_chip_text_vague) + 20,
+                _fm_chip.horizontalAdvance("Ignore") + 24,
+            )
+
             for key in _3X3_KEYS:
                 per_cat = self._preserved_per_cat.get(key, {})
                 has_shallow_chip = per_cat.get("is_shallow") and key in ("Why1", "Why2", "Why3")
                 has_vague_chip = per_cat.get("is_vague") and key == "Why4"
                 is_ignored = per_cat.get("ignore_shallow", False)
 
-                # Question line: label (stretch) + chip right-justified
-                q_row = QHBoxLayout()
+                # Question line: only the question label (no chip here).
                 prompt_lbl = QLabel(_3X3_PROMPTS[key])
                 prompt_lbl.setFont(QFont(self._label_font_family, max(8, self._label_font_size - 1)))
                 prompt_lbl.setStyleSheet(f"color: rgb({tr},{tg},{tb}); font-style: italic;")
                 prompt_lbl.setWordWrap(True)
-                q_row.addWidget(prompt_lbl, 1)
+                txt_col.addWidget(prompt_lbl)
+
+                # Answer row: answer box (stretch) + optional fixed-width chip column.
+                answer_row = QHBoxLayout()
+                answer_row.setSpacing(6)
+
+                te = _FitTextEdit(
+                    why_map.get(key, ""),
+                    fit_min_lines=self._fit_min_lines,
+                    fit_max_lines=self._fit_max_lines,
+                )
+                te.setFont(QFont(self._input_font_family, self._input_font_size))
+                self._style_text_widget(te)
+                te.textChanged.connect(self._schedule_edited)
+                answer_row.addWidget(te, 1, Qt.AlignmentFlag.AlignTop)
+                self._why_texts[key] = te
+
                 if has_shallow_chip or has_vague_chip:
                     chip_kind = "shallow" if has_shallow_chip else "vague_lesson"
                     chip = self._make_chip(chip_kind)
@@ -324,18 +401,17 @@ class _TagRowWidget(QFrame):
                         eff = QGraphicsOpacityEffect(chip)
                         eff.setOpacity(0.4)
                         chip.setGraphicsEffect(eff)
-                    q_row.addWidget(chip, 0, Qt.AlignmentFlag.AlignTop)
                     if has_shallow_chip:
                         self._shallow_chip = chip
                     else:
                         self._vague_chip = chip
                     self._chips_per_cat[key] = chip
-                txt_col.addLayout(q_row)
 
-                # Ignore checkbox: right-justified under chip (shown when chip present)
-                if has_shallow_chip or has_vague_chip:
-                    ign_row = QHBoxLayout()
-                    ign_row.addStretch(1)
+                    chip_col = QVBoxLayout()
+                    chip_col.setSpacing(4)
+                    chip_col.setAlignment(Qt.AlignmentFlag.AlignTop)
+                    chip_col.addWidget(chip)
+
                     if self._show_ignore_checkbox or is_ignored:
                         ign_cb = QCheckBox("Ignore")
                         ign_cb.setChecked(is_ignored)
@@ -346,37 +422,28 @@ class _TagRowWidget(QFrame):
                                 self._chips_per_cat.get(k), bool(st)
                             )
                         )
-                        ign_row.addWidget(ign_cb)
+                        chip_col.addWidget(ign_cb)
                         self._ignore_checks[key] = ign_cb
-                    txt_col.addLayout(ign_row)
 
-                te = QPlainTextEdit(why_map.get(key, ""))
-                te.setFont(QFont(self._input_font_family, self._input_font_size))
-                self._style_text_widget(te)
-                te.setMinimumHeight(self._plain_text_edit_min_height_for_lines(te, self._3x3_min_lines))
-                te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-                te.textChanged.connect(self._schedule_edited)
-                txt_col.addWidget(te)
-                self._why_texts[key] = te
+                    chip_col_widget = QWidget()
+                    chip_col_widget.setLayout(chip_col)
+                    chip_col_widget.setFixedWidth(_chip_col_w)
+                    answer_row.addWidget(chip_col_widget, 0, Qt.AlignmentFlag.AlignTop)
+
+                txt_col.addLayout(answer_row)
         else:
             why_text = self._entries[0].get("why", "") if self._entries else ""
-            te = QPlainTextEdit(why_text)
+            te = _FitTextEdit(
+                why_text,
+                fit_min_lines=self._fit_min_lines,
+                fit_max_lines=self._fit_max_lines,
+            )
             te.setFont(QFont(self._input_font_family, self._input_font_size))
             self._style_text_widget(te)
-            te.setMinimumHeight(self._plain_text_edit_min_height_for_lines(te, self._why_min_lines))
-            te.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
             te.textChanged.connect(self._schedule_edited)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
         cols.addLayout(txt_col, 1)
-
-    @staticmethod
-    def _plain_text_edit_min_height_for_lines(te: QPlainTextEdit, lines: int) -> int:
-        te.ensurePolished()
-        fm = te.fontMetrics()
-        doc_margin = int(te.document().documentMargin())
-        frame = te.frameWidth()
-        return fm.lineSpacing() * lines + doc_margin * 2 + frame * 2 + fm.descent() + 2
 
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any input change."""

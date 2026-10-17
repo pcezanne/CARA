@@ -4271,8 +4271,8 @@
             "$ref": "$_FONT_SIZE_BASE_MEDIUM"
           }
         },
-        "why_minimum_lines": 3,
-        "three_by_three_edit_minimum_lines": 3
+        "fit_min_lines": 1,
+        "fit_max_lines": 6
       },
       "shallow": {
         "labels": {

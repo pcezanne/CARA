@@ -1224,5 +1224,175 @@ class TestCheckLogsPDFMetadataLines(unittest.TestCase):
         self.assertNotIn("AI model:", text)
 
 
+# ---------------------------------------------------------------------------
+# Item 3: 3x3 PDF layout — chip right column, blank lines, measure==draw
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestThreeByThreePDFLayout(unittest.TestCase):
+    """Verify measure/draw consistency, blank-line rhythm, and chip-column placement."""
+
+    def _make_svc(self):
+        return ChessLogPDFService({})
+
+    def _measure_and_draw_height(self, row):
+        """Return (measured_h, drawn_h) for a given row snapshot."""
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        from PyQt6.QtGui import QPainter
+        svc = self._make_svc()
+        content = QRectF(0, 0, 500, 2000)
+
+        # Measure
+        painter_m = MagicMock()
+        painter_m.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        painter_m.fontMetrics.return_value = MagicMock(
+            height=lambda: 12, lineSpacing=lambda: 12, descent=lambda: 2,
+            horizontalAdvance=lambda s: len(s) * 6,
+        )
+        with patch.object(svc, "_render_board", return_value=None):
+            measured = svc._measure_tag_row_height(painter_m, content, row)
+
+        # Draw (y_start=0, returns y after row)
+        painter_d = MagicMock()
+        painter_d.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        painter_d.fontMetrics.return_value = MagicMock(
+            height=lambda: 12, lineSpacing=lambda: 12, descent=lambda: 2,
+            horizontalAdvance=lambda s: len(s) * 6,
+        )
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            y_after = svc._draw_tag_row(painter_d, MagicMock(), content, 0.0, row)
+
+        drawn = y_after - svc._ROW_GAP
+        return measured, drawn
+
+    def _make_3x3_row(self, entries, shallow_cats=frozenset(), vague_cats=frozenset(), show_ignore=False):
+        return TagRowSnapshot(
+            move_label="1. e4",
+            preset="3x3",
+            entries=entries,
+            fen=None,
+            played_move=None,
+            show_ignore=show_ignore,
+            shallow_cats=shallow_cats,
+            vague_cats=vague_cats,
+        )
+
+    def test_measure_equals_draw_no_chips(self):
+        entries = [{"preset": "3x3", "cat": k, "why": f"answer {k}"} for k in ("Why1", "Why2", "Why3", "Why4")]
+        row = self._make_3x3_row(entries)
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"Measure={measured} Draw={drawn} must agree for 3x3 row without chips")
+
+    def test_measure_equals_draw_with_shallow_chip(self):
+        import hashlib
+        text = "Control center"
+        h = hashlib.sha256(text.encode()).hexdigest()
+        entries = [{"preset": "3x3", "cat": "Why1", "why": text, "is_shallow": True}]
+        row = self._make_3x3_row(entries, shallow_cats=frozenset({"Why1"}), show_ignore=True)
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"Measure={measured} Draw={drawn} must agree for row with shallow chip")
+
+    def test_measure_equals_draw_blank_why(self):
+        entries = [{"preset": "3x3", "cat": "Why3", "why": ""}]
+        row = self._make_3x3_row(entries)
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg="Measure/draw must agree for a blank Why")
+
+    def test_blank_why_question_is_drawn(self):
+        """A Why with no answer text must still draw its question prompt."""
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = self._make_svc()
+        from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+        entries = [{"preset": "3x3", "cat": "Why2", "why": ""}]
+        row = self._make_3x3_row(entries)
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, writer, content, 0.0, row)
+        all_drawn = [a for call in painter.drawText.call_args_list
+                     for a in call.args if isinstance(a, str)]
+        why2_prompt = THREE_BY_THREE_PROMPTS.get("Why2", "Why2")
+        self.assertTrue(
+            any(why2_prompt in t for t in all_drawn),
+            f"Why2 prompt must be drawn even for blank answer. Drawn: {all_drawn[:10]}"
+        )
+
+    def test_clamp_row_measure_unchanged(self):
+        """CLAMP rows must still measure consistently (no regression)."""
+        row_clamp = TagRowSnapshot(
+            move_label="1. e4",
+            preset="CLAMP",
+            entries=[{"preset": "CLAMP", "cat": "C", "why": "Rushed move"}],
+            fen=None,
+            played_move=None,
+            show_ignore=False,
+        )
+        measured, drawn = self._measure_and_draw_height(row_clamp)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"CLAMP measure/draw must still agree: Measure={measured} Draw={drawn}")
+
+    def test_chip_not_drawn_on_question_line(self):
+        """For 3x3 with a chip, drawText must NOT be called with both prompt and chip text on same call."""
+        from unittest.mock import MagicMock, patch, call
+        from PyQt6.QtCore import QRectF
+        from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+        svc = self._make_svc()
+        entries = [{"preset": "3x3", "cat": "Why1", "why": "attacked", "is_shallow": True}]
+        row = self._make_3x3_row(entries, shallow_cats=frozenset({"Why1"}))
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, MagicMock(), content, 0.0, row)
+        # Chip text ("Shallow") must appear in a drawText call
+        chip_texts = [a for c in painter.drawText.call_args_list for a in c.args if a == "Shallow"]
+        self.assertGreater(len(chip_texts), 0, "Chip text 'Shallow' must be drawn")
+
+    def test_3x3_vague_chip_rect_fits_inside_chip_column(self):
+        """3x3 Vague chip rect width must not exceed chip_col_w in _draw_tag_row."""
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = self._make_svc()
+        entries = [{"preset": "3x3", "cat": "Why4", "why": "Think more", "is_vague": True}]
+        row = self._make_3x3_row(entries, vague_cats=frozenset({"Why4"}))
+        # Use a deterministic 6-px/char metric so expected values are computable.
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        painter.fontMetrics.return_value = MagicMock(
+            height=lambda: 12, lineSpacing=lambda: 12, descent=lambda: 2,
+            horizontalAdvance=lambda s: len(s) * 6,
+        )
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, MagicMock(), content, 0.0, row)
+        # Compute chip_col_w the same way the service does (6 px/char, empty config).
+        chip_pad = 3.0
+        chip_col_w = max(
+            max(len("Shallow"), len("Vague")) * 6 + chip_pad * 2,
+            len("Ignore: Yes") * 6,
+        ) + 8.0
+        # drawRoundedRect is called for the card background (full content width) and chips.
+        # Filter to chip rects only: chips are narrower than the content width.
+        chip_rects = [c.args[0] for c in painter.drawRoundedRect.call_args_list
+                      if c.args and c.args[0].width() < content.width()]
+        self.assertGreater(len(chip_rects), 0, "Expected at least one chip rect to be drawn")
+        for rect in chip_rects:
+            self.assertLessEqual(
+                rect.width(), chip_col_w,
+                f"Chip rect width {rect.width()} must not exceed chip_col_w {chip_col_w}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

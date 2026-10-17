@@ -412,7 +412,7 @@ class DetailChessLogChartsView(QWidget):
 
         self._ai_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._ai_hint.setText(
-            f'Configure an AI provider in Chess Log → '
+            f'Configure an AI provider in AI Summary → '
             f'<a href="ai-model-settings" style="color: {link_s}; text-decoration: underline;">'
             f'AI Model Settings</a> to enable narrative summaries.'
         )
@@ -672,7 +672,7 @@ class DetailChessLogChartsView(QWidget):
         self._ai_hint.setVisible(not configured)
         if not configured:
             self._shallow_hint.setText(
-                "Configure an AI provider in Chess Log → AI Model Settings to enable Check Logs."
+                "Configure an AI provider in AI Summary → AI Model Settings to enable Check Logs."
             )
             self._shallow_hint.setVisible(True)
         elif not source_selected:

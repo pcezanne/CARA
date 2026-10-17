@@ -2005,5 +2005,45 @@ class TestChipColumnLayout(unittest.TestCase):
         self.assertGreaterEqual(dlg.minimumWidth(), 800)
 
 
+# ---------------------------------------------------------------------------
+# Item 4: AI hint text points to correct menu
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestAIHintMenuPath(unittest.TestCase):
+    """Both AI hint strings must say 'AI Summary → AI Model Settings'."""
+
+    def test_narrative_hint_says_ai_summary(self):
+        from app.views.detail_chess_log_charts_view import DetailChessLogChartsView
+        view = DetailChessLogChartsView(config={})
+        self.assertIn("AI Summary", view._ai_hint.text())
+        self.assertIn("AI Model Settings", view._ai_hint.text())
+
+    def test_narrative_hint_has_link(self):
+        from app.views.detail_chess_log_charts_view import DetailChessLogChartsView
+        view = DetailChessLogChartsView(config={})
+        self.assertIn('<a href=', view._ai_hint.text())
+        self.assertIn('ai-model-settings', view._ai_hint.text())
+
+    def test_shallow_hint_says_ai_summary_when_no_ai(self):
+        from app.views.detail_chess_log_charts_view import DetailChessLogChartsView
+        from unittest.mock import MagicMock
+        view = DetailChessLogChartsView(config={})
+        # Attach an unconfigured controller to trigger _refresh_ai_state
+        ctrl = MagicMock()
+        ctrl.is_ai_configured.return_value = False
+        ctrl.get_last_narrative_result.return_value = ("", [], None)
+        ctrl.get_last_shallow_result.return_value = (None, None, None)
+        ctrl.get_available_models.return_value = []
+        ctrl.get_default_narrative_model.return_value = ""
+        ctrl.get_narrative_timeout_seconds.return_value = 60
+        ctrl.get_narrative_model_override.return_value = ""
+        # Connect signals manually would be complex; call _refresh_ai_state directly
+        view._controller = ctrl
+        view._refresh_ai_state()
+        self.assertIn("AI Summary", view._shallow_hint.text())
+        self.assertIn("AI Model Settings", view._shallow_hint.text())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -79,6 +79,10 @@ _SHALLOW_CHIP_KEYS = [
     "ui.dialogs.shallow.labels.vague_lesson.text_color",
 ]
 
+_PDF_CHESS_LOG_KEYS = [
+    "ui.pdf.chess_log.card_fill",
+]
+
 _ALL_PATHS = (
     _CHESS_LOG_CHARTS_COLOR_KEYS
     + _CHESS_LOG_CHARTS_PDF_KEYS
@@ -88,6 +92,7 @@ _ALL_PATHS = (
     + _MOMENT_DIALOG_LAYOUT_KEYS
     + _SHOW_TAGS_DIALOG_KEYS
     + _SHALLOW_CHIP_KEYS
+    + _PDF_CHESS_LOG_KEYS
 )
 
 
@@ -146,6 +151,10 @@ class TestChessLogThemeCoverage(unittest.TestCase):
 
     def test_show_tags_dialog_keys_present(self):
         for path in _SHOW_TAGS_DIALOG_KEYS:
+            self._check_path(path)
+
+    def test_pdf_chess_log_keys_present(self):
+        for path in _PDF_CHESS_LOG_KEYS:
             self._check_path(path)
 
 

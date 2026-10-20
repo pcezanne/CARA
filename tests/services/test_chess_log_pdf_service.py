@@ -983,6 +983,57 @@ class TestPDFPrintTheme(unittest.TestCase):
         ChessLogPDFService(cfg)
         self.assertEqual(cfg, original)
 
+    def test_chess_log_card_fill_white_from_config(self):
+        """ui.pdf.chess_log.card_fill overrides the shared card_fill for ChessLogPDFService."""
+        from PyQt6.QtGui import QColor
+        cfg: dict = {
+            "ui": {
+                "pdf": {
+                    "colors": {"card_fill": [245, 247, 250]},
+                    "chess_log": {"card_fill": [255, 255, 255]},
+                }
+            }
+        }
+        svc = ChessLogPDFService(cfg)
+        self.assertEqual(svc._card, QColor(255, 255, 255),
+                         "ui.pdf.chess_log.card_fill must override shared card_fill")
+
+    def test_chess_log_card_fill_fallback_without_override(self):
+        """Without ui.pdf.chess_log.card_fill, ChessLogPDFService uses shared card_fill."""
+        from PyQt6.QtGui import QColor
+        cfg: dict = {"ui": {"pdf": {"colors": {"card_fill": [245, 247, 250]}}}}
+        svc = ChessLogPDFService(cfg)
+        self.assertEqual(svc._card, QColor(245, 247, 250),
+                         "shared card_fill must apply when chess_log override is absent")
+
+    def test_theme_files_chess_log_card_fill_white(self):
+        """ui.pdf.chess_log.card_fill must be [255,255,255] in all theme files."""
+        import json, os
+        config_dir = os.path.join(os.path.dirname(__file__), "..", "..", "app", "config")
+        for filename in ("style_default.config.json", "style_light.config.json", "style_scholar.config.json"):
+            path = os.path.join(config_dir, filename)
+            with open(path) as f:
+                data = json.load(f)
+            cl_fill = (data.get("ui", {}).get("pdf", {}).get("chess_log", {}).get("card_fill"))
+            self.assertEqual(
+                cl_fill, [255, 255, 255],
+                f"{filename}: ui.pdf.chess_log.card_fill must be [255,255,255], got {cl_fill}",
+            )
+
+    def test_theme_files_shared_card_fill_tinted(self):
+        """ui.pdf.colors.card_fill must not be pure white — it is shared with Philipp's reports."""
+        import json, os
+        config_dir = os.path.join(os.path.dirname(__file__), "..", "..", "app", "config")
+        for filename in ("style_default.config.json", "style_light.config.json", "style_scholar.config.json"):
+            path = os.path.join(config_dir, filename)
+            with open(path) as f:
+                data = json.load(f)
+            shared_fill = (data.get("ui", {}).get("pdf", {}).get("colors", {}).get("card_fill"))
+            self.assertNotEqual(
+                shared_fill, [255, 255, 255],
+                f"{filename}: ui.pdf.colors.card_fill must not be white (shared with other reports)",
+            )
+
 
 try:
     import pypdf as _pypdf

@@ -58,6 +58,9 @@ class ChessLogPDFService(BasePDFReportService):
         if not isinstance(report_cfg, dict):
             report_cfg = {}
         super().__init__(config, report_cfg)
+        _cl_card_raw = config.get("ui", {}).get("pdf", {}).get("chess_log", {}).get("card_fill")
+        if _cl_card_raw is not None:
+            self._card = self._rgb(_cl_card_raw, (255, 255, 255))
         _warn_colors = (self._cfg.get("colors") or {})
         self._warn_fill = self._rgb(_warn_colors.get("warning_fill"), (241, 196, 15))
         self._warn_outline = self._rgb(_warn_colors.get("warning_outline"), (30, 30, 30))

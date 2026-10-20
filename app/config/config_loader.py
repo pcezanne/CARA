@@ -2654,6 +2654,7 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.pdf.colors.card_fill",
     "ui.pdf.colors.chart_bar",
     "ui.pdf.colors.chart_grid",
+    "ui.pdf.chess_log.card_fill",
     "ui.panels.detail.summary.pdf_report.board_size",
     "ui.panels.detail.summary.pdf_report.highlight_board_size",
     "ui.panels.detail.summary.pdf_report.board_render_scale",

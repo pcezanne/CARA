@@ -1035,6 +1035,85 @@ class TestPDFPrintTheme(unittest.TestCase):
             )
 
 
+@requires_qt
+class TestCLAMPCheckboxVectorDrawing(unittest.TestCase):
+    """Verify CLAMP/CCT checkboxes use vector QPainter shapes, not Unicode glyphs."""
+
+    def _run_draw_tag_row(self, entries, preset="CLAMP"):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = ChessLogPDFService({})
+        row = TagRowSnapshot(
+            move_label="1. e4",
+            preset=preset,
+            entries=entries,
+            fen=None,
+            played_move=None,
+            show_ignore=False,
+        )
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12.0)
+        writer = MagicMock()
+        content = QRectF(0, 0, 500, 700)
+        with patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, writer, content, 0.0, row)
+        draw_rect_calls = painter.drawRect.call_args_list
+        draw_path_calls = painter.drawPath.call_args_list
+        drawn_strings = [
+            a for call in painter.drawText.call_args_list
+            for a in call.args if isinstance(a, str)
+        ]
+        return draw_rect_calls, draw_path_calls, drawn_strings
+
+    def test_no_glyph_checkboxes_in_draw_text(self):
+        """No Unicode checkbox glyphs should reach drawText for CLAMP rows."""
+        entries = [
+            {"preset": "CLAMP", "cat": "C", "why": ""},
+            {"preset": "CLAMP", "cat": "L", "why": "I attacked early"},
+        ]
+        _, _, drawn_strings = self._run_draw_tag_row(entries)
+        glyph_calls = [s for s in drawn_strings if "☐" in s or "☑" in s]
+        self.assertEqual(glyph_calls, [], f"Glyph characters reached drawText: {glyph_calls}")
+
+    def test_draw_rect_called_once_per_cat(self):
+        """One drawRect call per CLAMP category (5 total for CLAMP)."""
+        entries = [{"preset": "CLAMP", "cat": "C", "why": ""}]
+        from app.utils.chess_log_preset_order import CLAMP_ORDER
+        draw_rect_calls, _, _ = self._run_draw_tag_row(entries)
+        self.assertEqual(len(draw_rect_calls), len(CLAMP_ORDER),
+                         f"Expected {len(CLAMP_ORDER)} drawRect calls, got {len(draw_rect_calls)}")
+
+    def test_draw_path_only_for_checked_cats(self):
+        """drawPath (checkmark) called only for selected categories."""
+        entries = [
+            {"preset": "CLAMP", "cat": "C", "why": "too aggressive"},
+            {"preset": "CLAMP", "cat": "A", "why": ""},
+        ]
+        _, draw_path_calls, _ = self._run_draw_tag_row(entries)
+        self.assertEqual(len(draw_path_calls), 2,
+                         f"Expected 2 drawPath calls (C and A checked), got {len(draw_path_calls)}")
+
+    def test_draw_path_absent_when_no_selection(self):
+        """No drawPath calls when no categories are checked."""
+        entries = []
+        _, draw_path_calls, _ = self._run_draw_tag_row(entries)
+        self.assertEqual(len(draw_path_calls), 0,
+                         f"Expected 0 drawPath calls with empty selection, got {len(draw_path_calls)}")
+
+    def test_all_checkbox_rects_same_size(self):
+        """All checkbox squares must be drawn at identical width and height."""
+        entries = [
+            {"preset": "CLAMP", "cat": "C", "why": ""},
+            {"preset": "CLAMP", "cat": "L", "why": ""},
+        ]
+        draw_rect_calls, _, _ = self._run_draw_tag_row(entries)
+        self.assertGreaterEqual(len(draw_rect_calls), 2)
+        sizes = {(round(c.args[0].width(), 2), round(c.args[0].height(), 2))
+                 for c in draw_rect_calls}
+        self.assertEqual(len(sizes), 1,
+                         f"All checkbox rects must be the same size, got: {sizes}")
+
+
 try:
     import pypdf as _pypdf
     _HAS_PYPDF = True
@@ -1481,6 +1560,175 @@ class TestThreeByThreePDFLayout(unittest.TestCase):
                 f"chip text rect width {rect.width()} must be >= advance {advance} + 4.0 "
                 f"(tight exact-fit clips on macOS real Helvetica)",
             )
+
+    def test_measure_equals_draw_chips_on_why1_and_why4(self):
+        """Measure and draw agree for a 3x3 row with chips on Why1 and Why4."""
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "I attacked too early", "is_shallow": True},
+            {"preset": "3x3", "cat": "Why2", "why": "Not ideal"},
+            {"preset": "3x3", "cat": "Why3", "why": "Better move"},
+            {"preset": "3x3", "cat": "Why4", "why": "Think slower", "is_vague": True},
+        ]
+        row = self._make_3x3_row(entries,
+                                 shallow_cats=frozenset({"Why1"}),
+                                 vague_cats=frozenset({"Why4"}),
+                                 show_ignore=True)
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"Measure={measured} Draw={drawn} must agree for chips on Why1+Why4")
+
+    def test_measure_equals_draw_tall_text_taller_than_chip_col(self):
+        """When q+a text wraps taller than the chip column, measure and draw still agree."""
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        entries = [{"preset": "3x3", "cat": "Why1", "why": "long long long answer text", "is_shallow": True}]
+        row = self._make_3x3_row(entries, shallow_cats=frozenset({"Why1"}), show_ignore=True)
+        svc = self._make_svc()
+        content = QRectF(0, 0, 500, 2000)
+
+        # br_h=30 so q_h + ans_h = 60, which exceeds chip_col_h ≈ 32 (text dominates)
+        def make_painter():
+            p = MagicMock()
+            p.boundingRect.return_value = QRectF(0, 0, 100, 30)
+            return p
+
+        painter_m = make_painter()
+        with patch.object(svc, "_render_board", return_value=None):
+            measured = svc._measure_tag_row_height(painter_m, content, row)
+
+        painter_d = make_painter()
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            y_after = svc._draw_tag_row(painter_d, MagicMock(), content, 0.0, row)
+        drawn = y_after - svc._ROW_GAP
+
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"Measure={measured} Draw={drawn} must agree when text taller than chip col")
+
+    def test_measure_equals_draw_chip_col_taller_than_short_answer(self):
+        """When chip col (chip + Ignore) is taller than q+a, measure and draw still agree."""
+        # No answer → ans_h = 0; q_h ≈ 12 < chip_col_h ≈ 32 (chip col dominates)
+        entries = [{"preset": "3x3", "cat": "Why1", "why": "", "is_shallow": True}]
+        row = self._make_3x3_row(entries, shallow_cats=frozenset({"Why1"}), show_ignore=True)
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"Measure={measured} Draw={drawn} must agree when chip col taller than q+a")
+
+    def test_measure_equals_draw_clamp_with_chip_and_ignore(self):
+        """CLAMP row with Shallow chip and show_ignore=True: measure and draw agree."""
+        from app.models.chess_log_snapshot import TagRowSnapshot
+        row = TagRowSnapshot(
+            move_label="1. e4", preset="CLAMP",
+            entries=[{"preset": "CLAMP", "cat": "C", "why": "Rushed move"}],
+            fen=None, played_move=None, show_ignore=True, is_shallow=True,
+        )
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"CLAMP chip+ignore: Measure={measured} Draw={drawn} must agree")
+
+    def test_measure_equals_draw_cct_with_chip_and_ignore(self):
+        """CCT row with Shallow chip and show_ignore=True: measure and draw agree."""
+        from app.models.chess_log_snapshot import TagRowSnapshot
+        row = TagRowSnapshot(
+            move_label="1. e4", preset="CCT",
+            entries=[{"preset": "CCT", "cat": "Checks", "why": "Missed check"}],
+            fen=None, played_move=None, show_ignore=True, is_shallow=True,
+        )
+        measured, drawn = self._measure_and_draw_height(row)
+        self.assertAlmostEqual(measured, drawn, places=1,
+            msg=f"CCT chip+ignore: Measure={measured} Draw={drawn} must agree")
+
+
+# ---------------------------------------------------------------------------
+# 3x3 chip column top-aligns with question line (#58)
+# ---------------------------------------------------------------------------
+
+class TestThreeByThreeChipAlignment(unittest.TestCase):
+    """Chip column top-aligns with the question, not the answer (#58)."""
+
+    def _make_svc(self):
+        return ChessLogPDFService({})
+
+    def _draw_row(self, row):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        svc = self._make_svc()
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, MagicMock(), content, 0.0, row)
+        return painter
+
+    def _make_row(self, entries, shallow_cats=frozenset(), vague_cats=frozenset(), show_ignore=True):
+        from app.models.chess_log_snapshot import TagRowSnapshot
+        return TagRowSnapshot(
+            move_label="1. e4", preset="3x3", entries=entries,
+            fen=None, played_move=None, show_ignore=show_ignore,
+            shallow_cats=shallow_cats, vague_cats=vague_cats,
+        )
+
+    def test_chip_top_aligns_with_question_top(self):
+        """Chip drawRoundedRect top y must equal question drawText top y (within 0.5pt)."""
+        from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "I attacked", "is_shallow": True},
+        ]
+        row = self._make_row(entries, shallow_cats=frozenset({"Why1"}))
+        painter = self._draw_row(row)
+
+        why1_prompt = THREE_BY_THREE_PROMPTS["Why1"]
+
+        # First drawText whose text is the Why1 question.
+        q_rects = [
+            c.args[0] for c in painter.drawText.call_args_list
+            if c.args and len(c.args) >= 3 and c.args[-1] == why1_prompt
+        ]
+        self.assertGreater(len(q_rects), 0, f"Expected drawText for '{why1_prompt}'")
+        q_top = q_rects[0].top()
+
+        # Chip drawRoundedRect: radius=2, width < 400 (not the card background).
+        chip_rects = [
+            c.args[0] for c in painter.drawRoundedRect.call_args_list
+            if len(c.args) >= 2 and c.args[1] == 2 and c.args[0].width() < 400
+        ]
+        self.assertGreater(len(chip_rects), 0, "Expected a chip drawRoundedRect")
+        chip_top = chip_rects[0].top()
+
+        self.assertAlmostEqual(
+            chip_top, q_top, delta=0.5,
+            msg=f"Chip top ({chip_top}) must align with question top ({q_top}) within 0.5pt",
+        )
+
+    def test_chipped_why_question_width_equals_answer_width(self):
+        """For a chipped Why, question and answer drawText widths are equal (both narrowed).
+        For a chipless Why in the same row, both use full width."""
+        from app.utils.chess_log_prompts import THREE_BY_THREE_PROMPTS
+        entries = [
+            {"preset": "3x3", "cat": "Why1", "why": "answer-why1"},  # chipped
+            {"preset": "3x3", "cat": "Why2", "why": "answer-why2"},  # chipless
+        ]
+        row = self._make_row(entries, shallow_cats=frozenset({"Why1"}))
+        painter = self._draw_row(row)
+
+        def first_drawtext_width(text):
+            rects = [c.args[0] for c in painter.drawText.call_args_list
+                     if c.args and len(c.args) >= 3 and c.args[-1] == text]
+            self.assertGreater(len(rects), 0, f"Expected drawText for '{text}'")
+            return rects[0].width()
+
+        w_q1 = first_drawtext_width(THREE_BY_THREE_PROMPTS["Why1"])   # Why1 question
+        w_a1 = first_drawtext_width("answer-why1")                     # Why1 answer
+        w_q2 = first_drawtext_width(THREE_BY_THREE_PROMPTS["Why2"])   # Why2 question
+        w_a2 = first_drawtext_width("answer-why2")                     # Why2 answer
+
+        self.assertAlmostEqual(w_q1, w_a1, delta=0.5,
+            msg=f"Chipped Why1: question width ({w_q1}) must equal answer width ({w_a1})")
+        self.assertAlmostEqual(w_q2, w_a2, delta=0.5,
+            msg=f"Chipless Why2: question width ({w_q2}) must equal answer width ({w_a2})")
+        self.assertLess(w_q1, w_q2,
+            msg=f"Chipped Why1 width ({w_q1}) must be < chipless Why2 width ({w_q2})")
 
 
 # ---------------------------------------------------------------------------

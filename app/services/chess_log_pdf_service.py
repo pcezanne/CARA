@@ -15,6 +15,7 @@ from PyQt6.QtGui import (
     QFontMetrics,
     QImage,
     QPainter,
+    QPainterPath,
     QPen,
     QPixmap,
     QPolygonF,
@@ -320,22 +321,23 @@ class ChessLogPDFService(BasePDFReportService):
             for key in ("Why1", "Why2", "Why3", "Why4"):
                 has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
+                q_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
                 painter.setFont(self._font_body_bold)
-                br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
-                body_h += float(br.height())
+                br = painter.boundingRect(QRectF(0, 0, q_w, 1000), flags, prompt)
+                q_h = float(br.height())
                 answer = why_map.get(key, "").strip()
-                ans_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
                 if answer:
                     painter.setFont(self._font_body)
-                    br2 = painter.boundingRect(QRectF(0, 0, ans_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(0, 0, q_w, 1000), flags, answer)
                     ans_h = float(br2.height())
                 else:
                     ans_h = 0.0
                 if has_chip:
                     col_h = chip_h + (4.0 + body_line_h if row.show_ignore else 0.0)
+                    block_h = max(q_h + ans_h, col_h)
                 else:
-                    col_h = 0.0
-                body_h += max(ans_h, col_h)
+                    block_h = q_h + ans_h
+                body_h += block_h
                 if key != "Why4":
                     body_h += body_line_h
         else:
@@ -392,6 +394,8 @@ class ChessLogPDFService(BasePDFReportService):
 
         header_br = painter.boundingRect(QRectF(0, 0, w_inner, 1000), flags, row.move_label)
         header_h = float(header_br.height())
+        if row.show_ignore and row.preset != "3x3":
+            header_h = max(header_h, bold_line_h + 4.0)
 
         if row.preset == "3x3":
             cats: List[str] = []
@@ -416,22 +420,23 @@ class ChessLogPDFService(BasePDFReportService):
             for key in ("Why1", "Why2", "Why3", "Why4"):
                 has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
+                q_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
                 painter.setFont(self._font_body_bold)
-                br = painter.boundingRect(QRectF(0, 0, full_w, 1000), flags, prompt)
-                body_h += float(br.height())
+                br = painter.boundingRect(QRectF(0, 0, q_w, 1000), flags, prompt)
+                q_h = float(br.height())
                 answer = why_map_3x3.get(key, "").strip()
-                ans_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
                 if answer:
                     painter.setFont(self._font_body)
-                    br2 = painter.boundingRect(QRectF(0, 0, ans_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(0, 0, q_w, 1000), flags, answer)
                     ans_h = float(br2.height())
                 else:
                     ans_h = 0.0
                 if has_chip:
                     col_h = chip_h + (4.0 + body_line_h if row.show_ignore else 0.0)
+                    block_h = max(q_h + ans_h, col_h)
                 else:
-                    col_h = 0.0
-                body_h += max(ans_h, col_h)
+                    block_h = q_h + ans_h
+                body_h += block_h
                 if key != "Why4":
                     body_h += body_line_h
         else:
@@ -559,27 +564,30 @@ class ChessLogPDFService(BasePDFReportService):
                 is_ignored = ChessLogStorageService.is_entry_ignore_honoured(entry) if has_chip else False
                 prompt = _3X3_PROMPTS.get(key, key)
 
-                # Question line: full width, no chip.
+                # Question + answer use same (possibly narrowed) width.
+                q_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
+                y_col_block_start = y_col
+
+                # Question line.
                 painter.setFont(self._font_body_bold)
                 painter.setPen(self._muted)
-                br = painter.boundingRect(QRectF(col2_x, 0, full_w, 1000), flags, prompt)
+                br = painter.boundingRect(QRectF(col2_x, 0, q_w, 1000), flags, prompt)
                 prompt_h = float(br.height())
                 painter.drawText(
-                    QRectF(col2_x, y_col, full_w, prompt_h + 2), flags, prompt
+                    QRectF(col2_x, y_col, q_w, prompt_h + 2), flags, prompt
                 )
                 y_col += prompt_h
 
-                # Answer row: answer (possibly narrowed) + chip column on the right.
+                # Answer row.
                 answer = why_map_3x3.get(key, "").strip()
-                ans_w = (full_w - chip_col_w - 4.0) if has_chip else full_w
                 ans_h = 0.0
                 if answer:
                     painter.setFont(self._font_body)
                     painter.setPen(self._text)
-                    br2 = painter.boundingRect(QRectF(col2_x, 0, ans_w, 1000), flags, answer)
+                    br2 = painter.boundingRect(QRectF(col2_x, 0, q_w, 1000), flags, answer)
                     ans_h = float(br2.height())
                     painter.drawText(
-                        QRectF(col2_x, y_col, ans_w, ans_h + 2), flags, answer
+                        QRectF(col2_x, y_col, q_w, ans_h + 2), flags, answer
                     )
 
                 if has_chip:
@@ -593,7 +601,7 @@ class ChessLogPDFService(BasePDFReportService):
                     txt = cfg.get("text", def_txt)
                     cw = float(fm_bold.horizontalAdvance(txt)) + chip_pad * 2 + 4.0
                     chip_x = col2_x + full_w - chip_col_w
-                    chip_y = y_col  # top-aligned with answer
+                    chip_y = y_col_block_start  # top-aligned with question
                     painter.save()
                     if is_ignored:
                         painter.setOpacity(0.4)
@@ -618,7 +626,7 @@ class ChessLogPDFService(BasePDFReportService):
                             ignore_str,
                         )
                     chip_col_h = chip_h + (4.0 + body_line_h if row.show_ignore else 0.0)
-                    y_col += max(ans_h, chip_col_h)
+                    y_col = y_col_block_start + max(prompt_h + ans_h, chip_col_h)
                 else:
                     y_col += ans_h
 
@@ -629,13 +637,29 @@ class ChessLogPDFService(BasePDFReportService):
             selected = {e.get("cat", "") for e in row.entries}
             y_col = y_inner
             painter.setFont(self._font_body)
-            painter.setPen(self._text)
+            fm_cb = QFontMetrics(self._font_body)
+            box_size = round(fm_cb.ascent() * 0.72)
+            box_gap = 3.0
             for cat in cats:
-                mark = "☑" if cat in selected else "☐"
+                checked = cat in selected
+                box_y = y_col + (body_line_h - box_size) / 2.0
+                painter.save()
+                painter.setPen(QPen(self._text, 0.9))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawRect(QRectF(col2_x, box_y, box_size, box_size))
+                if checked:
+                    path = QPainterPath()
+                    path.moveTo(col2_x + box_size * 0.18, box_y + box_size * 0.52)
+                    path.lineTo(col2_x + box_size * 0.42, box_y + box_size * 0.76)
+                    path.lineTo(col2_x + box_size * 0.82, box_y + box_size * 0.24)
+                    painter.setPen(QPen(self._text, 1.2))
+                    painter.drawPath(path)
+                painter.restore()
+                painter.setPen(self._text)
                 painter.drawText(
-                    QRectF(col2_x, y_col, col2_w, body_line_h + 2),
+                    QRectF(col2_x + box_size + box_gap, y_col, col2_w - box_size - box_gap, body_line_h + 2),
                     int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop),
-                    f"{mark} {cat}",
+                    cat,
                 )
                 y_col += body_line_h
             if why:

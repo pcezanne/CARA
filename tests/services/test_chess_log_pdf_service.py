@@ -1432,5 +1432,115 @@ class TestThreeByThreePDFLayout(unittest.TestCase):
             )
 
 
+# ---------------------------------------------------------------------------
+# chip_h must include padding and chip text must be AlignCenter (#58)
+# ---------------------------------------------------------------------------
+
+class TestPDFChipHeight(unittest.TestCase):
+    """chip_h must be bold_line_h + 4.0; chip text must use AlignCenter (#58)."""
+
+    def _make_svc(self):
+        return ChessLogPDFService({})
+
+    def _make_3x3_row(self):
+        from app.models.chess_log_snapshot import TagRowSnapshot
+        entries = [{"preset": "3x3", "cat": "Why1", "why": "test", "is_shallow": True}]
+        return TagRowSnapshot(
+            move_label="1. e4", preset="3x3", entries=entries,
+            fen=None, played_move=None, show_ignore=True,
+            shallow_cats=frozenset({"Why1"}),
+        )
+
+    def _make_clamp_row(self):
+        from app.models.chess_log_snapshot import TagRowSnapshot
+        entries = [{"preset": "CLAMP", "cat": "C", "why": "note"}]
+        return TagRowSnapshot(
+            move_label="1. e4", preset="CLAMP", entries=entries,
+            fen=None, played_move=None, show_ignore=True,
+            is_shallow=True,
+        )
+
+    def _draw_row(self, svc, row):
+        from unittest.mock import MagicMock, patch
+        from PyQt6.QtCore import QRectF
+        painter = MagicMock()
+        painter.boundingRect.return_value = QRectF(0, 0, 100, 12)
+        content = QRectF(0, 0, 500, 2000)
+        with patch.object(svc, "_render_board", return_value=None), \
+             patch.object(svc, "_ensure_space", return_value=(0.0, False)):
+            svc._draw_tag_row(painter, MagicMock(), content, 0.0, row)
+        return painter
+
+    def test_3x3_chip_rect_height_equals_bold_line_h_plus_4(self):
+        """3x3 chip drawRoundedRect height must be bold_line_h + 4.0."""
+        from PyQt6.QtGui import QFontMetrics
+        svc = self._make_svc()
+        row = self._make_3x3_row()
+        painter = self._draw_row(svc, row)
+        bold_line_h = float(QFontMetrics(svc._font_body_bold).height())
+        expected_h = bold_line_h + 4.0
+        chip_rects = [c.args[0] for c in painter.drawRoundedRect.call_args_list
+                      if c.args and c.args[0].width() < 400]
+        self.assertGreater(len(chip_rects), 0, "Expected at least one chip rect")
+        for rect in chip_rects:
+            self.assertAlmostEqual(
+                rect.height(), expected_h, places=1,
+                msg=f"3x3 chip rect height {rect.height()} must equal bold_line_h+4 ({expected_h})",
+            )
+
+    def test_3x3_chip_text_alignment_is_center(self):
+        """drawText for 3x3 chip must use AlignCenter."""
+        from PyQt6.QtCore import Qt
+        svc = self._make_svc()
+        row = self._make_3x3_row()
+        painter = self._draw_row(svc, row)
+        chip_calls = [
+            c for c in painter.drawText.call_args_list
+            if c.args and len(c.args) >= 3 and c.args[-1] == "Shallow"
+        ]
+        self.assertGreater(len(chip_calls), 0, "Expected drawText for 'Shallow' chip")
+        for call in chip_calls:
+            self.assertEqual(
+                call.args[1], int(Qt.AlignmentFlag.AlignCenter),
+                f"3x3 chip text alignment {call.args[1]} must be AlignCenter "
+                f"({int(Qt.AlignmentFlag.AlignCenter)})",
+            )
+
+    def test_clamp_header_chip_rect_height_equals_bold_line_h_plus_4(self):
+        """CLAMP header chip drawRoundedRect height must be bold_line_h + 4.0."""
+        from PyQt6.QtGui import QFontMetrics
+        svc = self._make_svc()
+        row = self._make_clamp_row()
+        painter = self._draw_row(svc, row)
+        bold_line_h = float(QFontMetrics(svc._font_body_bold).height())
+        expected_h = bold_line_h + 4.0
+        chip_rects = [c.args[0] for c in painter.drawRoundedRect.call_args_list
+                      if c.args and c.args[0].width() < 400]
+        self.assertGreater(len(chip_rects), 0, "Expected at least one CLAMP header chip rect")
+        for rect in chip_rects:
+            self.assertAlmostEqual(
+                rect.height(), expected_h, places=1,
+                msg=f"CLAMP chip rect height {rect.height()} must equal bold_line_h+4 ({expected_h})",
+            )
+
+    def test_clamp_header_chip_text_alignment_is_center(self):
+        """drawText for CLAMP header chip must use AlignCenter."""
+        from PyQt6.QtCore import Qt
+        svc = self._make_svc()
+        row = self._make_clamp_row()
+        painter = self._draw_row(svc, row)
+        chip_calls = [
+            c for c in painter.drawText.call_args_list
+            if c.args and len(c.args) >= 3 and c.args[-1] == "Shallow"
+        ]
+        self.assertGreater(len(chip_calls), 0, "Expected drawText for 'Shallow' CLAMP header chip")
+        for call in chip_calls:
+            self.assertEqual(
+                call.args[1], int(Qt.AlignmentFlag.AlignCenter),
+                f"CLAMP chip text alignment {call.args[1]} must be AlignCenter "
+                f"({int(Qt.AlignmentFlag.AlignCenter)})",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

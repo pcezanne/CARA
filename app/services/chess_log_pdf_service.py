@@ -294,7 +294,7 @@ class ChessLogPDFService(BasePDFReportService):
         header_br = painter.boundingRect(QRectF(0, 0, w_inner, 1000), flags, row.move_label)
         header_h = float(header_br.height())
         if row.show_ignore and row.preset != "3x3":
-            header_h = max(header_h, bold_line_h)
+            header_h = max(header_h, bold_line_h + 4.0)
 
         # Body content height
         if row.preset == "3x3":
@@ -313,7 +313,7 @@ class ChessLogPDFService(BasePDFReportService):
                 float(fm_body.horizontalAdvance("Ignore: No")),
             )
             chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
-            chip_h = bold_line_h
+            chip_h = bold_line_h + 4.0
             for key in ("Why1", "Why2", "Why3", "Why4"):
                 has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
@@ -409,7 +409,7 @@ class ChessLogPDFService(BasePDFReportService):
                 float(fm_body.horizontalAdvance("Ignore: No")),
             )
             chip_col_w = max(_chip_w_est, _ignore_w_est) + 8.0
-            chip_h = bold_line_h
+            chip_h = bold_line_h + 4.0
             for key in ("Why1", "Why2", "Why3", "Why4"):
                 has_chip = key in row.shallow_cats or key in row.vague_cats
                 prompt = _3X3_PROMPTS.get(key, key)
@@ -516,17 +516,18 @@ class ChessLogPDFService(BasePDFReportService):
                     ignore_text = f"Ignore: {'Yes' if is_ignored else 'No'}"
                     ignore_section_w = float(fm_bold.horizontalAdvance(ignore_text)) + 4.0 + 12.0
                 chip_x = x_inner + w_inner - ignore_section_w - chip_total_w
-                chip_y = y_inner + (header_h - bold_line_h) / 2
+                chip_h_hdr = bold_line_h + 4.0
+                chip_y = y_inner + (header_h - chip_h_hdr) / 2
                 for chip_text, bg_rgb, tc_rgb, chip_w in chip_specs:
                     painter.save()
                     painter.setBrush(QColor(bg_rgb[0], bg_rgb[1], bg_rgb[2]))
                     painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawRoundedRect(QRectF(chip_x, chip_y, chip_w, bold_line_h), 2, 2)
+                    painter.drawRoundedRect(QRectF(chip_x, chip_y, chip_w, chip_h_hdr), 2, 2)
                     painter.setFont(self._font_body_bold)
                     painter.setPen(QColor(tc_rgb[0], tc_rgb[1], tc_rgb[2]))
                     painter.drawText(
-                        QRectF(chip_x + chip_pad, chip_y, chip_w - chip_pad * 2, bold_line_h),
-                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                        QRectF(chip_x, chip_y, chip_w, chip_h_hdr),
+                        int(Qt.AlignmentFlag.AlignCenter),
                         chip_text,
                     )
                     painter.restore()
@@ -599,8 +600,8 @@ class ChessLogPDFService(BasePDFReportService):
                     painter.setFont(self._font_body_bold)
                     painter.setPen(QColor(tc[0], tc[1], tc[2]))
                     painter.drawText(
-                        QRectF(chip_x + chip_pad, chip_y, cw - chip_pad * 2, chip_h),
-                        int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                        QRectF(chip_x, chip_y, cw, chip_h),
+                        int(Qt.AlignmentFlag.AlignCenter),
                         txt,
                     )
                     painter.restore()

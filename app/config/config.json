@@ -733,7 +733,8 @@
       },
       "show_tags": {
         "button_save": "Save",
-        "button_cancel": "Cancel"
+        "button_cancel": "Cancel",
+        "chip_fade_ms": 500
       },
       "shallow": {
         "button_save": "Save",

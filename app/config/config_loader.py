@@ -1358,6 +1358,7 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.dialogs.show_tags.inputs.font_size",
     "ui.dialogs.show_tags.fit_min_lines",
     "ui.dialogs.show_tags.fit_max_lines",
+    "ui.dialogs.show_tags.chip_fade_ms",
     "ui.dialogs.message_dialog.background_color",
     "ui.dialogs.message_dialog.bottom_button_top_padding",
     "ui.dialogs.message_dialog.buttons.border_color",

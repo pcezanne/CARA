@@ -1938,5 +1938,59 @@ class TestChessLogMiniatureBoardSettingsShallow(unittest.TestCase):
             self.assertTrue(row._show_best)
 
 
+# ---------------------------------------------------------------------------
+# #67: chip-fade works in ShowShallowTagsDialog
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipFadeInShallowDialog(unittest.TestCase):
+    """#67: editing a row inside ShowShallowTagsDialog also fades and hides the chip."""
+
+    def _make_shallow_row(self, preset, entries, config=None):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config=config or {"ui": {"dialogs": {"show_tags": {"chip_fade_ms": 0}}}},
+            preset=preset,
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=True,
+        )
+
+    def _pump(self):
+        for _ in range(5):
+            _APP.processEvents()
+
+    def test_3x3_chip_fade_in_shallow_dialog_row(self):
+        """3x3 chip fades in a row created with show_ignore_checkbox=True (shallow dialog)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "rushed", is_shallow=True)
+        row = self._make_shallow_row("3x3", [entry])
+
+        chip_col = row._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(chip_col)
+        self.assertFalse(chip_col.isHidden(), "chip must not be hidden before edit")
+        row._why_texts["Why1"].setPlainText("edited in check logs")
+        self._pump()
+        self.assertTrue(chip_col.isHidden(), "chip must be explicitly hidden after fade")
+
+    def test_clamp_chip_fade_in_shallow_dialog_row(self):
+        """CLAMP chip fades in a row created with show_ignore_checkbox=True (shallow dialog)."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "shallow note", is_shallow=True)
+        row = self._make_shallow_row("CLAMP", [entry])
+
+        chip = row._shallow_chip
+        self.assertIsNotNone(chip)
+        self.assertFalse(chip.isHidden(), "chip must not be hidden before edit")
+        row._why_texts["why"].setPlainText("edited note")
+        self._pump()
+        self.assertTrue(chip.isHidden(), "chip must be explicitly hidden after fade")
+        self.assertTrue(row._ignore_check.isHidden(), "Ignore checkbox must be hidden after fade")
+
+
 if __name__ == "__main__":
     unittest.main()

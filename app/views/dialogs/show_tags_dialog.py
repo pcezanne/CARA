@@ -9,12 +9,13 @@ from typing import Any, Dict, List, Optional, Tuple
 import chess
 import chess.pgn
 
-from PyQt6.QtCore import QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
     QDialog,
     QFrame,
+    QGraphicsOpacityEffect,
     QHBoxLayout,
     QLabel,
     QPlainTextEdit,
@@ -199,6 +200,8 @@ class _TagRowWidget(QFrame):
         self._chips_per_cat: Dict[str, QLabel] = {}
         # Per-answer chip column container widgets — accessed by tests to check width.
         self._chip_col_widgets: Dict[str, QWidget] = {}
+        # Keys that have already started their chip-fade (prevents re-triggering).
+        self._faded_cats: set = set()
 
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
@@ -218,6 +221,7 @@ class _TagRowWidget(QFrame):
         self._input_font_size = int(scale_font_size(st_inp.get("font_size", 11)))
         self._fit_min_lines = int(st.get("fit_min_lines", 1))
         self._fit_max_lines = int(st.get("fit_max_lines", 6))
+        self._chip_fade_ms = int(st.get("chip_fade_ms", 500))
 
     def _make_chip(self, kind: str) -> QLabel:
         """Return a styled QLabel chip for 'shallow' or 'vague_lesson'."""
@@ -274,17 +278,16 @@ class _TagRowWidget(QFrame):
         # For CLAMP/CCT: chips stay on the move-header. For 3x3: chips move to
         # the per-answer question lines (rendered in the txt_col loop below).
         if self._preset != "3x3":
-            from PyQt6.QtWidgets import QGraphicsOpacityEffect as _OpEff
             if self._preserved_is_shallow:
                 chip = self._make_chip("shallow")
                 if self._preserved_ignore_shallow:
-                    eff = _OpEff(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
+                    eff = QGraphicsOpacityEffect(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
                 header_row.addWidget(chip)
                 self._shallow_chip = chip
             if self._preserved_is_vague:
                 chip = self._make_chip("vague_lesson")
                 if self._preserved_ignore_shallow:
-                    eff = _OpEff(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
+                    eff = QGraphicsOpacityEffect(chip); eff.setOpacity(0.4); chip.setGraphicsEffect(eff)
                 header_row.addWidget(chip)
                 self._vague_chip = chip
 
@@ -352,7 +355,6 @@ class _TagRowWidget(QFrame):
         txt_col.setSpacing(4)
         txt_col.setAlignment(Qt.AlignmentFlag.AlignTop)
         if self._preset == "3x3":
-            from PyQt6.QtWidgets import QGraphicsOpacityEffect
             why_map = {e.get("cat", ""): e.get("why", "") for e in self._entries}
 
             # Fixed chip-column width: probe real widget sizeHints instead of
@@ -442,6 +444,7 @@ class _TagRowWidget(QFrame):
                     chip_col_widget.setFixedWidth(_actual_col_w)
                     self._chip_col_widgets[key] = chip_col_widget
                     answer_row.addWidget(chip_col_widget, 0, Qt.AlignmentFlag.AlignTop)
+                    te.textChanged.connect(lambda k=key: self._start_chip_fade_3x3(k))
 
                 txt_col.addLayout(answer_row)
         else:
@@ -456,6 +459,8 @@ class _TagRowWidget(QFrame):
             te.textChanged.connect(self._schedule_edited)
             txt_col.addWidget(te)
             self._why_texts["why"] = te
+            if self._shallow_chip is not None or self._vague_chip is not None:
+                te.textChanged.connect(self._start_chip_fade_clamp_cct)
         cols.addLayout(txt_col, 1)
 
     def _schedule_edited(self) -> None:
@@ -467,7 +472,6 @@ class _TagRowWidget(QFrame):
         """Dim (opacity 0.4) or fully restore a chip widget in real time."""
         if chip is None:
             return
-        from PyQt6.QtWidgets import QGraphicsOpacityEffect
         if dim:
             eff = QGraphicsOpacityEffect(chip)
             eff.setOpacity(0.4)
@@ -478,6 +482,48 @@ class _TagRowWidget(QFrame):
     def _update_clamp_cct_chip_opacity(self, dim: bool) -> None:
         for chip in filter(None, [self._shallow_chip, self._vague_chip]):
             self._set_chip_opacity(chip, dim)
+
+    def _start_chip_fade_3x3(self, key: str) -> None:
+        """Fade out the chip column for a 3x3 answer on first text change."""
+        if key in self._faded_cats:
+            return
+        chip_col = self._chip_col_widgets.get(key)
+        if chip_col is None:
+            return
+        self._faded_cats.add(key)
+        self._run_fade([chip_col])
+
+    def _start_chip_fade_clamp_cct(self) -> None:
+        """Fade out CLAMP/CCT chip(s) and Ignore checkbox on first text change."""
+        if "why" in self._faded_cats:
+            return
+        self._faded_cats.add("why")
+        widgets = [w for w in (self._shallow_chip, self._vague_chip, self._ignore_check)
+                   if w is not None]
+        if widgets:
+            self._run_fade(widgets)
+
+    def _run_fade(self, widgets: list) -> None:
+        """Animate each widget's opacity 1 → 0, then hide them all."""
+        group = QParallelAnimationGroup(self)
+        for w in widgets:
+            eff = QGraphicsOpacityEffect(w)
+            eff.setOpacity(1.0)
+            w.setGraphicsEffect(eff)
+            anim = QPropertyAnimation(eff, b"opacity")
+            anim.setDuration(self._chip_fade_ms)
+            anim.setStartValue(1.0)
+            anim.setEndValue(0.0)
+            group.addAnimation(anim)
+        ws = list(widgets)
+        def _on_done():
+            for widget in ws:
+                try:
+                    widget.hide()
+                except RuntimeError:
+                    pass
+        group.finished.connect(_on_done)
+        group.start()
 
     def _style_text_widget(self, te: QPlainTextEdit) -> None:
         tr, tg, tb = self._text_color

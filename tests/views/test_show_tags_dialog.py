@@ -2303,5 +2303,228 @@ class TestAIHintMenuPath(unittest.TestCase):
         self.assertIn("AI Model Settings", view._shallow_hint.text())
 
 
+# ---------------------------------------------------------------------------
+# #67: chip-fade — editing an answer fades and hides its chip presentation
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestChipFade(unittest.TestCase):
+    """#67: editing an answer fades and hides its chip and Ignore (presentation-only).
+    Data clearing still happens at Save via clear_verdict_if_text_changed."""
+
+    _FADE_CFG = {"ui": {"dialogs": {"show_tags": {"chip_fade_ms": 0}}}}
+    _LONG_FADE_CFG = {"ui": {"dialogs": {"show_tags": {"chip_fade_ms": 10000}}}}
+
+    def _make_3x3_row(self, entries, show_ignore=True, config=None):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config=config or self._FADE_CFG,
+            preset="3x3",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _make_clamp_row(self, entries, show_ignore=True):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        return _TagRowWidget(
+            config=self._FADE_CFG,
+            preset="CLAMP",
+            entries=entries,
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+            show_ignore_checkbox=show_ignore,
+        )
+
+    def _pump(self):
+        for _ in range(5):
+            _APP.processEvents()
+
+    def _shallow_3x3_entry(self, cat="Why1", why="my answer"):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        return ChessLogStorageService.make_entry(
+            "3x3", cat, why,
+            is_shallow=(cat in ("Why1", "Why2", "Why3")),
+            is_vague=(cat == "Why4"),
+        )
+
+    def _shallow_clamp_entry(self, why="my note"):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        return ChessLogStorageService.make_entry("CLAMP", "C", why, is_shallow=True)
+
+    # --- chip hidden after first edit ---
+
+    def test_3x3_chip_col_hidden_after_edit(self):
+        """Editing a 3x3 answer starts a fade; chip column is explicitly hidden once done."""
+        row = self._make_3x3_row([self._shallow_3x3_entry()])
+        chip_col = row._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(chip_col)
+        self.assertFalse(chip_col.isHidden(), "chip column must not be hidden before edit")
+
+        row._why_texts["Why1"].setPlainText("edited text")
+        self._pump()
+
+        self.assertTrue(chip_col.isHidden(), "chip column must be explicitly hidden after fade")
+
+    def test_3x3_ignore_checkbox_hidden_with_chip_col(self):
+        """The Ignore checkbox (inside chip_col_widget) is hidden together with the chip."""
+        row = self._make_3x3_row([self._shallow_3x3_entry()])
+        self.assertIn("Why1", row._ignore_checks)
+        chip_col = row._chip_col_widgets["Why1"]
+
+        row._why_texts["Why1"].setPlainText("edited")
+        self._pump()
+
+        self.assertTrue(chip_col.isHidden())
+
+    def test_3x3_text_edit_not_hidden_after_fade(self):
+        """The answer text box is not hidden; only the chip column is hidden."""
+        row = self._make_3x3_row([self._shallow_3x3_entry()])
+        row._why_texts["Why1"].setPlainText("edited")
+        self._pump()
+
+        self.assertFalse(row._why_texts["Why1"].isHidden(), "text edit must not be hidden after fade")
+
+    # --- second edit does not retrigger ---
+
+    def test_3x3_second_edit_does_not_retrigger(self):
+        """A second edit on the same answer does not start another animation."""
+        row = self._make_3x3_row([self._shallow_3x3_entry()])
+        row._why_texts["Why1"].setPlainText("first edit")
+        self._pump()
+        chip_col = row._chip_col_widgets["Why1"]
+        self.assertTrue(chip_col.isHidden())
+
+        row._why_texts["Why1"].setPlainText("second edit")
+        self._pump()
+        self.assertTrue(chip_col.isHidden(), "chip column must remain hidden after second edit")
+        self.assertIn("Why1", row._faded_cats)
+
+    # --- edit then Save: chip gone on reopen ---
+
+    def test_edit_then_save_chip_absent_on_reopen(self):
+        """After editing and saving, the chip is gone on reopen (is_shallow cleared)."""
+        entry = self._shallow_3x3_entry()
+        row = self._make_3x3_row([entry])
+        row._why_texts["Why1"].setPlainText("edited text")
+        self._pump()
+
+        saved = row.get_current_entries()
+        why1 = next((e for e in saved if e.get("cat") == "Why1"), None)
+        self.assertIsNotNone(why1)
+        self.assertNotIn("is_shallow", why1)
+
+        row2 = self._make_3x3_row(saved)
+        self.assertNotIn("Why1", row2._chip_col_widgets)
+
+    # --- restore original text then Save: chip back on reopen ---
+
+    def test_restore_original_text_then_save_chip_back(self):
+        """Restoring the exact original text preserves is_shallow; chip reappears on reopen."""
+        entry = self._shallow_3x3_entry(why="my answer")
+        row = self._make_3x3_row([entry])
+
+        row._why_texts["Why1"].setPlainText("different text")
+        self._pump()
+        chip_col = row._chip_col_widgets.get("Why1")
+        self.assertTrue(chip_col.isHidden(), "chip must be hidden in current session")
+
+        row._why_texts["Why1"].setPlainText("my answer")  # restore
+
+        saved = row.get_current_entries()
+        why1 = next((e for e in saved if e.get("cat") == "Why1"), None)
+        self.assertIsNotNone(why1)
+        self.assertTrue(why1.get("is_shallow"), "is_shallow preserved when text matches original")
+
+        row2 = self._make_3x3_row(saved)
+        self.assertIn("Why1", row2._chip_col_widgets)
+        self.assertFalse(row2._chip_col_widgets["Why1"].isHidden(), "chip must not be hidden on reopen")
+
+    # --- edit then Cancel: chip back on reopen ---
+
+    def test_edit_then_cancel_chip_back_on_reopen(self):
+        """Cancel discards edits; original entry is unchanged; chip reappears on reopen."""
+        entry = self._shallow_3x3_entry()
+        row = self._make_3x3_row([entry])
+        row._why_texts["Why1"].setPlainText("edited but cancelled")
+        self._pump()
+
+        # Cancel = don't save; reopen with original entry unchanged
+        row2 = self._make_3x3_row([entry])
+        chip_col = row2._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(chip_col)
+        self.assertFalse(chip_col.isHidden(), "chip must not be hidden on reopen after cancel")
+
+    # --- closing mid-fade raises nothing ---
+
+    def test_close_during_fade_raises_nothing(self):
+        """Destroying a row widget mid-fade does not raise RuntimeError."""
+        entry = self._shallow_3x3_entry()
+        row = self._make_3x3_row([entry], config=self._LONG_FADE_CFG)
+
+        row._why_texts["Why1"].setPlainText("edit during long fade")
+        # Animation is still running (10 s duration); delete the row
+        row.deleteLater()
+        self._pump()
+        # No exception = pass
+
+    # --- CLAMP/CCT fade, no resize ---
+
+    def test_clamp_chip_fades_and_hides_on_edit(self):
+        """Editing a CLAMP note fades and hides the chip."""
+        row = self._make_clamp_row([self._shallow_clamp_entry()])
+        chip = row._shallow_chip
+        self.assertIsNotNone(chip)
+        self.assertFalse(chip.isHidden(), "chip must not be hidden before edit")
+
+        row._why_texts["why"].setPlainText("edited note")
+        self._pump()
+
+        self.assertTrue(chip.isHidden(), "chip must be explicitly hidden after fade")
+
+    def test_clamp_ignore_checkbox_hidden_after_fade(self):
+        """CLAMP Ignore checkbox is hidden together with the chip."""
+        row = self._make_clamp_row([self._shallow_clamp_entry()])
+        self.assertIsNotNone(row._ignore_check)
+
+        row._why_texts["why"].setPlainText("edited note")
+        self._pump()
+
+        self.assertTrue(row._ignore_check.isHidden())
+
+    def test_clamp_second_edit_does_not_retrigger(self):
+        """Second edit on a CLAMP note does not restart the fade."""
+        row = self._make_clamp_row([self._shallow_clamp_entry()])
+        row._why_texts["why"].setPlainText("first edit")
+        self._pump()
+        chip = row._shallow_chip
+        self.assertTrue(chip.isHidden())
+
+        row._why_texts["why"].setPlainText("second edit")
+        self._pump()
+        self.assertTrue(chip.isHidden(), "chip must remain hidden after second edit")
+        self.assertIn("why", row._faded_cats)
+
+    # --- fade also works in ShowShallowTagsDialog (show_ignore_checkbox=True) ---
+
+    def test_fade_works_with_show_ignore_checkbox_true(self):
+        """Fade works when show_ignore_checkbox=True (ShowShallowTagsDialog path)."""
+        row = self._make_3x3_row([self._shallow_3x3_entry()], show_ignore=True)
+        chip_col = row._chip_col_widgets.get("Why1")
+        self.assertIsNotNone(chip_col)
+
+        row._why_texts["Why1"].setPlainText("edited in check logs")
+        self._pump()
+
+        self.assertTrue(chip_col.isHidden())
+
+
 if __name__ == "__main__":
     unittest.main()

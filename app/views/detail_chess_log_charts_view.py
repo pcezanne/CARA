@@ -97,6 +97,7 @@ class DetailChessLogChartsView(QWidget):
                 self._controller.shallow_failed.disconnect(self._on_shallow_failed)
                 self._controller.shallow_partial.disconnect(self._on_shallow_partial)
                 self._controller.ai_configured_changed.disconnect(self._on_ai_configured_changed)
+                self._controller.ai_model_changed.disconnect(self._on_ai_model_changed)
             except RuntimeError:
                 pass
 
@@ -115,6 +116,7 @@ class DetailChessLogChartsView(QWidget):
         controller.shallow_failed.connect(self._on_shallow_failed)
         controller.shallow_partial.connect(self._on_shallow_partial)
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
+        controller.ai_model_changed.connect(self._on_ai_model_changed)
 
         self._refresh_ai_state()
 
@@ -526,6 +528,9 @@ class DetailChessLogChartsView(QWidget):
     def _on_ai_configured_changed(self, configured: bool) -> None:
         self._refresh_ai_state()
 
+    def _on_ai_model_changed(self) -> None:
+        self._refresh_ai_state(prefer_default=True)
+
     def _on_narrative_model_changed(self, text: str) -> None:
         if self._controller:
             self._controller.set_narrative_model_override(text or None)
@@ -673,7 +678,7 @@ class DetailChessLogChartsView(QWidget):
     def _on_shallow_partial(self, message: str) -> None:
         self._pending_partial_message = message
 
-    def _refresh_ai_state(self) -> None:
+    def _refresh_ai_state(self, prefer_default: bool = False) -> None:
         configured = bool(self._controller and self._controller.is_ai_configured())
         source_selected = self._source_combo.currentIndex() > 0
         player_selected = self._player_combo.currentIndex() >= 0
@@ -714,7 +719,7 @@ class DetailChessLogChartsView(QWidget):
             self._model_combo.clear()
             for m in models:
                 self._model_combo.addItem(m)
-            idx = self._model_combo.findText(current_selection) if current_selection else -1
+            idx = self._model_combo.findText(current_selection) if (current_selection and not prefer_default) else -1
             if idx < 0 and override:
                 idx = self._model_combo.findText(override)
             if idx < 0:

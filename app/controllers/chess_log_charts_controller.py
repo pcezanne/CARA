@@ -462,6 +462,7 @@ class ChessLogChartsController(QObject):
     shallow_failed = pyqtSignal(str)             # hard error — no results follow
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
+    ai_model_changed = pyqtSignal()           # default provider or model changed in AI Settings
 
     def __init__(
         self,
@@ -562,10 +563,17 @@ class ChessLogChartsController(QObject):
     def set_user_settings(self, user_settings: Dict[str, Any]) -> None:
         """Refresh user settings (e.g. after AI Model Settings dialog closes)."""
         was_configured = resolve_default_provider(self._user_settings) is not None
+        _old_pt = resolve_default_provider(self._user_settings)
         self._user_settings = user_settings
         is_configured = resolve_default_provider(self._user_settings) is not None
         if was_configured != is_configured:
             self.ai_configured_changed.emit(is_configured)
+        _new_pt = resolve_default_provider(self._user_settings)
+        _old_key = (_old_pt[0], _old_pt[1]) if _old_pt else None
+        _new_key = (_new_pt[0], _new_pt[1]) if _new_pt else None
+        if _old_key != _new_key:
+            self._narrative_model_override = None
+            self.ai_model_changed.emit()
 
         old = (
             self._target_progression_bins, self._ordinal_fallback_mode, self._progression_x_axis_mode,

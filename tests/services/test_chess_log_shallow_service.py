@@ -1412,8 +1412,11 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         ):
             classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(mock_logger.info.called, "Retry must log at INFO level")
-        info_msg = mock_logger.info.call_args.args[0]
-        self.assertIn("retry", info_msg.lower())
+        all_info_msgs = [c.args[0] for c in mock_logger.info.call_args_list]
+        self.assertTrue(
+            any("retry" in m.lower() for m in all_info_msgs),
+            f"At least one INFO log must mention 'retry'; got: {all_info_msgs}",
+        )
 
 
 class _FakeGame:

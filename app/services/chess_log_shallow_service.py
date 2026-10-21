@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet, Iterable, List, Optional, Set, Tuple
 
@@ -388,11 +389,14 @@ def classify_notes(
 
     token_limit = _classifier_token_limit(len(notes))
     service = AIService(config=config)
-    LoggingService.get_instance().debug(
-        "chess_log classifier dispatch: model=%s, thinking=%r, notes=%d, max_tokens=%d%s"
+    LoggingService.get_instance().info(
+        "chess_log classifier: feature=check-logs-clamp, model=%s, thinking=%r, "
+        "notes=%d, max_tokens=%d, body_bytes=%d, timeout=%ds%s"
         % (model, thinking, len(notes), token_limit,
+           len(prompt.encode("utf-8")), timeout_seconds,
            ", IS_RETRY=True" if _is_retry else "")
     )
+    _t0 = time.monotonic()
     result = service.send_message(
         provider=provider,
         model=model,
@@ -402,6 +406,21 @@ def classify_notes(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
+    )
+    _elapsed = time.monotonic() - _t0
+    if result.success:
+        _outcome = "ok"
+    elif result.error and "timed out" in result.error.lower():
+        _outcome = "timeout"
+    else:
+        _outcome = "error"
+    _in_tok = result.usage.input_tokens if result.usage else None
+    _out_tok = result.usage.output_tokens if result.usage else None
+    _model_note = (f", replied_model={result.model!r}" if result.model != model else "")
+    LoggingService.get_instance().info(
+        "chess_log classifier done: feature=check-logs-clamp, model=%s, "
+        "elapsed=%.1fs, outcome=%s, input_tokens=%s, output_tokens=%s%s"
+        % (model, _elapsed, _outcome, _in_tok, _out_tok, _model_note)
     )
 
     if not result.success:
@@ -538,11 +557,14 @@ def classify_notes_3x3(
     thinking = AIService.disable_thinking_for(model)
     token_limit = _classifier_token_limit(len(notes), per_note=90)
     service = AIService(config=config)
-    LoggingService.get_instance().debug(
-        "chess_log 3x3 classifier dispatch: model=%s, thinking=%r, notes=%d, max_tokens=%d%s"
+    LoggingService.get_instance().info(
+        "chess_log 3x3 classifier: feature=check-logs-3x3, model=%s, thinking=%r, "
+        "notes=%d, max_tokens=%d, body_bytes=%d, timeout=%ds%s"
         % (model, thinking, len(notes), token_limit,
+           len(prompt.encode("utf-8")), timeout_seconds,
            ", IS_RETRY=True" if _is_retry else "")
     )
+    _t0_3x3 = time.monotonic()
     result = service.send_message(
         provider=provider,
         model=model,
@@ -552,6 +574,21 @@ def classify_notes_3x3(
         timeout_seconds=timeout_seconds,
         thinking=thinking,
         token_limit=token_limit,
+    )
+    _elapsed_3x3 = time.monotonic() - _t0_3x3
+    if result.success:
+        _outcome_3x3 = "ok"
+    elif result.error and "timed out" in result.error.lower():
+        _outcome_3x3 = "timeout"
+    else:
+        _outcome_3x3 = "error"
+    _in_tok_3x3 = result.usage.input_tokens if result.usage else None
+    _out_tok_3x3 = result.usage.output_tokens if result.usage else None
+    _model_note_3x3 = (f", replied_model={result.model!r}" if result.model != model else "")
+    LoggingService.get_instance().info(
+        "chess_log 3x3 classifier done: feature=check-logs-3x3, model=%s, "
+        "elapsed=%.1fs, outcome=%s, input_tokens=%s, output_tokens=%s%s"
+        % (model, _elapsed_3x3, _outcome_3x3, _in_tok_3x3, _out_tok_3x3, _model_note_3x3)
     )
 
     if not result.success:

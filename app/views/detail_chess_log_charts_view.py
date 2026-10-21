@@ -34,6 +34,7 @@ from PyQt6.QtWidgets import (
 from app.controllers.chess_log_charts_controller import ChessLogChartsController
 from app.services.ai_service import TokenUsage
 from app.services.chess_log_narrative_service import sanitize_narrative_markdown
+from app.services.logging_service import LoggingService
 from app.services.chess_log_stats_service import ChessLogPresetSeries
 from app.utils.font_utils import resolve_font_family, scale_font_size
 from app.views.style.style_manager import StyleManager
@@ -601,6 +602,16 @@ class DetailChessLogChartsView(QWidget):
     def _on_show_shallow_clicked(self) -> None:
         if not self._controller:
             return
+        combo_text = self._model_combo.currentText()
+        combo_data = self._model_combo.currentData()
+        override = self._controller.get_narrative_model_override()
+        default_model = self._controller.get_default_narrative_model() or ""
+        will_pass = override or default_model or ""
+        LoggingService.get_instance().info(
+            "check-logs model resolution: combo_text=%r, combo_data=%r, "
+            "override=%r, default_model=%r, will_pass=%r"
+            % (combo_text, combo_data, override, default_model, will_pass)
+        )
         self._show_shallow_btn.setEnabled(False)
         self._shallow_spinner.start()
         self._shallow_status_label.setVisible(True)

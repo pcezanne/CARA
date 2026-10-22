@@ -28,6 +28,11 @@ GENERIC is rare. Use it only for a non-blank answer that says nothing about this
     "No real reason."
     "Just a normal move."
 
+  Text that is not meaningful language (placeholder text, gibberish, random
+  letters, keyboard mashing) counts as nothing. Judge the answer only on its
+  meaningful words; if those are generic, the answer is GENERIC however long it is.
+    "Wanted to keep developing. asdkj qwe zzzz xcvb mnop qwe zzzz xcvb."
+
 SPECIFIC is everything else. All of these are SPECIFIC:
   - A piece, square, plan, tactic or threat:
       "Clearing the e-file for my rook."

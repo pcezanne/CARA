@@ -2,7 +2,7 @@
 
 Human-authored move logging layer — player self-diagnosis, complementing CARA's engine-based classification. Players log up to three "moments" per game with a category and optional note.
 
-See also: `doc/chess_log_charts.md` for the Charts tab (reporting and narrative); `chess-log-design-doc.md` §3.2–3.4 for the full preset design.
+See also: `doc/chess_log_charts.md` for the Charts tab (reporting and narrative); `chess-log-design-doc.md` §3.2–3.4 for the full preset design; `doc/chess_log_integrity.md` for the data-integrity audit (caching, write paths, findings).
 
 ## Storage format
 

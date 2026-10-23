@@ -2119,6 +2119,24 @@ class TestF5ClamNoContamination(unittest.TestCase):
                     self.assertFalse(e.get("is_shallow"),
                                      "game_2 (DEEP) must not receive is_shallow=True")
 
+    def test_save_stamps_shallow_game(self):
+        """game_1 (SHALLOW) must receive is_shallow=True — positive control."""
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("CLAMP", "C", "vague note")]},
+            id(game_2): {"0": [_make_entry("CLAMP", "L", "specific insight")]},
+        }
+        sk = frozenset([(game_1, "0", "CLAMP", "")])
+        ck = frozenset([(game_1, "0", "CLAMP", ""), (game_2, "0", "CLAMP", "")])
+        dlg, ctrl = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        dlg._on_save()
+        game_1_calls = [c for c in ctrl.replace_entries_at_path_for_game.call_args_list
+                        if c[0][0] is game_1]
+        self.assertTrue(
+            any(any(e.get("is_shallow") for e in c[0][3]) for c in game_1_calls),
+            "game_1 (SHALLOW) must have at least one entry stamped is_shallow=True",
+        )
+
 
 @requires_qt
 class TestF53x3NoContamination(unittest.TestCase):
@@ -2153,6 +2171,24 @@ class TestF53x3NoContamination(unittest.TestCase):
                     self.assertFalse(e.get("is_shallow"),
                                      "game_2 Why1 (DEEP) must not receive is_shallow=True")
 
+    def test_3x3_save_stamps_shallow_game(self):
+        """game_1 (Why1=GENERIC) must receive is_shallow=True — positive control."""
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("3x3", "Why1", "generic answer")]},
+            id(game_2): {"0": [_make_entry("3x3", "Why1", "I miscalculated d5 after 18...Qe6")]},
+        }
+        sk = frozenset([(game_1, "0", "3x3", "Why1")])
+        ck = frozenset([(game_1, "0", "3x3", "Why1"), (game_2, "0", "3x3", "Why1")])
+        dlg, ctrl = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        dlg._on_save()
+        game_1_calls = [c for c in ctrl.replace_entries_at_path_for_game.call_args_list
+                        if c[0][0] is game_1]
+        self.assertTrue(
+            any(any(e.get("is_shallow") for e in c[0][3]) for c in game_1_calls),
+            "game_1 Why1 (SHALLOW) must have at least one entry stamped is_shallow=True",
+        )
+
 
 @requires_qt
 class TestF3SnapshotNoCollision(unittest.TestCase):
@@ -2177,6 +2213,118 @@ class TestF3SnapshotNoCollision(unittest.TestCase):
         cats = {snap_0[0]["cat"] if snap_0 else None, snap_1[0]["cat"] if snap_1 else None}
         self.assertEqual(cats, {"C", "L"},
                          "Both games' entries must be preserved separately in the snapshot")
+
+
+@requires_qt
+class TestF5SortScenario(unittest.TestCase):
+    """Sort scenario: sorting the DB after caching shallow_keys must not corrupt the
+    identity-based chip lookup — the chip stays on game_a, not game_b."""
+
+    def test_chip_survives_db_sort_and_theme_rebuild(self):
+        """Sort DB descending, simulate theme-rebuild: game_a chip survives, game_b has none."""
+        import json
+        from unittest.mock import patch
+        from PyQt6.QtCore import Qt
+        from app.models.database_model import DatabaseModel, GameData
+        from app.controllers.chess_log_charts_controller import ChessLogChartsController
+        from app.views.detail_chess_log_charts_view import DetailChessLogChartsView
+
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app", "config", "config.json",
+        )
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+
+        game_a = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+        game_b = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+        db = DatabaseModel(config=cfg)
+        db.add_game(game_a, tags=set())  # game_a.game_number = 1
+        db.add_game(game_b, tags=set())  # game_b.game_number = 2
+
+        db_ctrl = MagicMock()
+        db_ctrl.get_panel_model.return_value = None
+        db_ctrl.get_active_database.return_value = db
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+
+        sk = frozenset([(game_a, "0", "CLAMP", "")])
+        ck = frozenset([(game_a, "0", "CLAMP", ""), (game_b, "0", "CLAMP", "")])
+        ctrl._on_shallow_thread_ready(sk, frozenset(), ck, None)
+
+        # Sort descending: game_b (number 2) moves ahead of game_a (number 1)
+        db.sort(column=DatabaseModel.COL_NUM, order=Qt.SortOrder.DescendingOrder)
+
+        # Simulate theme-rebuild: new view restores cache via set_controller
+        with patch.object(ctrl, "_start_dropdown_worker"):
+            view = DetailChessLogChartsView({})
+            view.set_controller(ctrl)
+
+        self.assertIsNotNone(view._last_shallow_keys,
+                             "set_controller must restore shallow_keys from cache")
+
+        tags = {
+            id(game_a): {"0": [_make_entry("CLAMP", "C", "vague note")]},
+            id(game_b): {"0": [_make_entry("CLAMP", "L", "specific insight")]},
+        }
+        dlg, dlg_ctrl = _make_shallow_dialog(
+            [game_a, game_b], tags, view._last_shallow_keys, ck,
+        )
+        self.assertEqual(len(dlg._row_widgets), 1,
+                         "Only game_a must have chip after sort — game_b must not")
+        self.assertIs(dlg._row_games[0], game_a)
+
+        dlg._on_save()
+        game_a_calls = [c for c in dlg_ctrl.replace_entries_at_path_for_game.call_args_list
+                        if c[0][0] is game_a]
+        self.assertTrue(
+            any(any(e.get("is_shallow") for e in c[0][3]) for c in game_a_calls),
+            "game_a must be stamped is_shallow=True after Save",
+        )
+        for c in dlg_ctrl.replace_entries_at_path_for_game.call_args_list:
+            if c[0][0] is game_b:
+                for e in c[0][3]:
+                    self.assertFalse(e.get("is_shallow"),
+                                     "game_b must not receive is_shallow=True after sort")
+
+
+@requires_qt
+class TestF5StaleCacheScenario(unittest.TestCase):
+    """Stale-cache scenario: closing DB-A and opening DB-B must not show a chip for
+    game_B even when game_A's stale (game_number, path_key, preset) matches exactly."""
+
+    def test_stale_cache_no_chip_for_different_db_game(self):
+        """game_B from DB-B must not get a chip from DB-A's stale shallow_keys."""
+        import json
+        from app.models.database_model import DatabaseModel, GameData
+
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app", "config", "config.json",
+        )
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+
+        db_a = DatabaseModel(config=cfg)
+        game_a = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+        db_a.add_game(game_a, tags=set())  # game_a.game_number = 1
+
+        stale_shallow_keys = frozenset([(game_a, "0", "CLAMP", "")])
+        stale_classified_keys = frozenset(stale_shallow_keys)
+
+        # Simulate DB-A close: remove game_A
+        db_a.remove_games([game_a])
+
+        db_b = DatabaseModel(config=cfg)
+        game_b = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+        db_b.add_game(game_b, tags=set())  # game_b.game_number = 1
+        self.assertEqual(game_b.game_number, game_a.game_number,
+                         "Both games must have game_number=1 to reproduce the false-positive risk")
+
+        tags = {id(game_b): {"0": [_make_entry("CLAMP", "C", "specific insight")]}}
+        dlg, _ = _make_shallow_dialog([game_b], tags, stale_shallow_keys, stale_classified_keys)
+
+        self.assertEqual(len(dlg._row_widgets), 0,
+                         "game_B from DB-B must not get a chip from DB-A's stale shallow_keys")
 
 
 if __name__ == "__main__":

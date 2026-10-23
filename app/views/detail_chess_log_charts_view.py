@@ -71,6 +71,7 @@ class DetailChessLogChartsView(QWidget):
         # Session-scoped shallow-tag freshness: set after Show Shallow Tags runs,
         # cleared when Data Source or Player filter changes.
         self._last_shallow_keys: Optional[FrozenSet[Tuple[Any, str, str, str]]] = None
+        self._last_vague_keys: Optional[FrozenSet[Tuple[Any, str, str, str]]] = None
         # Partial-fail notice from shallow_partial signal; consumed by the next
         # shallow_ready handler to show inline in the dialog rather than a
         # separate QMessageBox.
@@ -125,9 +126,10 @@ class DetailChessLogChartsView(QWidget):
         narrative, flags, usage = controller.get_last_narrative_result()
         if narrative:
             self._on_narrative_ready(narrative, flags, usage)
-        shallow_keys, _vague_keys, shallow_usage = controller.get_last_shallow_result()
+        shallow_keys, vague_keys, shallow_usage = controller.get_last_shallow_result()
         if shallow_keys is not None:
             self._last_shallow_keys = shallow_keys
+            self._last_vague_keys = frozenset(vague_keys) if vague_keys else None
             self._shallow_token_label.setText(self._format_token_usage(shallow_usage))
             self._refresh_ai_state()
 
@@ -435,12 +437,14 @@ class DetailChessLogChartsView(QWidget):
 
     def _on_source_changed(self, index: int) -> None:
         self._last_shallow_keys = None  # freshness invalidated
+        self._last_vague_keys = None
         self._reset_player_selection()
         if self._controller:
             self._controller.set_source_selection(index)
 
     def _on_player_changed(self, index: int) -> None:
         self._last_shallow_keys = None  # freshness invalidated
+        self._last_vague_keys = None
         self._refresh_ai_state()
         if not self._controller or index < 0:
             return
@@ -590,6 +594,7 @@ class DetailChessLogChartsView(QWidget):
 
     def _reset_player_selection(self) -> None:
         self._last_shallow_keys = None
+        self._last_vague_keys = None
         self._last_narrative = ""
         self._player_combo.blockSignals(True)
         self._player_combo.setCurrentIndex(-1)
@@ -629,6 +634,7 @@ class DetailChessLogChartsView(QWidget):
         self._shallow_token_label.setText(self._format_token_usage(usage))
         self._refresh_ai_state()
         self._last_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
+        self._last_vague_keys = frozenset(vague_keys) if vague_keys else None
         partial_notice = self._pending_partial_message
         self._pending_partial_message = None
         if not self._controller:
@@ -783,15 +789,20 @@ class DetailChessLogChartsView(QWidget):
             QApplication.clipboard().setText(text)
 
     def _moment_in_last_shallow(self, game, path_key: str, preset: str) -> bool:
-        """Return True if this game/path_key/preset moment is flagged shallow or vague."""
-        if not self._last_shallow_keys:
-            return False
+        """Return True if this game/path_key/preset moment is in shallow_keys or vague_keys."""
         if preset == "3x3":
-            return any(
-                (game, path_key, "3x3", cat) in self._last_shallow_keys
-                for cat in ("Why1", "Why2", "Why3", "Why4")
-            )
-        return (game, path_key, preset, "") in self._last_shallow_keys
+            cats = ("Why1", "Why2", "Why3", "Why4")
+            if self._last_shallow_keys and any(
+                (game, path_key, "3x3", cat) in self._last_shallow_keys for cat in cats
+            ):
+                return True
+            return bool(self._last_vague_keys and any(
+                (game, path_key, "3x3", cat) in self._last_vague_keys for cat in cats
+            ))
+        key = (game, path_key, preset, "")
+        if self._last_shallow_keys and key in self._last_shallow_keys:
+            return True
+        return bool(self._last_vague_keys and key in self._last_vague_keys)
 
     def _copy_log_to_clipboard(self) -> None:
         from PyQt6.QtWidgets import QApplication

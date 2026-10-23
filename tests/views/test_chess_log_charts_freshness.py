@@ -43,6 +43,8 @@ _MINIMAL_CONFIG: dict = {}
 _GAME_1 = GameData(game_number=1) if _QT_OK else None
 _GAME_2 = GameData(game_number=2) if _QT_OK else None
 _SHALLOW_KEYS = frozenset({(_GAME_1, "k1", "CLAMP", ""), (_GAME_2, "k2", "CCT", "")}) if _QT_OK else frozenset()
+_GAME_3 = GameData(game_number=3) if _QT_OK else None
+_VAGUE_KEYS = frozenset({(_GAME_3, "v1", "3x3", "Why4")}) if _QT_OK else frozenset()
 
 
 @requires_qt
@@ -84,6 +86,41 @@ class TestShalowKeysFreshness(unittest.TestCase):
         g = GameData(game_number=1)
         self._view._on_shallow_ready({(g, "k", "CLAMP", "")}, frozenset(), frozenset(), None)
         self.assertIsInstance(self._view._last_shallow_keys, frozenset)
+
+
+@requires_qt
+class TestVagueKeysFreshness(unittest.TestCase):
+    """_last_vague_keys mirrors _last_shallow_keys lifecycle."""
+
+    def setUp(self):
+        self._view = DetailChessLogChartsView(_MINIMAL_CONFIG)
+
+    def test_initial_state_is_none(self):
+        self.assertIsNone(self._view._last_vague_keys)
+
+    def test_on_shallow_ready_caches_vague_keys(self):
+        self._view._on_shallow_ready(_SHALLOW_KEYS, _VAGUE_KEYS, frozenset(), None)
+        self.assertEqual(self._view._last_vague_keys, _VAGUE_KEYS)
+
+    def test_on_shallow_ready_empty_vague_stores_none(self):
+        self._view._on_shallow_ready(_SHALLOW_KEYS, _VAGUE_KEYS, frozenset(), None)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, frozenset(), frozenset(), None)
+        self.assertIsNone(self._view._last_vague_keys)
+
+    def test_on_source_changed_clears_vague_keys(self):
+        self._view._on_shallow_ready(_SHALLOW_KEYS, _VAGUE_KEYS, frozenset(), None)
+        self._view._on_source_changed(1)
+        self.assertIsNone(self._view._last_vague_keys)
+
+    def test_on_player_changed_clears_vague_keys(self):
+        self._view._on_shallow_ready(_SHALLOW_KEYS, _VAGUE_KEYS, frozenset(), None)
+        self._view._on_player_changed(-1)
+        self.assertIsNone(self._view._last_vague_keys)
+
+    def test_cache_type_is_frozenset(self):
+        g = GameData(game_number=9)
+        self._view._on_shallow_ready(_SHALLOW_KEYS, {(g, "x", "3x3", "Why1")}, frozenset(), None)
+        self.assertIsInstance(self._view._last_vague_keys, frozenset)
 
 
 def _make_ctrl():
@@ -142,6 +179,14 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
         view = self._simulate_theme_rebuild(ctrl)
 
         self.assertIn("30", view._shallow_token_label.text())
+
+    def test_vague_keys_survive_theme_rebuild(self):
+        ctrl = _make_ctrl()
+        ctrl._on_shallow_thread_ready(_SHALLOW_KEYS, _VAGUE_KEYS, frozenset(), None)
+
+        view = self._simulate_theme_rebuild(ctrl)
+
+        self.assertEqual(view._last_vague_keys, _VAGUE_KEYS)
 
     def test_database_switch_clears_narrative_before_rebuild(self):
         ctrl = _make_ctrl()
@@ -256,6 +301,35 @@ class TestMomentInLastShallowHelper(unittest.TestCase):
     def test_none_shallow_keys_returns_false(self):
         self._view._last_shallow_keys = None
         self.assertFalse(self._view._moment_in_last_shallow(_GAME_1, "k1", "CLAMP"))
+
+    def test_3x3_vague_only_hit(self):
+        """3x3 moment in vague_keys only (not shallow_keys) must return True."""
+        g = GameData(game_number=7)
+        self._view._last_shallow_keys = frozenset()
+        self._view._last_vague_keys = frozenset([(g, "0", "3x3", "Why4")])
+        self.assertTrue(self._view._moment_in_last_shallow(g, "0", "3x3"),
+                        "vague-only 3x3 Why4 moment must appear in export")
+
+    def test_clamp_vague_only_hit(self):
+        """CLAMP moment in vague_keys only must return True."""
+        g = GameData(game_number=8)
+        self._view._last_shallow_keys = frozenset()
+        self._view._last_vague_keys = frozenset([(g, "p", "CLAMP", "")])
+        self.assertTrue(self._view._moment_in_last_shallow(g, "p", "CLAMP"),
+                        "vague-only CLAMP moment must appear in export")
+
+    def test_3x3_in_neither_returns_false(self):
+        """3x3 moment absent from both shallow_keys and vague_keys returns False."""
+        g = GameData(game_number=9)
+        self._view._last_shallow_keys = frozenset()
+        self._view._last_vague_keys = frozenset()
+        self.assertFalse(self._view._moment_in_last_shallow(g, "0", "3x3"))
+
+    def test_none_vague_keys_falls_back_to_shallow(self):
+        """When vague_keys is None, a shallow_keys hit still returns True."""
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        self._view._last_vague_keys = None
+        self.assertTrue(self._view._moment_in_last_shallow(_GAME_1, "k1", "CLAMP"))
 
 
 if __name__ == "__main__":

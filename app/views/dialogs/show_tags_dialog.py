@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import chess
 import chess.pgn
 
-from PyQt6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QTimer, Qt, pyqtSignal
+from PyQt6.QtCore import QParallelAnimationGroup, QPropertyAnimation, QTimer, Qt, pyqtSignal, pyqtSlot
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -206,7 +206,7 @@ class _TagRowWidget(QFrame):
         self._edit_debounce = QTimer(self)
         self._edit_debounce.setSingleShot(True)
         self._edit_debounce.setInterval(300)
-        self._edit_debounce.timeout.connect(self.edited.emit)
+        self._edit_debounce.timeout.connect(self._emit_edited)
 
         self._load_font_config(config)
         self._setup(move_label, fen, played_move)
@@ -466,6 +466,10 @@ class _TagRowWidget(QFrame):
     def _schedule_edited(self) -> None:
         """Restart the 300ms debounce timer on any input change."""
         self._edit_debounce.start()
+
+    @pyqtSlot()
+    def _emit_edited(self) -> None:
+        self.edited.emit()
 
     @staticmethod
     def _set_chip_opacity(chip: Optional[QLabel], dim: bool) -> None:

@@ -2526,5 +2526,86 @@ class TestChipFade(unittest.TestCase):
         self.assertTrue(chip_col.isHidden())
 
 
+# ---------------------------------------------------------------------------
+# Regression: debounce timer must not fire against a destroyed _TagRowWidget
+# (the edited() signal crash: 'does not have a signal with the signature edited()')
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestDebounceCrashAfterDestroy(unittest.TestCase):
+    """Guard against use-after-free in _TagRowWidget._edit_debounce.
+
+    Before the fix, timer.timeout.connect(self.edited.emit) stored a strong-
+    reference bound method.  If the C++ widget was destroyed (e.g. by its Qt
+    parent) while the Python wrapper was kept alive by that bound method, the
+    300 ms timer could fire against a dead — or reused — C++ object and raise
+    "does not have a signal with the signature edited()" from inside a Qt callback.
+
+    We reproduce the condition with sip.delete(), which destroys the C++ object
+    immediately while leaving the Python wrapper alive (exactly what happens when
+    a parent widget destroys its children before Python GC runs).
+    """
+
+    def setUp(self):
+        import gc
+        self._gc = gc
+        self._unraisable: list = []
+        self._orig_unraisable = sys.unraisablehook
+
+        def _capture(args):
+            self._unraisable.append(args)
+
+        sys.unraisablehook = _capture
+
+    def tearDown(self):
+        sys.unraisablehook = self._orig_unraisable
+
+    def _make_row(self):
+        from app.views.dialogs.show_tags_dialog import _TagRowWidget
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "some note")
+        return _TagRowWidget(
+            config={},
+            preset="CLAMP",
+            entries=[entry],
+            move_label="1. e4",
+            fen=None,
+            played_move=None,
+            bg_rgb=[40, 40, 45],
+            text_color=[200, 200, 200],
+        )
+
+    def test_no_crash_after_widget_destroyed_with_pending_debounce(self):
+        """sip.delete destroys C++ object while Python wrapper lives; timer must not crash."""
+        from PyQt6 import sip
+        from PyQt6.QtCore import QCoreApplication
+        from PyQt6.QtTest import QTest
+
+        rows = [self._make_row() for _ in range(4)]
+
+        # Trigger the debounce on every row (simulates user typing).
+        for row in rows:
+            row._schedule_edited()
+
+        # Destroy C++ objects immediately (as Qt parent teardown would do), but keep
+        # the Python wrappers alive in `rows`.  This is the exact crash scenario.
+        for row in rows:
+            sip.delete(row)
+
+        # Wait longer than the 300 ms debounce so any pending timer can fire.
+        QTest.qWait(400)
+        QCoreApplication.processEvents()
+
+        rows.clear()
+        self._gc.collect()
+
+        # Any exception in a Qt callback surfaces via unraisablehook.
+        self.assertEqual(
+            self._unraisable, [],
+            "unexpected exception in Qt callback after widget destruction: "
+            + "; ".join(str(u.exc_value) for u in self._unraisable),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -49,11 +49,11 @@ class ShowShallowTagsDialog(QDialog):
         config: application config dict.
         games: list of GameData objects in scope.
         controller: ChessLogController instance (not ChessLogChartsController).
-        shallow_keys: set of (game_number, path_key, preset) tuples classified SHALLOW
-            this run.
-        vague_keys: set of (game_number, path_key, preset) tuples with a vague lesson
+        shallow_keys: set of (game, path_key, preset) 4-tuples classified SHALLOW
+            this run.  ``game`` is the GameData object (identity-keyed).
+        vague_keys: set of (game, path_key, preset) 4-tuples with a vague lesson
             this run (3x3 only).
-        classified_keys: frozenset of (game_number, path_key, preset) tuples that were
+        classified_keys: frozenset of (game, path_key, preset) 4-tuples that were
             sent to the classifier AND received a parsed verdict this run.
             ``shallow_keys ∪ vague_keys ⊆ classified_keys``.  Only entries in this set
             may be modified by Save; entries outside it are never touched.
@@ -64,9 +64,9 @@ class ShowShallowTagsDialog(QDialog):
         config: Dict[str, Any],
         games: List,
         controller,
-        shallow_keys: Set[Tuple[int, str, str, str]],
-        vague_keys: Set[Tuple[int, str, str, str]] = frozenset(),
-        classified_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(),
+        shallow_keys: Set,
+        vague_keys: Set = frozenset(),
+        classified_keys: FrozenSet = frozenset(),
         partial_notice: Optional[str] = None,
         source_label: str = "",
         model_label: str = "",
@@ -112,7 +112,7 @@ class ShowShallowTagsDialog(QDialog):
                     by_preset.setdefault(p, []).append(entry)
 
                 for preset, entries in by_preset.items():
-                    if not self._moment_has_flag(game.game_number, path_key, preset):
+                    if not self._moment_has_flag(game, path_key, preset):
                         continue
                     ply = _ply_for_path_fn(pgn_game, path)
                     rank = preset_rank.get(preset, len(_PRESET_ORDER))
@@ -124,11 +124,10 @@ class ShowShallowTagsDialog(QDialog):
                 self._row_games.append(game)
                 self._row_pgn_games.append(pgn_game)
 
-        # Snapshot of the original entries for shown rows, keyed by
-        # (game.game_number, path_key, preset).  Used in _on_save to skip
-        # rows that haven't changed.
-        self._original_snapshot: Dict[Tuple[int, str, str], List[Dict[str, Any]]] = {
-            (self._row_games[i].game_number, pk, pr): list(entries)
+        # Snapshot of the original entries for shown rows, keyed by row index.
+        # Used in _on_save to skip rows that haven't changed.
+        self._original_snapshot: Dict[int, List[Dict[str, Any]]] = {
+            i: list(entries)
             for i, (pk, pr, entries) in enumerate(self._rows)
         }
 
@@ -157,32 +156,32 @@ class ShowShallowTagsDialog(QDialog):
     # 4-tuple key helpers
     # ------------------------------------------------------------------
 
-    def _moment_has_flag(self, gn: int, pk: str, preset: str) -> bool:
+    def _moment_has_flag(self, game, pk: str, preset: str) -> bool:
         """True if any per-cat key for this moment is in flagged_keys."""
         if preset == "3x3":
             return any(
-                (gn, pk, "3x3", cat) in self._flagged_keys
+                (game, pk, "3x3", cat) in self._flagged_keys
                 for cat in ("Why1", "Why2", "Why3", "Why4")
             )
-        return (gn, pk, preset, "") in self._flagged_keys
+        return (game, pk, preset, "") in self._flagged_keys
 
-    def _is_shallow_key(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+    def _is_shallow_key(self, game, pk: str, preset: str, cat: str) -> bool:
         if preset == "3x3":
-            return (gn, pk, "3x3", cat) in self._shallow_keys
-        return (gn, pk, preset, "") in self._shallow_keys
+            return (game, pk, "3x3", cat) in self._shallow_keys
+        return (game, pk, preset, "") in self._shallow_keys
 
-    def _is_vague_key(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+    def _is_vague_key(self, game, pk: str, preset: str, cat: str) -> bool:
         if preset == "3x3":
-            return (gn, pk, "3x3", cat) in self._vague_keys
-        return (gn, pk, preset, "") in self._vague_keys
+            return (game, pk, "3x3", cat) in self._vague_keys
+        return (game, pk, preset, "") in self._vague_keys
 
-    def _in_classified(self, gn: int, pk: str, preset: str, cat: str) -> bool:
+    def _in_classified(self, game, pk: str, preset: str, cat: str) -> bool:
         if preset == "3x3":
-            return (gn, pk, "3x3", cat) in self._classified_keys
-        return (gn, pk, preset, "") in self._classified_keys
+            return (game, pk, "3x3", cat) in self._classified_keys
+        return (game, pk, preset, "") in self._classified_keys
 
     def _stamp_entries(
-        self, gn: int, pk: str, preset: str, entries: List[Dict[str, Any]]
+        self, game, pk: str, preset: str, entries: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         """Return entries with is_shallow / is_vague stamped per 4-tuple key membership.
 
@@ -194,10 +193,10 @@ class ShowShallowTagsDialog(QDialog):
         for e in entries:
             e_copy = dict(e)
             cat = e.get("cat", "")
-            if self._is_shallow_key(gn, pk, preset, cat):
+            if self._is_shallow_key(game, pk, preset, cat):
                 if preset != "3x3" or cat in ("Why1", "Why2", "Why3"):
                     e_copy["is_shallow"] = True
-            if self._is_vague_key(gn, pk, preset, cat):
+            if self._is_vague_key(game, pk, preset, cat):
                 if preset != "3x3" or cat == "Why4":
                     e_copy["is_vague"] = True
             if preset == "3x3" and ChessLogStorageService.is_entry_ignore_honoured(e):
@@ -357,7 +356,7 @@ class ShowShallowTagsDialog(QDialog):
                     rows_layout.addWidget(self._make_separator())
 
                 best_move = resolve_best_move_for_path(game, path_key, played_move, pgn_game)
-                stamped = self._stamp_entries(game.game_number, path_key, preset, entries)
+                stamped = self._stamp_entries(game, path_key, preset, entries)
                 row_widget = _TagRowWidget(
                     self._config,
                     preset,
@@ -499,16 +498,15 @@ class ShowShallowTagsDialog(QDialog):
             row_widget = self._row_widgets[i]
             game = self._row_games[i]
             user_entries = row_widget.get_current_entries()
-            new_entries = self._stamp_entries(game.game_number, path_key, preset, user_entries)
-            key = (game.game_number, path_key, preset)
-            original = self._original_snapshot.get(key, [])
-            orig_with_flags = self._stamp_entries(game.game_number, path_key, preset, original)
+            new_entries = self._stamp_entries(game, path_key, preset, user_entries)
+            original = self._original_snapshot.get(i, [])
+            orig_with_flags = self._stamp_entries(game, path_key, preset, original)
             flags_missing = any(
                 (
-                    self._is_shallow_key(game.game_number, path_key, preset, e.get("cat", ""))
+                    self._is_shallow_key(game, path_key, preset, e.get("cat", ""))
                     and not e.get("is_shallow")
                 ) or (
-                    self._is_vague_key(game.game_number, path_key, preset, e.get("cat", ""))
+                    self._is_vague_key(game, path_key, preset, e.get("cat", ""))
                     and not e.get("is_vague")
                 )
                 for e in original
@@ -543,10 +541,10 @@ class ShowShallowTagsDialog(QDialog):
                         changed = False
                         for e in preset_entries:
                             cat = e.get("cat", "")
-                            in_cls = self._in_classified(game.game_number, path_key, preset, cat)
+                            in_cls = self._in_classified(game, path_key, preset, cat)
                             in_flag = (
-                                self._is_shallow_key(game.game_number, path_key, preset, cat) or
-                                self._is_vague_key(game.game_number, path_key, preset, cat)
+                                self._is_shallow_key(game, path_key, preset, cat) or
+                                self._is_vague_key(game, path_key, preset, cat)
                             )
                             # Never stale-clear an entry whose Ignore is still honoured —
                             # the user's dismiss is intentional and must not be undone.
@@ -569,10 +567,10 @@ class ShowShallowTagsDialog(QDialog):
                             affected.add(game)
                     else:
                         # Per-preset stale clear for CLAMP/CCT
-                        key_4 = (game.game_number, path_key, preset, "")
+                        key_4 = (game, path_key, preset, "")
                         if key_4 not in self._classified_keys:
                             continue
-                        if self._moment_has_flag(game.game_number, path_key, preset):
+                        if self._moment_has_flag(game, path_key, preset):
                             continue
                         if any(e.get("is_shallow") or e.get("is_vague") for e in preset_entries):
                             cleared = [

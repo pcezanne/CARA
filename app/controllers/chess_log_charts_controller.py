@@ -346,7 +346,8 @@ class ChessLogShallowThread(QThread):
                 self.shallow_partial.emit(msg)
 
             # Build classified_keys — notes that received a parsed verdict this run.
-            # Keys are 4-tuples (game_number, path_key, preset, cat):
+            # Keys are 4-tuples (game, path_key, preset, cat)
+            # where game is the GameData object (identity-keyed):
             #   CLAMP/CCT: cat="" (one entry per note)
             #   3x3: cat in {"Why1","Why2","Why3","Why4"} (four keys per parsed note)
             #   Ignored 3x3 cats are excluded: an ignored answer never appears in classified_keys.
@@ -794,7 +795,7 @@ class ChessLogChartsController(QObject):
 
         Gathers all non-empty why-notes from games in scope, then spawns
         ChessLogShallowThread. On completion, emits ``shallow_ready`` with the
-        set of (game_number, path_key, preset) keys whose notes were judged
+        set of (game, path_key, preset) keys whose notes were judged
         SHALLOW, and writes is_shallow onto each affected entry in the cache.
         Emits ``shallow_failed`` on error.
         """

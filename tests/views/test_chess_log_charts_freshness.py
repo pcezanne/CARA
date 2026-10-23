@@ -36,10 +36,13 @@ if _QT_OK:
     _APP = QApplication.instance() or QApplication(sys.argv[:1])
     from app.views.detail_chess_log_charts_view import DetailChessLogChartsView
     from app.controllers.chess_log_charts_controller import ChessLogChartsController
-
+    from app.models.database_model import GameData
 
 _MINIMAL_CONFIG: dict = {}
-_SHALLOW_KEYS = frozenset({(1, "k1", "CLAMP"), (2, "k2", "CCT")})
+# Use GameData objects as keys (identity-keyed, not game_number-keyed)
+_GAME_1 = GameData(game_number=1) if _QT_OK else None
+_GAME_2 = GameData(game_number=2) if _QT_OK else None
+_SHALLOW_KEYS = frozenset({(_GAME_1, "k1", "CLAMP", ""), (_GAME_2, "k2", "CCT", "")}) if _QT_OK else frozenset()
 
 
 @requires_qt
@@ -78,7 +81,8 @@ class TestShalowKeysFreshness(unittest.TestCase):
         self.assertEqual(self._view._last_shallow_keys, _SHALLOW_KEYS)
 
     def test_cache_type_is_frozenset(self):
-        self._view._on_shallow_ready({(1, "k", "CLAMP")}, frozenset(), frozenset(), None)
+        g = GameData(game_number=1)
+        self._view._on_shallow_ready({(g, "k", "CLAMP", "")}, frozenset(), frozenset(), None)
         self.assertIsInstance(self._view._last_shallow_keys, frozenset)
 
 
@@ -194,6 +198,64 @@ class TestThemeRebuildPreservesResults(unittest.TestCase):
 
         self.assertEqual(view._last_narrative, "")
         self.assertIsNone(view._last_shallow_keys)
+
+
+@requires_qt
+class TestMomentInLastShallowHelper(unittest.TestCase):
+    """Tests for _moment_in_last_shallow — the identity-safe helper that replaces
+    the pre-fix 4-tuple cat-based lookup (which mismatched CLAMP entries)."""
+
+    def setUp(self):
+        self._view = DetailChessLogChartsView(_MINIMAL_CONFIG)
+
+    def test_clamp_hit(self):
+        """CLAMP moment whose game object is in shallow_keys returns True."""
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        self.assertTrue(self._view._moment_in_last_shallow(_GAME_1, "k1", "CLAMP"))
+
+    def test_clamp_miss_different_object(self):
+        """A DIFFERENT game object (same game_number) must NOT match — identity check."""
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        other_game = GameData(game_number=1)  # same number, different object
+        self.assertFalse(self._view._moment_in_last_shallow(other_game, "k1", "CLAMP"))
+
+    def test_clamp_miss_different_path(self):
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        self.assertFalse(self._view._moment_in_last_shallow(_GAME_1, "k9", "CLAMP"))
+
+    def test_3x3_any_cat_hit(self):
+        """3x3 moment returns True if any Why cat is in shallow_keys."""
+        g = GameData(game_number=99)
+        self._view._last_shallow_keys = frozenset([(g, "k", "3x3", "Why2")])
+        self.assertTrue(self._view._moment_in_last_shallow(g, "k", "3x3"))
+
+    def test_3x3_no_cat_miss(self):
+        """3x3 moment returns False when no Why cat is in shallow_keys."""
+        g = GameData(game_number=99)
+        self._view._last_shallow_keys = frozenset()
+        self.assertFalse(self._view._moment_in_last_shallow(g, "k", "3x3"))
+
+    def test_stale_cache_no_false_positive(self):
+        """A new game with the same game_number must not match the stale cache entry."""
+        game_original = GameData(game_number=1)
+        self._view._last_shallow_keys = frozenset([(game_original, "k", "CLAMP", "")])
+        game_new = GameData(game_number=1)  # different object, same number
+        self.assertFalse(self._view._moment_in_last_shallow(game_new, "k", "CLAMP"),
+                         "identity-keyed lookup must not match a different object")
+
+    def test_sort_reindex_does_not_break_identity(self):
+        """Even if game_number is reassigned (simulating sort/reindex),
+        the object-identity key must still match the original game object."""
+        game = GameData(game_number=5)
+        self._view._last_shallow_keys = frozenset([(game, "k", "CLAMP", "")])
+        # Simulate sort reassigning game_number
+        game.game_number = 2
+        self.assertTrue(self._view._moment_in_last_shallow(game, "k", "CLAMP"),
+                        "shallow_keys must still match after game_number reassignment")
+
+    def test_none_shallow_keys_returns_false(self):
+        self._view._last_shallow_keys = None
+        self.assertFalse(self._view._moment_in_last_shallow(_GAME_1, "k1", "CLAMP"))
 
 
 if __name__ == "__main__":

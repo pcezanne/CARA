@@ -70,7 +70,7 @@ class DetailChessLogChartsView(QWidget):
         self._last_narrative: str = ""
         # Session-scoped shallow-tag freshness: set after Show Shallow Tags runs,
         # cleared when Data Source or Player filter changes.
-        self._last_shallow_keys: Optional[FrozenSet[Tuple[int, str, str]]] = None
+        self._last_shallow_keys: Optional[FrozenSet[Tuple[Any, str, str, str]]] = None
         # Partial-fail notice from shallow_partial signal; consumed by the next
         # shallow_ready handler to show inline in the dialog rather than a
         # separate QMessageBox.
@@ -782,6 +782,17 @@ class DetailChessLogChartsView(QWidget):
         if text:
             QApplication.clipboard().setText(text)
 
+    def _moment_in_last_shallow(self, game, path_key: str, preset: str) -> bool:
+        """Return True if this game/path_key/preset moment is flagged shallow or vague."""
+        if not self._last_shallow_keys:
+            return False
+        if preset == "3x3":
+            return any(
+                (game, path_key, "3x3", cat) in self._last_shallow_keys
+                for cat in ("Why1", "Why2", "Why3", "Why4")
+            )
+        return (game, path_key, preset, "") in self._last_shallow_keys
+
     def _copy_log_to_clipboard(self) -> None:
         from PyQt6.QtWidgets import QApplication
         lines: List[str] = []
@@ -804,7 +815,7 @@ class DetailChessLogChartsView(QWidget):
             if chess_log_ctrl:
                 lines.append("Check Logs:")
                 games = self._controller.resolve_games()
-                seen: Set[Tuple[int, str, str]] = set()
+                seen: Set[Tuple] = set()
                 for game in games:
                     tags = chess_log_ctrl.get_tags_for_game(game)
                     for path_key, all_entries in tags.items():
@@ -814,13 +825,15 @@ class DetailChessLogChartsView(QWidget):
                         for e in all_entries:
                             by_preset.setdefault(e.get("preset", ""), []).append(e)
                         for preset, entries in by_preset.items():
-                            key = (game.game_number, path_key, preset)
-                            if key not in self._last_shallow_keys or key in seen:
+                            dedup_key = (game, path_key, preset)
+                            if not self._moment_in_last_shallow(game, path_key, preset):
                                 continue
-                            seen.add(key)
+                            if dedup_key in seen:
+                                continue
+                            seen.add(dedup_key)
+                            cat = entries[0].get("cat", "") if entries else ""
                             white = str(getattr(game, "white", "") or "?")
                             black = str(getattr(game, "black", "") or "?")
-                            cat = entries[0].get("cat", "") if entries else ""
                             why = entries[0].get("why", "").strip() if entries else ""
                             lines.append(
                                 f"  {white}–{black}  |  {path_key}  |  {preset}  |  {cat}  |  {why}"
@@ -861,7 +874,7 @@ class DetailChessLogChartsView(QWidget):
             chess_log_ctrl = self._controller.get_chess_log_controller()
             if chess_log_ctrl:
                 games = self._controller.resolve_games()
-                seen: Set[Tuple[int, str, str]] = set()
+                seen: Set[Tuple] = set()
                 for game in games:
                     pgn_game = None
                     try:
@@ -878,10 +891,12 @@ class DetailChessLogChartsView(QWidget):
                         for e in all_entries:
                             by_preset.setdefault(e.get("preset", ""), []).append(e)
                         for preset, entries in by_preset.items():
-                            k: Tuple[int, str, str] = (game.game_number, path_key, preset)
-                            if k not in self._last_shallow_keys or k in seen:
+                            dedup_key: Tuple = (game, path_key, preset)
+                            if not self._moment_in_last_shallow(game, path_key, preset):
                                 continue
-                            seen.add(k)
+                            if dedup_key in seen:
+                                continue
+                            seen.add(dedup_key)
                             fen, played_move, move_label, mover_is_black = _node_info(pgn_game, path_key)
                             shallow_rows.append(TagRowSnapshot(
                                 move_label=move_label,

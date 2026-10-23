@@ -22,20 +22,24 @@ import unittest
 from typing import List, Tuple
 from unittest.mock import MagicMock, patch
 
+from app.models.database_model import GameData as _GameData
 from app.services.chess_log_shallow_service import classify_notes
 from app.utils.path_resolver import get_app_resource_path as _get_resource_path
 
 with open(_get_resource_path("app/config/config.json"), "r", encoding="utf-8") as _f:
     _CONFIG = _json.load(_f)
 
+# Shared GameData object used as identity key in all CLAMP/CCT tests.
+_GAME = _GameData(game_number=1)
+
 
 def _make_notes(
     whys: List[str],
     game_number: int = 1,
     preset: str = "CLAMP",
-) -> List[Tuple[int, int, str, str, str]]:
+) -> List[Tuple]:
     return [
-        (i, game_number, f"path/{i}", preset, why)
+        (i, _GAME, f"path/{i}", preset, why)
         for i, why in enumerate(whys)
     ]
 
@@ -78,9 +82,9 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertIn((1, "path/2", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/2", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_preamble_skipped(self, mock_post):
@@ -95,8 +99,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_markdown_fences_skipped(self, mock_post):
@@ -107,8 +111,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_trailing_period_parsed(self, mock_post):
@@ -120,8 +124,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_bold_markdown_parsed(self, mock_post):
@@ -133,8 +137,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_backtick_markdown_parsed(self, mock_post):
@@ -145,7 +149,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_underscore_markdown_parsed(self, mock_post):
@@ -156,7 +160,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_trailing_comma_parsed(self, mock_post):
@@ -167,7 +171,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_space_padded_bold_parsed(self, mock_post):
@@ -180,7 +184,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     # Index decoration forms --------------------------------------------------
 
@@ -194,8 +198,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_paren_separator_parsed(self, mock_post):
@@ -206,7 +210,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_leading_dash_parsed(self, mock_post):
@@ -218,7 +222,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_bracket_decoration_parsed(self, mock_post):
@@ -230,7 +234,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_digit_not_parsed(self, mock_post):
@@ -256,8 +260,8 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_missing_indices_reported_as_unparsed(self, mock_post):
@@ -271,7 +275,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (1,))
         # Index 1 is NOT marked shallow despite being absent
-        self.assertNotIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_out_of_range_index_ignored(self, mock_post):
@@ -283,7 +287,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
         # No key for index 99 added
         self.assertEqual(len(result.shallow_keys), 1)
 
@@ -297,7 +301,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_extra_text_after_verdict_not_parsed(self, mock_post):
@@ -311,7 +315,7 @@ class TestClassifyNotesReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         # Index 0 is unparsed (extra text), index 1 is parsed as DEEP
         self.assertIn(0, result.unparsed_indices)
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
 
 class TestClassifyNotesEmptyReply(unittest.TestCase):
@@ -392,7 +396,7 @@ class TestClassifyNotesUsageReporting(unittest.TestCase):
         self.assertFalse(result.usage.reported)
         # unparsed count is still correct when usage is missing
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
 
 class TestClassifyNotesThinkingDisabled(unittest.TestCase):
@@ -531,7 +535,7 @@ class TestClassifyNotesParserRobustness(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_parse_rejects_trailing_prose_after_verdict(self, mock_post):
@@ -659,9 +663,9 @@ def _make_notes_3x3(
     why_tuples: list,
     game_number: int = 1,
 ) -> list:
-    """Build 3x3 note list: [(idx, gn, pk, "3x3", why1, why2, why3, why4), ...]."""
+    """Build 3x3 note list: [(idx, game, pk, "3x3", why1, why2, why3, why4), ...]."""
     return [
-        (i, game_number, f"path/{i}", "3x3", w1, w2, w3, w4)
+        (i, _GAME, f"path/{i}", "3x3", w1, w2, w3, w4)
         for i, (w1, w2, w3, w4) in enumerate(why_tuples)
     ]
 
@@ -683,10 +687,10 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         # SPECIFIC → not shallow; REAL → not vague
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_clean_generic_filler_flags_all_whys_and_vague(self, mock_post):
@@ -697,10 +701,10 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_specific_filler_only_vague_no_shallow(self, mock_post):
@@ -712,11 +716,11 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         # SPECIFIC → no shallow keys
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why3"), result.shallow_keys)
         # FILLER → vague
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_preamble_skipped(self, mock_post):
@@ -735,12 +739,12 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         # Note 0: all SPECIFIC+REAL → no flags
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
         # Note 1: WHY1=GENERIC → shallow on Why1; LESSON=FILLER → vague on Why4
-        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/1", "3x3", "Why2"), result.shallow_keys)
-        self.assertIn((1, "path/1", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_malformed_why1_unparsed(self, mock_post):
@@ -815,8 +819,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     # B1 — tolerant parser: additional failure shapes now accepted ------------
 
@@ -830,8 +834,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_semicolon_separated_fields_parsed(self, mock_post):
@@ -843,8 +847,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_pipe_separated_fields_parsed(self, mock_post):
@@ -856,7 +860,7 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_bold_wrapped_values_parsed(self, mock_post):
@@ -868,8 +872,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_lesson_first_all_fields_present_parsed(self, mock_post):
@@ -881,8 +885,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     # B1 — negative tests: missing field, duplicate field ----------------------
 
@@ -917,7 +921,7 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_prose_mid_sentence_verdict_rejected(self, mock_post):
@@ -933,8 +937,8 @@ class TestClassifyNotes3x3ReplyParsing(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         # SPECIFIC → no shallow keys; REAL → no vague
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_missing_config_returns_failure(self, mock_post):
@@ -987,7 +991,7 @@ class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         for i, (w1, w2, w3, lsn, exp_shallow_cats, exp_vague) in enumerate(self._CELLS):
-            gn, pk = 1, f"path/{i}"
+            gn, pk = _GAME, f"path/{i}"
             label = f"idx {i} ({w1},{w2},{w3},{lsn})"
             for cat in ("Why1", "Why2", "Why3"):
                 key = (gn, pk, "3x3", cat)
@@ -1010,9 +1014,9 @@ class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys,
                       "GENERIC Why1 is shallow even when lesson is REAL")
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_specific_why1_filler_lesson_no_taint(self, mock_post):
@@ -1023,9 +1027,9 @@ class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
         notes = _make_notes_3x3([("a", "b", "c", "d")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys,
                          "SPECIFIC Why1 is not shallow even when lesson is FILLER")
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_blank_why_not_shallow(self, mock_post):
@@ -1036,10 +1040,10 @@ class TestClassifyNotes3x3CombiningRule(unittest.TestCase):
         notes = _make_notes_3x3([("", "", "", "")])
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why2"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why3"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why2"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why3"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
 
 
 # ---------------------------------------------------------------------------
@@ -1063,8 +1067,8 @@ class TestClassifyNotes3x3PartialReply(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (1,))
-        self.assertNotIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/2", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/2", "3x3", "Why1"), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_partial_reply_out_of_range_index_ignored(self, mock_post):
@@ -1078,7 +1082,7 @@ class TestClassifyNotes3x3PartialReply(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
         self.assertEqual(len(result.shallow_keys), 1)
 
 
@@ -1151,11 +1155,11 @@ class TestClassifyNotes3x3GluedReplies(unittest.TestCase):
         self.assertEqual(result.unparsed_indices, (),
                          f"Unparsed: {result.unparsed_indices}; glued reply must be split")
         # Note 0: all SPECIFIC+REAL → no flags
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys)
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys)
         # Note 1: WHY1=GENERIC → shallow on Why1; FILLER → vague on Why4
-        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/1", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_glued_filler_verdict_followed_by_next_index(self, mock_post):
@@ -1223,9 +1227,9 @@ class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys,
                          "last verdict SPECIFIC → not shallow")
-        self.assertNotIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+        self.assertNotIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys,
                          "last verdict REAL → not vague")
 
     @patch("app.services.ai_service.requests.post")
@@ -1241,9 +1245,9 @@ class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys,
                       "last verdict GENERIC → shallow")
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys,
                       "last verdict FILLER → vague")
 
     @patch("app.services.ai_service.requests.post")
@@ -1256,7 +1260,7 @@ class TestClassifyNotes3x3DuplicateIndices(unittest.TestCase):
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
-        self.assertNotIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
 
 
 # ---------------------------------------------------------------------------
@@ -1286,9 +1290,9 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         self.assertEqual(result.unparsed_indices, (),
                          "Retry must resolve remaining unparsed note")
         # note 1 was SHALLOW in retry → should be in shallow_keys
-        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys)
-        self.assertNotIn((1, "path/2", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys)
+        self.assertNotIn((_GAME, "path/2", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_clamp_retry_leaves_some_unparsed(self, mock_post):
@@ -1305,7 +1309,7 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (2,),
                          "Original note 2 (retry index 1) should still be unparsed")
-        self.assertIn((1, "path/1", "CLAMP", ""), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "CLAMP", ""), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_clamp_failed_retry_does_not_affect_first_call_results(self, mock_post):
@@ -1320,7 +1324,7 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         notes = _make_notes(["a", "b", "c"])
         result = classify_notes(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        self.assertIn((1, "path/0", "CLAMP", ""), result.shallow_keys,
+        self.assertIn((_GAME, "path/0", "CLAMP", ""), result.shallow_keys,
                       "First-call result must survive a failed retry")
         self.assertEqual(result.unparsed_indices, (1, 2),
                          "Unparsed from first call must be preserved when retry fails")
@@ -1345,10 +1349,10 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, ())
         # note 1 resolved in retry with WHY2=GENERIC
-        self.assertIn((1, "path/1", "3x3", "Why2"), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why2"), result.shallow_keys)
         # note 2 from first call with WHY1=GENERIC, LESSON=FILLER
-        self.assertIn((1, "path/2", "3x3", "Why1"), result.shallow_keys)
-        self.assertIn((1, "path/2", "3x3", "Why4"), result.vague_keys)
+        self.assertIn((_GAME, "path/2", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/2", "3x3", "Why4"), result.vague_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_3x3_retry_leaves_some_unparsed(self, mock_post):
@@ -1366,7 +1370,7 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
         self.assertEqual(result.unparsed_indices, (2,))
-        self.assertIn((1, "path/1", "3x3", "Why1"), result.shallow_keys)
+        self.assertIn((_GAME, "path/1", "3x3", "Why1"), result.shallow_keys)
 
     @patch("app.services.ai_service.requests.post")
     def test_3x3_failed_retry_does_not_affect_first_call_results(self, mock_post):
@@ -1381,9 +1385,9 @@ class TestRetryOnPartialFailure(unittest.TestCase):
         notes = _make_notes_3x3([("a", "b", "c", "d")] * 2)
         result = classify_notes_3x3(notes, "anthropic", "claude-sonnet-4-6", "sk-test", None, _CONFIG, 30)
         self.assertTrue(result.success)
-        self.assertIn((1, "path/0", "3x3", "Why1"), result.shallow_keys,
+        self.assertIn((_GAME, "path/0", "3x3", "Why1"), result.shallow_keys,
                       "First-call shallow keys must survive a failed retry")
-        self.assertIn((1, "path/0", "3x3", "Why4"), result.vague_keys,
+        self.assertIn((_GAME, "path/0", "3x3", "Why4"), result.vague_keys,
                       "First-call vague keys must survive a failed retry")
         self.assertEqual(result.unparsed_indices, (1,))
 
@@ -1458,7 +1462,7 @@ class TestBuildNotesClamp(unittest.TestCase):
         self.assertEqual(ignored_sets, [])
         n = legacy[0]
         self.assertEqual(n[0], 0)
-        self.assertEqual(n[1], 7)
+        self.assertIs(n[1], game)  # game object identity
         self.assertEqual(n[2], "0.0")
         self.assertEqual(n[3], "CLAMP")
         self.assertEqual(n[4], "Hung the knight.")
@@ -1671,7 +1675,8 @@ class TestBuildNotesClampDedup(unittest.TestCase):
         self.assertEqual(len(legacy), 1)
         self.assertEqual(len(three), 1)
         n = three[0]
-        self.assertEqual((n[1], n[2], n[3]), (1, "0.0", "3x3"))
+        self.assertIs(n[1], game)  # game object identity
+        self.assertEqual((n[2], n[3]), ("0.0", "3x3"))
         self.assertEqual((n[4], n[5], n[6], n[7]), ("intent", "", "", "lesson"))
         self.assertEqual(ignored_sets, [frozenset()])
 
@@ -1724,7 +1729,8 @@ class TestBuildNotes3x3(unittest.TestCase):
         _, three, ignored_sets = build_notes([game], lambda g: tags)
         self.assertEqual(len(three), 1)
         n = three[0]
-        self.assertEqual((n[1], n[2], n[3]), (1, "0.0", "3x3"))
+        self.assertIs(n[1], game)  # game object identity
+        self.assertEqual((n[2], n[3]), ("0.0", "3x3"))
         self.assertEqual((n[4], n[5], n[6], n[7]), ("clear intent", "stale", "", "real lesson"))
         self.assertEqual(ignored_sets, [frozenset({"Why2"})])
 
@@ -1774,7 +1780,7 @@ class TestBuildNotesMixed(unittest.TestCase):
         self.assertEqual((legacy, three, ignored_sets), ([], [], []))
 
     def test_tags_resolver_called_per_game(self):
-        """The resolver is called once per input game; game_number threads through."""
+        """The resolver is called once per input game; game object identity threads through."""
         from app.services.chess_log_shallow_service import build_notes
         games = [_FakeGame(10), _FakeGame(11)]
         calls: list = []
@@ -1785,7 +1791,10 @@ class TestBuildNotesMixed(unittest.TestCase):
 
         legacy, _, _ = build_notes(games, resolver)
         self.assertEqual(calls, [10, 11])
-        self.assertEqual([n[1] for n in legacy], [10, 11])
+        # n[1] is the game object (identity-keyed); confirm the right objects appear in order
+        self.assertEqual([n[1].game_number for n in legacy], [10, 11])
+        self.assertIs(legacy[0][1], games[0])
+        self.assertIs(legacy[1][1], games[1])
 
 
 if __name__ == "__main__":

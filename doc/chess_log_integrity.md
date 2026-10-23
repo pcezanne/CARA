@@ -21,19 +21,21 @@ dict below is keyed by `id(game)` (Python object identity), not `game_number`, u
 | `_cache_version_by_game` | `id(game)` | Version counter for `_resolved_cache` memoization |
 | `_nag_shown_by_game` | `id(game)` | Per-game "more than 3 moments" nag-suppression flag |
 
-**Charts-layer caches** (keyed by `game_number`, not object identity):
+**Charts-layer caches** (keyed by `GameData` object identity after F5/F6 fix):
 
 | Field | Location | Key |
 |---|---|---|
-| `_cached_shallow_keys` / `_cached_vague_keys` | `ChessLogChartsController` | `frozenset` of `(game_number, path_key, preset, cat)` 4-tuples |
-| `_last_shallow_keys` | `DetailChessLogChartsView` | `frozenset` of `(game_number, path_key, preset, cat)` 4-tuples — type annotation says 3-tuples (stale); see F6 |
+| `_cached_shallow_keys` / `_cached_vague_keys` | `ChessLogChartsController` | `frozenset` of `(game, path_key, preset, cat)` 4-tuples — `game` is the `GameData` object |
+| `_last_shallow_keys` | `DetailChessLogChartsView` | `frozenset` of `(game, path_key, preset, cat)` 4-tuples |
 
-**Dialog snapshots** (keyed by `(game_number, path_key, preset)` 3-tuples):
+**Dialog snapshots** (keyed by row index after F3 fix):
 
 | Field | Dialog | Scope at open time |
 |---|---|---|
 | `_original_snapshot` | `ShowTagsDialog` | Active database only — single DB, collision impossible |
-| `_original_snapshot` | `ShowShallowTagsDialog` | All sources including multi-DB — collision possible when game numbers repeat (see F3) |
+| `_original_snapshot` | `ShowShallowTagsDialog` | Row index `i` (Dict[int, List]) — one entry per row, collision-free |
+
+**Stale-cache note (F5 post-fix):** With game-object keys, `_cached_shallow_keys` holds the old `GameData` objects alive until `_clear_result_cache()` runs. This is a harmless memory hold: Python object identity guarantees a stale `game_A` reference never accidentally matches a different `game_B`, even if both have the same `game_number`. `_clear_result_cache()` is called on source/player/DB-switch but NOT on game delete or DB close — the stale hold exists but causes no false positives.
 
 Canonical on-disk store: `game.pgn` — the `CARAChessLog` PGN header triple written by
 `ChessLogStorageService.store_tags`. Transient (in-memory write); reaches disk only when the
@@ -200,7 +202,7 @@ CONFIRMED (F2): real controller falsely marks DB unsaved after save of unedited 
 
 ---
 
-### F3 · ShowShallowTagsDialog._original_snapshot keyed by game_number — collision across databases · MISPLACED
+### F3 · ShowShallowTagsDialog._original_snapshot keyed by game_number — collision across databases · MISPLACED · **FIXED** (see commit amending `998f940`)
 
 **File:** `show_shallow_tags_dialog.py:128–133`
 
@@ -278,11 +280,13 @@ CONFIRMED (F3): _original_snapshot has 1 entry for key (1, '0', 'CLAMP').
     game_1's actual stored entries: cat='C'
 ```
 
-**Test proposal:** In `tests/views/dialogs/` (or similar) — construct `ShowShallowTagsDialog` offscreen with two games sharing `(game_number, path_key, preset)`, assert `len(dlg._original_snapshot) == len(dlg._rows)` (one entry per row, keyed by identity not game_number). Should fail today.
+**Fix:** `_original_snapshot` is now keyed by row index `i` (Dict[int, List]) — one entry per row, collision-free. `_on_save` accesses it via `self._original_snapshot.get(i, [])`.
+
+**Test (now implemented):** `tests/views/test_show_shallow_tags_dialog.py::TestF3SnapshotNoCollision::test_snapshot_keyed_by_row_index_not_game_number` — constructs `ShowShallowTagsDialog` offscreen with two games sharing `(game_number=1, path_key="0", preset="CLAMP")`, asserts `len(dlg._original_snapshot) == 2` and both games' entries preserved separately. Fails on pre-fix code, passes after.
 
 ---
 
-### F5 · AI shallow verdict keyed by game_number — stamps DEEP notes in sibling databases · MISPLACED
+### F5 · AI shallow verdict keyed by game_number — stamps DEEP notes in sibling databases · MISPLACED · **FIXED** (see commit amending `998f940`)
 
 **Files:** `chess_log_shallow_service.py:438–442, 606–618`, `show_shallow_tags_dialog.py:160–182, 184–209, 502`, `chess_log_charts_controller.py:299–314, 348–365`
 
@@ -343,11 +347,22 @@ CONFIRMED (F5/3x3): game_4's SPECIFIC Why1 was stamped is_shallow=True
 OVERALL: F5 CONFIRMED for both CLAMP and 3x3.
 ```
 
-**Test proposal:** Construct `ShowShallowTagsDialog` offscreen with two games from separate databases (both `game_number=1`, same `path_key`, same `preset`); provide a `shallow_keys` frozenset containing only the first game's note. After `_on_save()`, load tags for both games and assert `game_2.is_shallow == False`. Should fail until `shallow_keys` and `classified_keys` are keyed by `id(game)`.
+**Fix:** All key tuples (`shallow_keys`, `vague_keys`, `classified_keys`) now use the `GameData` object at position 0, not `game_number`. `build_notes()` emits `(idx, game, path_key, preset, why)` with the game object. `classify_notes` / `classify_notes_3x3` build `shallow_keys` from `notes[i][1]` (the game object). `ShowShallowTagsDialog._moment_has_flag` / `_is_shallow_key` check `(game, ...)` directly. `GameData` uses Python's default `__hash__`/`__eq__` (object identity), so two games with identical `game_number` from different DBs never collide.
+
+**Stale-cache note:** After the fix, `_cached_shallow_keys` holds old `GameData` objects alive until `_clear_result_cache()` runs (on source/player/DB-switch). This is a harmless memory hold — no false positives possible because identity is unique per object. See §1 table above.
+
+**Tests (now implemented):**
+- `TestF5ClamNoContamination::test_only_shallow_game_row_is_shown` — CLAMP, 1 row shown (not 2)
+- `TestF5ClamNoContamination::test_save_does_not_stamp_deep_game` — game_2 not stamped after Save
+- `TestF53x3NoContamination::test_3x3_only_shallow_game_row_is_shown` — same for 3x3
+- `TestF53x3NoContamination::test_3x3_save_does_not_stamp_deep_game`
+- `TestMomentInLastShallowHelper` (8 tests) — identity-safety, stale-cache, sort-identity
+
+All in `tests/views/`. Fail on pre-fix code, pass after.
 
 ---
 
-### F6 · PDF/clipboard "Check Logs" section always empty — 3-tuple/4-tuple key mismatch · SILENT FAILURE
+### F6 · PDF/clipboard "Check Logs" section always empty — 3-tuple/4-tuple key mismatch · SILENT FAILURE · **FIXED** (see commit amending `998f940`)
 
 **File:** `detail_chess_log_charts_view.py:73, 631, 807–827, 860–884`
 
@@ -374,7 +389,14 @@ This bug is independent of cross-database game_number collisions (F5). Even with
 
 **Evidence:** CONFIRMED-BY-READING. `detail_chess_log_charts_view.py:73` (annotation), `detail_chess_log_charts_view.py:631` (store), `detail_chess_log_charts_view.py:817–819` (clipboard check), `detail_chess_log_charts_view.py:881–883` (PDF check). No code path creates a frozenset of 3-tuples from `shallow_keys`.
 
-**Test proposal:** After running a Check Logs cycle offscreen with at least one SHALLOW key, call the clipboard or PDF export path and assert `shallow_rows` (or lines containing shallow note data) is non-empty. Should fail until `_last_shallow_keys` lookup keys are aligned to 4-tuples.
+**Fix:** Replaced the inline `(game, path_key, preset, cat)` key lookup with a `_moment_in_last_shallow(game, path_key, preset)` helper that handles both presets correctly:
+- CLAMP/CCT: checks `(game, path_key, preset, "")` — empty string cat, matching what `classify_notes` stores.
+- 3x3: checks any of `(game, path_key, "3x3", cat)` for `cat in ("Why1","Why2","Why3","Why4")`.
+The `seen` dedup set uses `(game, path_key, preset)` 3-tuples (one per moment, not per cat). Both clipboard and PDF export loops use the helper.
+
+**L2 decision (vague keys in export):** `_last_shallow_keys` on the view stores the union of `shallow_keys | vague_keys` (set at line 631: `frozenset(shallow_keys)` — actually only `shallow_keys`; vague_keys are passed to the dialog but not stored on the view). The export only shows notes from `shallow_keys` (not vague ones). This is intentional: vague Why4 lessons are shown in the dialog for user review but are not exported as "Check Logs" rows — the export is a flagged-shallow summary only.
+
+**Test (now implemented):** `TestMomentInLastShallowHelper` in `tests/views/test_chess_log_charts_freshness.py` — 8 tests covering CLAMP hit/miss, 3x3 any-cat, stale-cache identity safety, and sort-identity stability. Fail on pre-fix code, pass after.
 
 ---
 
@@ -396,12 +418,12 @@ This bug is independent of cross-database game_number collisions (F5). Even with
 |---|---|---|---|---|
 | L1 | Deleted game stays in `_dirty_games`; save writes to orphan | CONFIRMED | SILENT FAILURE | CONFIRMED-BY-RUNNING (F1) |
 | L2 | Chess Log edits to search-result copies don't reach originals | CONFIRMED (by design) | DESIGN QUESTION | CONFIRMED-BY-READING |
-| L3 | `ShowShallowTagsDialog` snapshot collision across databases | CONFIRMED | MISPLACED | CONFIRMED-BY-RUNNING (F3) |
+| L3 | `ShowShallowTagsDialog` snapshot collision across databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F3); fixed in commit amending `998f940` |
 | L4 | Rule B false-dirty marking on game switch | CONFIRMED | FALSE UNSAVED | CONFIRMED-BY-RUNNING (F2) |
 | L5 | `reload_database_from_file` missing Chess Log flush | CONFIRMED (dead code) | DESIGN QUESTION | CONFIRMED-BY-READING |
 | L6 | Sort reorder vs. caches | NO RISK | NO RISK | CONFIRMED-BY-READING |
-| — | AI verdict keyed by `game_number` stamps DEEP notes in sibling databases | CONFIRMED | MISPLACED | CONFIRMED-BY-RUNNING (F5) |
-| — | PDF/clipboard "Check Logs" always empty (3-tuple/4-tuple mismatch) | CONFIRMED | SILENT FAILURE | CONFIRMED-BY-READING (F6) |
+| — | AI verdict keyed by `game_number` stamps DEEP notes in sibling databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F5); fixed in commit amending `998f940` |
+| — | PDF/clipboard "Check Logs" always empty (3-tuple/4-tuple mismatch) | **FIXED** | SILENT FAILURE | CONFIRMED-BY-READING (F6); fixed in commit amending `998f940` |
 
 ---
 
@@ -437,12 +459,12 @@ All seven `ChessLogController` caches are keyed by `id(game)`. Sort reorders the
 positions but does not replace `GameData` objects — `id(game)` is stable. `game_number` is set
 at load/import time (`database_model.py:443–448`) and is never updated by sort.
 
-Charts-layer caches (`_cached_shallow_keys`, `_last_shallow_keys`) are keyed by `game_number`,
-which is also stable through sort. The snapshot-collision risk (F3) is about multi-DB open
-with identical game numbers, not sort.
+Charts-layer caches (`_cached_shallow_keys`, `_last_shallow_keys`) are now keyed by `GameData`
+object identity (after F5/F6 fix). Sort does not replace game objects — `id(game)` is stable.
 
-`ShowTagsDialog._original_snapshot` and `ShowShallowTagsDialog._original_snapshot` use
-`(game_number, path_key, preset)`. Sort does not change any of these three components.
+`ShowTagsDialog._original_snapshot` uses `(game_number, path_key, preset)` — sort does not
+change game_number. `ShowShallowTagsDialog._original_snapshot` is now keyed by row index —
+sort does not affect row indices at dialog-open time.
 
 **Sort is safe for all caches. NO RISK.**
 
@@ -450,14 +472,14 @@ with identical game numbers, not sort.
 
 ## 8. Test Proposals
 
-| Finding | Proposed test | Should fail until |
+| Finding | Proposed test | Status |
 |---|---|---|
-| F1 | After `remove_games()`, assert `id(game) not in ctrl._dirty_games`; also assert `save_all_dirty_games()` after a delete returns `(0, 0)` and calls `mark_database_unsaved` zero times | `_prune_dirty_games_against_open_databases` is called on delete, or `save_all` is guarded |
-| F2 | Load a tagged game, switch away without editing, assert `save_all_dirty_games()` returns `(0, 0)` and no DB is marked unsaved | Rule B narrowed with `_outgoing_has_real_edits()` |
-| F3 | Construct `ShowShallowTagsDialog` offscreen with two games sharing `(game_number, path_key, preset)`, assert `len(_original_snapshot) == len(_rows)` (one entry per row) | Snapshot keyed by `id(game)` rather than `game_number` |
-| F4 | No test needed until `reload_database_from_file` is wired; add a note in the integration test that covers reload that Chess Log prune fires | Reload wired + prune connected |
-| F5 | Construct `ShowShallowTagsDialog` with two games from separate DBs (both `game_number=1`), `shallow_keys` containing only game_1's key; after `_on_save()`, assert `game_2.is_shallow == False` | `shallow_keys`/`classified_keys` keyed by `id(game)` rather than `game_number` |
-| F6 | After a Check Logs cycle with ≥1 SHALLOW result, inspect the clipboard/PDF row list and assert it is non-empty | `_last_shallow_keys` lookup keys aligned to 4-tuples |
+| F1 | After `remove_games()`, assert `id(game) not in ctrl._dirty_games`; also assert `save_all_dirty_games()` after a delete returns `(0, 0)` and calls `mark_database_unsaved` zero times | Open — unfixed |
+| F2 | Load a tagged game, switch away without editing, assert `save_all_dirty_games()` returns `(0, 0)` and no DB is marked unsaved | Open — unfixed |
+| F3 | `TestF3SnapshotNoCollision` — `len(dlg._original_snapshot) == 2`, both games' entries preserved separately | **IMPLEMENTED** (commit amending `998f940`) |
+| F4 | No test needed until `reload_database_from_file` is wired | Open — dead code |
+| F5 | `TestF5ClamNoContamination` + `TestF53x3NoContamination` — 4 tests; row count and save-stamp assertions | **IMPLEMENTED** (commit amending `998f940`) |
+| F6 | `TestMomentInLastShallowHelper` — 8 tests; identity-safety, stale-cache, sort-identity, CLAMP/3x3 | **IMPLEMENTED** (commit amending `998f940`) |
 
 ---
 

@@ -95,6 +95,11 @@ def _make_dialog_with_classified(games, tags_by_game, shallow_keys, classified_k
     ), ctrl
 
 
+def _sk(game, path_key, preset, cat=""):
+    """Build a single-element shallow/vague key 4-tuple using the game object."""
+    return (game, path_key, preset, cat)
+
+
 # ---------------------------------------------------------------------------
 # Row filtering — only shallow_keys rows are shown
 # ---------------------------------------------------------------------------
@@ -108,7 +113,7 @@ class TestShallowRowFiltering(unittest.TestCase):
             "0.0": [_make_entry("CLAMP", "L", "deep insight about alignment")],
         }
         # Only ("0", "CLAMP") is shallow
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         dlg, _ = _make_dialog([game], {1: tags}, shallow_keys)
         self.assertEqual(len(dlg._row_widgets), 1)
 
@@ -118,7 +123,7 @@ class TestShallowRowFiltering(unittest.TestCase):
             "0": [_make_entry("CLAMP", "C", "I blundered")],
             "0.0": [_make_entry("CLAMP", "L", "missed it")],
         }
-        shallow_keys = {(1, "0", "CLAMP", ""), (1, "0.0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", ""), (game, "0.0", "CLAMP", "")}
         dlg, _ = _make_dialog([game], {1: tags}, shallow_keys)
         self.assertEqual(len(dlg._row_widgets), 2)
 
@@ -137,7 +142,7 @@ class TestShallowRowFiltering(unittest.TestCase):
             ],
         }
         # Only CLAMP is shallow
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         dlg, _ = _make_dialog([game], {1: tags}, shallow_keys)
         self.assertEqual(len(dlg._row_widgets), 1)
         self.assertEqual(dlg._row_widgets[0]._preset, "CLAMP")
@@ -156,7 +161,7 @@ class TestLiveEdit(unittest.TestCase):
         """
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "I blundered")]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         dlg, ctrl = _make_dialog([game], {1: tags}, shallow_keys)
 
         row = dlg._row_widgets[0]
@@ -168,7 +173,7 @@ class TestLiveEdit(unittest.TestCase):
         """_on_save writes the shown row and calls save_games."""
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "I blundered")]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         classified_keys = frozenset(shallow_keys)
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
@@ -197,7 +202,7 @@ class TestIgnoreCheckboxPresent(unittest.TestCase):
             "0": [_make_entry("CLAMP", "C", "shallow1")],
             "0.0": [_make_entry("CLAMP", "L", "shallow2")],
         }
-        shallow_keys = {(1, "0", "CLAMP", ""), (1, "0.0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", ""), (game, "0.0", "CLAMP", "")}
         dlg, _ = _make_dialog([game], {1: tags}, shallow_keys)
         for row in dlg._row_widgets:
             self.assertIsNotNone(row._ignore_check)
@@ -213,21 +218,21 @@ class TestCloseButton(unittest.TestCase):
     def test_has_save_button(self):
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertTrue(hasattr(dlg, "_save_btn"))
         self.assertIsInstance(dlg._save_btn, QPushButton)
 
     def test_has_cancel_button(self):
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertTrue(hasattr(dlg, "_cancel_btn"))
         self.assertIsInstance(dlg._cancel_btn, QPushButton)
 
     def test_no_ok_button(self):
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertFalse(hasattr(dlg, "_ok_btn"))
 
     def test_empty_shallow_keys_shows_no_rows_but_has_save(self):
@@ -236,6 +241,7 @@ class TestCloseButton(unittest.TestCase):
         dlg, _ = _make_dialog([game], {1: tags}, set())
         self.assertEqual(len(dlg._row_widgets), 0)
         self.assertTrue(hasattr(dlg, "_save_btn"))
+
 
 
 # ---------------------------------------------------------------------------
@@ -250,20 +256,20 @@ class TestMiniBoardOrientationMoverAtPly(unittest.TestCase):
         # MAINLINE_PGN: path "0" is 1.e4 — White to move → not flipped
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertFalse(dlg._row_widgets[0]._is_flipped)
 
     def test_black_ply_row_is_flipped(self):
         # MAINLINE_PGN: path "0.0" is 1...e5 — Black to move → flipped
         game = _make_game()
         tags = {"0.0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0.0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0.0", "CLAMP", "")})
         self.assertTrue(dlg._row_widgets[0]._is_flipped)
 
     def test_snapshot_carries_flip_for_black_ply(self):
         game = _make_game()
         tags = {"0.0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0.0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0.0", "CLAMP", "")})
         self.assertTrue(dlg._row_widgets[0].snapshot().is_flipped)
 
 
@@ -281,7 +287,7 @@ class TestShallowTagsDialogFontAndHeightWiring(unittest.TestCase):
         config = {"ui": {"dialogs": {"show_tags": show_tags_cfg}}}
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         ctrl = _make_controller({1: tags})
         return ShowShallowTagsDialog(
             config=config,
@@ -324,7 +330,7 @@ class TestWindowTitle(unittest.TestCase):
     def test_window_title_is_check_logs(self):
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertEqual(dlg.windowTitle(), "Check Logs")
 
 
@@ -337,7 +343,7 @@ class TestShallowTagsDialogResizeGrip(unittest.TestCase):
     def test_resize_grip_installed(self):
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         self.assertTrue(hasattr(dlg, "_cara_themed_resize_grip"))
 
     def test_resize_grip_installed_empty_dialog(self):
@@ -362,8 +368,8 @@ class TestSaveModel(unittest.TestCase):
             "0.0": [_make_entry("CLAMP", "L", "shallow two")],
             "1": [_make_entry("CLAMP", "A", "not shallow")],
         }
-        shallow_keys = {(1, "0", "CLAMP", ""), (1, "0.0", "CLAMP", "")}
-        classified_keys = frozenset(shallow_keys | {(1, "1", "CLAMP", "")})
+        shallow_keys = {(game, "0", "CLAMP", ""), (game, "0.0", "CLAMP", "")}
+        classified_keys = frozenset(shallow_keys | {(game, "1", "CLAMP", "")})
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
         )
@@ -388,8 +394,8 @@ class TestSaveModel(unittest.TestCase):
             "0": [_make_entry("CLAMP", "L", "still shallow")],
             "0.0": [stale_entry],
         }
-        shallow_keys = {(1, "0", "CLAMP", "")}
-        classified_keys = frozenset({(1, "0", "CLAMP", ""), (1, "0.0", "CLAMP", "")})
+        shallow_keys = {(game, "0", "CLAMP", "")}
+        classified_keys = frozenset({(game, "0", "CLAMP", ""), (game, "0.0", "CLAMP", "")})
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
         )
@@ -410,7 +416,7 @@ class TestSaveModel(unittest.TestCase):
         """Plan test 15: Cancel makes no writes."""
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         classified_keys = frozenset(shallow_keys)
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
@@ -426,7 +432,7 @@ class TestSaveModel(unittest.TestCase):
         """Plan test 16: close() routes to reject, making no writes."""
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         classified_keys = frozenset(shallow_keys)
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
@@ -442,7 +448,7 @@ class TestSaveModel(unittest.TestCase):
         """Plan test 17: Ignore toggle saved on Save, discarded on Cancel."""
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow", ignore_shallow=False)]}
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         classified_keys = frozenset(shallow_keys)
 
         # Cancel: toggle, then cancel → not persisted
@@ -475,9 +481,9 @@ class TestSaveModel(unittest.TestCase):
             "0": [_make_entry("CLAMP", "C", "shallow")],
             "0.0": [prior_shallow],
         }
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         # classified_keys does NOT include "0.0" — it was unparsed
-        classified_keys = frozenset({(1, "0", "CLAMP", "")})
+        classified_keys = frozenset({(game, "0", "CLAMP", "")})
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
         )
@@ -500,9 +506,9 @@ class TestSaveModel(unittest.TestCase):
             "0": [_make_entry("CLAMP", "C", "shallow")],
             "0.0": [ignored_entry],
         }
-        shallow_keys = {(1, "0", "CLAMP", "")}
+        shallow_keys = {(game, "0", "CLAMP", "")}
         # "0.0" skipped by classifier (ignore_shallow=True) → not in classified_keys
-        classified_keys = frozenset({(1, "0", "CLAMP", "")})
+        classified_keys = frozenset({(game, "0", "CLAMP", "")})
         dlg, ctrl = _make_dialog_with_classified(
             [game], {1: tags}, shallow_keys, classified_keys
         )
@@ -521,7 +527,7 @@ class TestSaveModel(unittest.TestCase):
         game_b = _make_game(game_number=2)
         tags_a = {"0": [_make_entry("CLAMP", "C", "shallow a")]}
         tags_b = {"0": [_make_entry("CLAMP", "C", "shallow b")]}
-        shallow_keys = {(1, "0", "CLAMP", ""), (2, "0", "CLAMP", "")}
+        shallow_keys = {(game_a, "0", "CLAMP", ""), (game_b, "0", "CLAMP", "")}
         classified_keys = frozenset(shallow_keys)
 
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
@@ -555,6 +561,7 @@ class TestChipLabels(unittest.TestCase):
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         game = _make_game()
         ctrl = _make_controller({1: entries_by_path})
+        # Remap integer keys to this game object (the helper receives tuples with game as pos 0)
         ck = frozenset(classified_keys) if classified_keys is not None else frozenset(shallow_keys | vague_keys)
         return ShowShallowTagsDialog(
             config={},
@@ -563,27 +570,31 @@ class TestChipLabels(unittest.TestCase):
             shallow_keys=shallow_keys,
             vague_keys=vague_keys,
             classified_keys=ck,
-        ), ctrl
+        ), ctrl, game
 
     def test_shallow_chip_present_when_is_shallow(self):
+        game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "shallow one")]}
-        dlg, _ = self._make_vague_dialog(
-            shallow_keys={(1, "0", "CLAMP", "")},
-            vague_keys=frozenset(),
-            entries_by_path=entries,
-        )
+        ctrl = _make_controller({1: entries})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        sk = frozenset({(game, "0", "CLAMP", "")})
+        ck = frozenset(sk)
+        dlg = ShowShallowTagsDialog(config={}, games=[game], controller=ctrl,
+                                    shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck)
         row = dlg._row_widgets[0]
         self.assertTrue(row._preserved_is_shallow)
         self.assertIsNotNone(row._shallow_chip)
         self.assertIsNone(row._vague_chip)
 
     def test_vague_chip_present_when_is_vague(self):
+        game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "specific + filler lesson")]}
-        dlg, _ = self._make_vague_dialog(
-            shallow_keys=frozenset(),
-            vague_keys={(1, "0", "CLAMP", "")},
-            entries_by_path=entries,
-        )
+        ctrl = _make_controller({1: entries})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        vk = frozenset({(game, "0", "CLAMP", "")})
+        ck = frozenset(vk)
+        dlg = ShowShallowTagsDialog(config={}, games=[game], controller=ctrl,
+                                    shallow_keys=frozenset(), vague_keys=vk, classified_keys=ck)
         row = dlg._row_widgets[0]
         self.assertFalse(row._preserved_is_shallow)
         self.assertTrue(row._preserved_is_vague)
@@ -591,23 +602,28 @@ class TestChipLabels(unittest.TestCase):
         self.assertIsNotNone(row._vague_chip)
 
     def test_both_chips_present_when_both_flags(self):
+        game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "generic + filler")]}
-        dlg, _ = self._make_vague_dialog(
-            shallow_keys={(1, "0", "CLAMP", "")},
-            vague_keys={(1, "0", "CLAMP", "")},
-            entries_by_path=entries,
-        )
+        ctrl = _make_controller({1: entries})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        sk = frozenset({(game, "0", "CLAMP", "")})
+        vk = frozenset({(game, "0", "CLAMP", "")})
+        ck = frozenset(sk | vk)
+        dlg = ShowShallowTagsDialog(config={}, games=[game], controller=ctrl,
+                                    shallow_keys=sk, vague_keys=vk, classified_keys=ck)
         row = dlg._row_widgets[0]
         self.assertIsNotNone(row._shallow_chip)
         self.assertIsNotNone(row._vague_chip)
 
     def test_no_chips_when_neither_flag(self):
+        game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "deep specific real")]}
-        dlg, _ = self._make_vague_dialog(
-            shallow_keys={(1, "0", "CLAMP", "")},
-            vague_keys=frozenset(),
-            entries_by_path=entries,
-        )
+        ctrl = _make_controller({1: entries})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        sk = frozenset({(game, "0", "CLAMP", "")})
+        ck = frozenset(sk)
+        dlg = ShowShallowTagsDialog(config={}, games=[game], controller=ctrl,
+                                    shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck)
         row = dlg._row_widgets[0]
         self.assertFalse(row._preserved_is_vague)
         self.assertIsNone(row._vague_chip)
@@ -623,8 +639,8 @@ class TestChipLabels(unittest.TestCase):
         }}}}}
         dlg = ShowShallowTagsDialog(
             config=config, games=[game], controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")}, vague_keys=frozenset(),
-            classified_keys=frozenset({(1, "0", "CLAMP", "")}),
+            shallow_keys={(game, "0", "CLAMP", "")}, vague_keys=frozenset(),
+            classified_keys=frozenset({(game, "0", "CLAMP", "")}),
         )
         row = dlg._row_widgets[0]
         self.assertIsNotNone(row._shallow_chip)
@@ -641,8 +657,8 @@ class TestChipLabels(unittest.TestCase):
         }}}}}
         dlg = ShowShallowTagsDialog(
             config=config, games=[game], controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")}, vague_keys=frozenset(),
-            classified_keys=frozenset({(1, "0", "CLAMP", "")}),
+            shallow_keys={(game, "0", "CLAMP", "")}, vague_keys=frozenset(),
+            classified_keys=frozenset({(game, "0", "CLAMP", "")}),
         )
         self.assertEqual(dlg._row_widgets[0]._shallow_chip.toolTip(), "Custom tip")
 
@@ -672,7 +688,7 @@ class TestChipTooltips(unittest.TestCase):
         game = _make_game()
         entries = {"0": [_make_entry(preset, "C", "I blundered the knight")]}
         ctrl = _make_controller({1: entries})
-        sk = frozenset({(1, "0", preset, "")})
+        sk = frozenset({(game, "0", preset, "")})
         return ShowShallowTagsDialog(
             config=self._cfg, games=[game], controller=ctrl,
             shallow_keys=sk, classified_keys=sk,
@@ -683,7 +699,7 @@ class TestChipTooltips(unittest.TestCase):
         game = _make_game()
         entries = {"0": [_make_entry("3x3", "Why1", "I moved")]}
         ctrl = _make_controller({1: entries})
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         return ShowShallowTagsDialog(
             config=self._cfg, games=[game], controller=ctrl,
             shallow_keys=sk, classified_keys=sk,
@@ -694,7 +710,7 @@ class TestChipTooltips(unittest.TestCase):
         game = _make_game()
         entries = {"0": [_make_entry("3x3", "Why4", "Try harder")]}
         ctrl = _make_controller({1: entries})
-        vk = frozenset({(1, "0", "3x3", "Why4")})
+        vk = frozenset({(game, "0", "3x3", "Why4")})
         return ShowShallowTagsDialog(
             config=self._cfg, games=[game], controller=ctrl,
             shallow_keys=frozenset(), vague_keys=vk, classified_keys=vk,
@@ -769,8 +785,8 @@ class TestVagueKeysSaveModel(unittest.TestCase):
         entries = {path_key: entries_list}
         ctrl = _make_controller({1: entries})
         ctrl.save_games = MagicMock()
-        sk = frozenset({(1, path_key, "3x3", "Why1")} if shallow else [])
-        vk = frozenset({(1, path_key, "3x3", "Why4")} if vague else [])
+        sk = frozenset({(game, path_key, "3x3", "Why1")} if shallow else [])
+        vk = frozenset({(game, path_key, "3x3", "Why4")} if vague else [])
         ck = frozenset(sk | vk)
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -811,8 +827,8 @@ class TestVagueKeysSaveModel(unittest.TestCase):
         }
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
-        sk = frozenset({(1, "0", "CLAMP", "")})
-        ck = frozenset({(1, "0", "CLAMP", ""), (1, "0.0", "CLAMP", "")})
+        sk = frozenset({(game, "0", "CLAMP", "")})
+        ck = frozenset({(game, "0", "CLAMP", ""), (game, "0.0", "CLAMP", "")})
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
             shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck,
@@ -842,7 +858,7 @@ class TestSnapshotFlags(unittest.TestCase):
         game = _make_game()
         entry = dict(_make_entry("CLAMP", "C", "shallow"), is_shallow=True)
         tags = {"0": [entry]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         snap = dlg._row_widgets[0].snapshot()
         self.assertTrue(snap.is_shallow)
 
@@ -854,8 +870,8 @@ class TestSnapshotFlags(unittest.TestCase):
         ctrl = _make_controller({1: tags})
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
-            shallow_keys=frozenset(), vague_keys={(1, "0", "CLAMP", "")},
-            classified_keys=frozenset({(1, "0", "CLAMP", "")}),
+            shallow_keys=frozenset(), vague_keys={(game, "0", "CLAMP", "")},
+            classified_keys=frozenset({(game, "0", "CLAMP", "")}),
         )
         snap = dlg._row_widgets[0].snapshot()
         self.assertTrue(snap.is_vague)
@@ -877,20 +893,24 @@ class TestPerCatChip3x3(unittest.TestCase):
         return ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
             shallow_keys=shallow_keys, vague_keys=vague_keys, classified_keys=ck,
-        )
+        ), game
 
     def test_shallow_chip_on_why1_only_when_generic_why1_real_why4(self):
         """GENERIC Why1 + REAL Why4 → Shallow chip on Why1 row, no Vague chip."""
+        game = _make_game()
         entries_list = [
             _make_entry("3x3", "Why1", "I wanted to trade queens"),
             _make_entry("3x3", "Why4", "Look at all captures first"),
         ]
         entries = {"0": entries_list}
         # Why1 is GENERIC (shallow), Why4 is REAL (not vague)
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         vk = frozenset()
-        ck = frozenset({(1, "0", "3x3", "Why1"), (1, "0", "3x3", "Why4")})
-        dlg = self._make_3x3_dialog(sk, vk, entries, ck)
+        ck = frozenset({(game, "0", "3x3", "Why1"), (game, "0", "3x3", "Why4")})
+        ctrl = _make_controller({1: entries})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(config={}, games=[game], controller=ctrl,
+                                    shallow_keys=sk, vague_keys=vk, classified_keys=ck)
         self.assertEqual(len(dlg._row_widgets), 1)
         row = dlg._row_widgets[0]
         # Why1 has shallow chip stored after pre-stamp
@@ -978,8 +998,8 @@ class TestPerCatChip3x3(unittest.TestCase):
         }
         ctrl = _make_controller({1: entries})
         ctrl.save_games = MagicMock()
-        sk = frozenset({(1, "0", "3x3", "Why1")})
-        vk = frozenset({(1, "0", "3x3", "Why4")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
+        vk = frozenset({(game, "0", "3x3", "Why4")})
         ck = frozenset(sk | vk)
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1005,8 +1025,8 @@ class TestPerCatChip3x3(unittest.TestCase):
         ctrl = _make_controller({1: entries})
         ctrl.save_games = MagicMock()
         # Why4 is FILLER (vague), Why1 now SPECIFIC (not flagged); both classified
-        vk = frozenset({(1, "0", "3x3", "Why4")})
-        ck = frozenset({(1, "0", "3x3", "Why1"), (1, "0", "3x3", "Why4")})
+        vk = frozenset({(game, "0", "3x3", "Why4")})
+        ck = frozenset({(game, "0", "3x3", "Why1"), (game, "0", "3x3", "Why4")})
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
             shallow_keys=frozenset(), vague_keys=vk, classified_keys=ck,
@@ -1035,7 +1055,7 @@ class TestHelpIcon(unittest.TestCase):
         from PyQt6.QtWidgets import QToolButton
         game = _make_game()
         tags = {"0": [_make_entry("CLAMP", "C", "shallow")]}
-        dlg, _ = _make_dialog([game], {1: tags}, {(1, "0", "CLAMP", "")})
+        dlg, _ = _make_dialog([game], {1: tags}, {(game, "0", "CLAMP", "")})
         buttons = dlg.findChildren(QToolButton)
         self.assertTrue(len(buttons) > 0, "Expected at least one QToolButton (help icon)")
 
@@ -1056,7 +1076,7 @@ class TestPartialNotice(unittest.TestCase):
             config={},
             games=[game],
             controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")},
+            shallow_keys={(game, "0", "CLAMP", "")},
             partial_notice=msg,
         )
         labels = [w.text() for w in dlg.findChildren(QLabel) if msg in (w.text() or "")]
@@ -1073,7 +1093,7 @@ class TestPartialNotice(unittest.TestCase):
             config={},
             games=[game],
             controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")},
+            shallow_keys={(game, "0", "CLAMP", "")},
             partial_notice=None,
         )
         sentinel = "could not be classified"
@@ -1116,7 +1136,7 @@ class TestIgnoredAnswerChipInCheckLogs(unittest.TestCase):
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
         # Why1 classified shallow this run; Why4 excluded (ignored → not in classified_keys)
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         ck = frozenset(sk)
         return ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1242,8 +1262,8 @@ class TestIgnoredAnswerChipInCheckLogs(unittest.TestCase):
         tags2 = {"0": saved_entries}
         ctrl2 = _make_controller({1: tags2})
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
-        sk2 = frozenset({(1, "0", "3x3", "Why1")})
-        vk2 = frozenset({(1, "0", "3x3", "Why4")})  # now classified vague again
+        sk2 = frozenset({(game, "0", "3x3", "Why1")})
+        vk2 = frozenset({(game, "0", "3x3", "Why4")})  # now classified vague again
         ck2 = frozenset(sk2 | vk2)
         dlg2 = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl2,
@@ -1301,7 +1321,7 @@ class TestIgnoredAnswerChipInCheckLogs(unittest.TestCase):
         tags = {"0": entries}
         ctrl = _make_controller({1: tags})
         # Why4 is VAGUE this run (moment is shown because Why4 in vague_keys)
-        vk = frozenset({(1, "0", "3x3", "Why4")})
+        vk = frozenset({(game, "0", "3x3", "Why4")})
         ck = frozenset(vk)
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1428,9 +1448,9 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
         # Why1 shallow; Why4 classified this run (simulate edge case) but NOT vague
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         # Why4 in classified_keys but NOT in vague_keys — this is the stale-clear scenario
-        ck = frozenset({(1, "0", "3x3", "Why1"), (1, "0", "3x3", "Why4")})
+        ck = frozenset({(game, "0", "3x3", "Why1"), (game, "0", "3x3", "Why4")})
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
             shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck,
@@ -1469,8 +1489,8 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
         tags = {"0": entries}
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
-        sk = frozenset({(1, "0", "3x3", "Why1")})
-        ck = frozenset({(1, "0", "3x3", "Why1"), (1, "0", "3x3", "Why4")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
+        ck = frozenset({(game, "0", "3x3", "Why1"), (game, "0", "3x3", "Why4")})
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
             shallow_keys=sk, vague_keys=frozenset(), classified_keys=ck,
@@ -1500,7 +1520,7 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
         # Why1 shallow this run; Why4 excluded from classifier (properly ignored)
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         ck = frozenset(sk)
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1549,7 +1569,7 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
         tags = {"0": repaired_entries}
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
-        sk = frozenset({(1, "0", "3x3", "Why1")})
+        sk = frozenset({(game, "0", "3x3", "Why1")})
         ck = frozenset(sk)
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1598,7 +1618,7 @@ class TestIgnoredAnswerSaveFixC2(unittest.TestCase):
         ctrl = _make_controller({1: tags})
         ctrl.save_games = MagicMock()
         # Why4 was re-classified DEEP (in classified_keys but not in vague/shallow_keys)
-        ck = frozenset({(1, "0", "3x3", "Why4")})
+        ck = frozenset({(game, "0", "3x3", "Why4")})
         # No flagged_keys → moment not shown; but part (b) still processes all tags
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
@@ -1680,17 +1700,29 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
                 return list(c[0][3])
         return None
 
-    def _open_dialog(self, entries, shallow_keys, vague_keys, classified_keys):
+    def _open_dialog(self, entries, shallow_key_cats, vague_key_cats, classified_key_cats):
+        """Open a dialog for a fresh game object.
+
+        Key sets are specified as dicts mapping cat→bool so the caller does not
+        need to know the game object in advance.  Returns (dlg, ctrl, game).
+
+        shallow_key_cats / vague_key_cats / classified_key_cats: iterables of
+        (path_key, preset, cat) 3-tuples that will be combined with the fresh
+        game object to form 4-tuple keys.
+        """
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         game = _make_game()
+        sk = frozenset((game, pk, pr, cat) for pk, pr, cat in shallow_key_cats)
+        vk = frozenset((game, pk, pr, cat) for pk, pr, cat in vague_key_cats)
+        ck = frozenset((game, pk, pr, cat) for pk, pr, cat in classified_key_cats)
         ctrl = _make_controller({1: {"0": list(entries)}})
         ctrl.save_games = MagicMock()
         dlg = ShowShallowTagsDialog(
             config={}, games=[game], controller=ctrl,
-            shallow_keys=shallow_keys, vague_keys=vague_keys,
-            classified_keys=classified_keys,
+            shallow_keys=sk, vague_keys=vk,
+            classified_keys=ck,
         )
-        return dlg, ctrl
+        return dlg, ctrl, game
 
     def test_full_five_step_sequence(self):
         """Walk all five steps and assert the correct entry state after each save."""
@@ -1700,15 +1732,16 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
                  for k, v in self.TEXTS.items()]
         self._print_entries("INITIAL STORAGE (clean)", clean)
 
-        SK_W1 = frozenset({(1, "0", "3x3", "Why1")})
-        VK_W4 = frozenset({(1, "0", "3x3", "Why4")})
-        CK_ALL = frozenset(SK_W1 | VK_W4)
+        # Key specs as (path_key, preset, cat) 3-tuples — game object added per step
+        SK_W1_SPEC = [("0", "3x3", "Why1")]
+        VK_W4_SPEC = [("0", "3x3", "Why4")]
+        CK_ALL_SPEC = SK_W1_SPEC + VK_W4_SPEC
         # Step 2/3 run: Why4 excluded because it was ignored
-        CK_NO_W4 = frozenset({(1, "0", "3x3", k) for k in ("Why1", "Why2", "Why3")})
+        CK_NO_W4_SPEC = [("0", "3x3", k) for k in ("Why1", "Why2", "Why3")]
         expected_hash = hashlib.sha256("Slow down and calculate".encode()).hexdigest()
 
         # ── Step 1: Check Logs → tick Ignore on Why4 → Save ──────────────
-        dlg1, ctrl1 = self._open_dialog(clean, SK_W1, VK_W4, CK_ALL)
+        dlg1, ctrl1, game1 = self._open_dialog(clean, SK_W1_SPEC, VK_W4_SPEC, CK_ALL_SPEC)
         row1 = dlg1._row_widgets[0]
         self.assertIn("Why4", row1._ignore_checks, "Why4 Ignore checkbox must exist")
         row1._ignore_checks["Why4"].setChecked(True)
@@ -1726,9 +1759,10 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
                          "Step 1: hash must equal sha256(why.strip())")
 
         # ── Step 2: Check Logs again (Why4 NOT in classified_keys) → no-op Save
-        self.assertNotIn((1, "0", "3x3", "Why4"), CK_NO_W4,
+        # Precondition: ("0", "3x3", "Why4") not in CK_NO_W4_SPEC
+        self.assertNotIn(("0", "3x3", "Why4"), CK_NO_W4_SPEC,
                          "Step 2 precondition: Why4 must be excluded from classifier")
-        dlg2, ctrl2 = self._open_dialog(saved1, SK_W1, frozenset(), CK_NO_W4)
+        dlg2, ctrl2, _g2 = self._open_dialog(saved1, SK_W1_SPEC, [], CK_NO_W4_SPEC)
         dlg2._on_save()
 
         # No write expected; if one happened, Why4 must be unchanged
@@ -1742,7 +1776,7 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
                          "Step 2: hash unchanged")
 
         # ── Step 3: Check Logs again → untick Why4 (chip undims) → Save ──
-        dlg3, ctrl3 = self._open_dialog(saved1, SK_W1, frozenset(), CK_NO_W4)
+        dlg3, ctrl3, _g3 = self._open_dialog(saved1, SK_W1_SPEC, [], CK_NO_W4_SPEC)
         row3 = dlg3._row_widgets[0]
         chip3 = row3._chips_per_cat.get("Why4")
         self.assertTrue(self._has_opacity_effect(chip3),
@@ -1764,9 +1798,9 @@ class TestNormalSequenceFromCleanStorage(unittest.TestCase):
                           "Step 3: ignore_text_hash must be absent")
 
         # ── Step 4: Check Logs again — normal chip, unticked box ──────────
-        SK4 = frozenset({(1, "0", "3x3", "Why1")})
-        VK4 = frozenset({(1, "0", "3x3", "Why4")})   # Why4 vague again (Ignore cleared)
-        dlg4, _ = self._open_dialog(saved3, SK4, VK4, frozenset(SK4 | VK4))
+        SK4_SPEC = [("0", "3x3", "Why1")]
+        VK4_SPEC = [("0", "3x3", "Why4")]   # Why4 vague again (Ignore cleared)
+        dlg4, _, _g4 = self._open_dialog(saved3, SK4_SPEC, VK4_SPEC, SK4_SPEC + VK4_SPEC)
         row4 = dlg4._row_widgets[0]
         chip4 = row4._chips_per_cat.get("Why4")
 
@@ -1817,7 +1851,7 @@ class TestSingleGameHeader(unittest.TestCase):
             config={},
             games=[game],
             controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")},
+            shallow_keys={(game, "0", "CLAMP", "")},
         ), game
 
     def test_single_game_dialog_shows_game_header(self):
@@ -1848,7 +1882,7 @@ class TestSingleGameHeader(unittest.TestCase):
             config={},
             games=[game],
             controller=ctrl,
-            shallow_keys={(1, "0", "CLAMP", "")},
+            shallow_keys={(game, "0", "CLAMP", "")},
         )
 
         captured = {}
@@ -1880,7 +1914,7 @@ class TestChessLogMiniatureBoardSettingsShallow(unittest.TestCase):
         game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
         ctrl = _make_controller({1: entries})
-        sk = frozenset({(1, "0", "CLAMP", "")})
+        sk = frozenset({(game, "0", "CLAMP", "")})
 
         mock_uss = MagicMock()
         mock_uss.get_miniature_boards.return_value = {"chess_log": scale}
@@ -1914,7 +1948,7 @@ class TestChessLogMiniatureBoardSettingsShallow(unittest.TestCase):
         game = _make_game()
         entries = {"0": [_make_entry("CLAMP", "C", "shallow note")]}
         ctrl = _make_controller({1: entries})
-        sk = frozenset({(1, "0", "CLAMP", "")})
+        sk = frozenset({(game, "0", "CLAMP", "")})
         dlg = ShowShallowTagsDialog(
             config={},
             games=[game],
@@ -1990,6 +2024,159 @@ class TestChipFadeInShallowDialog(unittest.TestCase):
         self._pump()
         self.assertTrue(chip.isHidden(), "chip must be explicitly hidden after fade")
         self.assertTrue(row._ignore_check.isHidden(), "Ignore checkbox must be hidden after fade")
+
+
+# ---------------------------------------------------------------------------
+# F5 regression: no cross-database verdict contamination (CLAMP and 3x3)
+# ---------------------------------------------------------------------------
+
+_ONE_MOVE_PGN = (
+    '[Event "T"]\n[Site "?"]\n[Date "2024.01.01"]\n'
+    '[Round "-"]\n[White "A"]\n[Black "B"]\n[Result "*"]\n\n1. e4 *\n'
+)
+
+
+def _two_same_gn_games():
+    """Return (game_1, game_2) both with game_number=1 from separate DatabaseModels."""
+    import json
+    import os
+    from app.models.database_model import DatabaseModel, GameData
+    cfg_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+        "app", "config", "config.json",
+    )
+    with open(cfg_path) as f:
+        cfg = json.load(f)
+    game_1 = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+    game_2 = GameData(game_number=0, pgn=_ONE_MOVE_PGN)
+    db_a = DatabaseModel(config=cfg)
+    db_b = DatabaseModel(config=cfg)
+    db_a.add_game(game_1, tags=set())
+    db_b.add_game(game_2, tags=set())
+    assert game_1.game_number == game_2.game_number == 1
+    return game_1, game_2
+
+
+def _make_id_keyed_ctrl(tags_by_game_id):
+    """Controller mock keyed on id(game), not game.game_number."""
+    ctrl = MagicMock()
+    def _get_tags(game):
+        return tags_by_game_id.get(id(game), {})
+    ctrl.get_tags_for_game.side_effect = _get_tags
+    ctrl.get_custom_categories.return_value = []
+    ctrl.replace_entries_at_path_for_game = MagicMock()
+    ctrl.save_games = MagicMock()
+    return ctrl
+
+
+def _make_shallow_dialog(games, tags_by_game_id, shallow_keys, classified_keys):
+    from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+    ctrl = _make_id_keyed_ctrl(tags_by_game_id)
+    dlg = ShowShallowTagsDialog(
+        config={},
+        games=games,
+        controller=ctrl,
+        shallow_keys=shallow_keys,
+        vague_keys=frozenset(),
+        classified_keys=classified_keys,
+    )
+    return dlg, ctrl
+
+
+@requires_qt
+class TestF5ClamNoContamination(unittest.TestCase):
+    """F5/CLAMP: game_1 SHALLOW verdict must not propagate to game_2 when both
+    share (game_number=1, path_key="0", preset="CLAMP")."""
+
+    def test_only_shallow_game_row_is_shown(self):
+        """Dialog must show exactly 1 row (game_1), not 2."""
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("CLAMP", "C", "vague note")]},
+            id(game_2): {"0": [_make_entry("CLAMP", "L", "specific insight")]},
+        }
+        sk = frozenset([(game_1, "0", "CLAMP", "")])
+        ck = frozenset([(game_1, "0", "CLAMP", ""), (game_2, "0", "CLAMP", "")])
+        dlg, _ = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        self.assertEqual(len(dlg._row_widgets), 1,
+                         "Only game_1 is shallow — game_2 must not appear")
+        self.assertIs(dlg._row_games[0], game_1)
+
+    def test_save_does_not_stamp_deep_game(self):
+        """After Save, game_2's replace call must not carry is_shallow=True."""
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("CLAMP", "C", "vague note")]},
+            id(game_2): {"0": [_make_entry("CLAMP", "L", "specific insight")]},
+        }
+        sk = frozenset([(game_1, "0", "CLAMP", "")])
+        ck = frozenset([(game_1, "0", "CLAMP", ""), (game_2, "0", "CLAMP", "")])
+        dlg, ctrl = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        dlg._on_save()
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            if c[0][0] is game_2:
+                for e in c[0][3]:
+                    self.assertFalse(e.get("is_shallow"),
+                                     "game_2 (DEEP) must not receive is_shallow=True")
+
+
+@requires_qt
+class TestF53x3NoContamination(unittest.TestCase):
+    """F5/3x3: game_1 Why1=GENERIC must not stamp is_shallow on game_2."""
+
+    def test_3x3_only_shallow_game_row_is_shown(self):
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("3x3", "Why1", "generic answer")]},
+            id(game_2): {"0": [_make_entry("3x3", "Why1", "I miscalculated d5 after 18...Qe6")]},
+        }
+        sk = frozenset([(game_1, "0", "3x3", "Why1")])
+        ck = frozenset([(game_1, "0", "3x3", "Why1"), (game_2, "0", "3x3", "Why1")])
+        dlg, _ = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        self.assertEqual(len(dlg._row_widgets), 1,
+                         "Only game_1 is shallow — game_2 must not appear")
+        self.assertIs(dlg._row_games[0], game_1)
+
+    def test_3x3_save_does_not_stamp_deep_game(self):
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("3x3", "Why1", "generic answer")]},
+            id(game_2): {"0": [_make_entry("3x3", "Why1", "I miscalculated d5 after 18...Qe6")]},
+        }
+        sk = frozenset([(game_1, "0", "3x3", "Why1")])
+        ck = frozenset([(game_1, "0", "3x3", "Why1"), (game_2, "0", "3x3", "Why1")])
+        dlg, ctrl = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        dlg._on_save()
+        for c in ctrl.replace_entries_at_path_for_game.call_args_list:
+            if c[0][0] is game_2:
+                for e in c[0][3]:
+                    self.assertFalse(e.get("is_shallow"),
+                                     "game_2 Why1 (DEEP) must not receive is_shallow=True")
+
+
+@requires_qt
+class TestF3SnapshotNoCollision(unittest.TestCase):
+    """F3: _original_snapshot must have separate entries for each game,
+    even when both have game_number=1."""
+
+    def test_snapshot_keyed_by_row_index_not_game_number(self):
+        game_1, game_2 = _two_same_gn_games()
+        tags = {
+            id(game_1): {"0": [_make_entry("CLAMP", "C", "game1-why")]},
+            id(game_2): {"0": [_make_entry("CLAMP", "L", "game2-why")]},
+        }
+        sk = frozenset([(game_1, "0", "CLAMP", ""), (game_2, "0", "CLAMP", "")])
+        ck = frozenset(sk)
+        dlg, _ = _make_shallow_dialog([game_1, game_2], tags, sk, ck)
+        # Two rows shown → two distinct snapshot entries
+        self.assertEqual(len(dlg._original_snapshot), 2,
+                         "_original_snapshot must have one entry per row, not collide by game_number")
+        snap_0 = dlg._original_snapshot.get(0, [])
+        snap_1 = dlg._original_snapshot.get(1, [])
+        # Each row's snapshot must match the correct game's entry
+        cats = {snap_0[0]["cat"] if snap_0 else None, snap_1[0]["cat"] if snap_1 else None}
+        self.assertEqual(cats, {"C", "L"},
+                         "Both games' entries must be preserved separately in the snapshot")
 
 
 if __name__ == "__main__":

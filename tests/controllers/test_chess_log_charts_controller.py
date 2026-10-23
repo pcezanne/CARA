@@ -48,6 +48,12 @@ if _QT_AVAILABLE:
     from app.models.database_model import GameData
     from app.services.chess_log_storage_service import ChessLogStorageService
 
+# Game objects for shallow-thread tests: position 0 of key tuples, not game_number.
+# _NOTE_GAMES[i] replaces the integer i+1 that was previously at note/key position 1/0.
+_NOTE_GAMES = [GameData(game_number=i + 1) for i in range(5)] if _QT_AVAILABLE else []
+# _3X3_NOTE_GAMES[i] replaces the integer i+10 used in mixed-call tests.
+_3X3_NOTE_GAMES = [GameData(game_number=i + 10) for i in range(3)] if _QT_AVAILABLE else []
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -863,7 +869,7 @@ class TestChessLogShallowThreadExceptionHandling(unittest.TestCase):
 
     def test_exception_in_work_emits_shallow_failed(self):
         from app.controllers.chess_log_charts_controller import ChessLogShallowThread
-        notes = [(0, 1, "path/0", "CLAMP", "I missed a tactic")]
+        notes = [(0, _NOTE_GAMES[0], "path/0", "CLAMP", "I missed a tactic")]
         thread = ChessLogShallowThread(
             games=[],
             provider="openai",
@@ -916,7 +922,7 @@ def _shallow_config():
 def _make_shallow_thread(notes=None, config=None):
     from app.controllers.chess_log_charts_controller import ChessLogShallowThread
     if notes is None:
-        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
     return ChessLogShallowThread(
         games=[],
         provider="anthropic",
@@ -971,9 +977,9 @@ class TestChessLogShallowThreadSignalShape(unittest.TestCase):
 
     def test_partial_unparsed_emits_partial_then_ready(self):
         """Some unparsed, some classified → shallow_partial then shallow_ready."""
-        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
         result = _shallow_result(
-            shallow_keys=[(2, "path/2", "CLAMP")],
+            shallow_keys=[(_NOTE_GAMES[2], "path/2", "CLAMP", "")],
             unparsed_indices=(0,),
         )
         failed, partial, ready = self._run_thread(result, notes=notes)
@@ -993,9 +999,9 @@ class TestChessLogShallowThreadSignalShape(unittest.TestCase):
 
     def test_all_parsed_some_flagged_emits_ready_only(self):
         """All parsed, some SHALLOW → shallow_ready(keys) only; no partial."""
-        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
         result = _shallow_result(
-            shallow_keys=[(1, "path/1", "CLAMP"), (3, "path/2", "CLAMP")],
+            shallow_keys=[(_NOTE_GAMES[0], "path/1", "CLAMP", ""), (_NOTE_GAMES[2], "path/2", "CLAMP", "")],
             unparsed_indices=(),
         )
         failed, partial, ready = self._run_thread(result, notes=notes)
@@ -1228,8 +1234,8 @@ class TestShallowThreadReadyNoWrite(unittest.TestCase):
         received = []
         ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append((k, vk, ck, u)))
 
-        shallow_keys = frozenset([(1, "0", "CLAMP")])
-        classified_keys = frozenset([(1, "0", "CLAMP")])
+        shallow_keys = frozenset([(_NOTE_GAMES[0], "0", "CLAMP", "")])
+        classified_keys = frozenset([(_NOTE_GAMES[0], "0", "CLAMP", "")])
         usage = None
         ctrl._on_shallow_thread_ready(shallow_keys, frozenset(), classified_keys, usage)
 
@@ -1245,10 +1251,10 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
     def test_shallow_thread_ready_payload_includes_classified_keys(self):
         """3 notes, index 1 in unparsed_indices → classified_keys has keys for
         notes 0 and 2 only (not note 1)."""
-        notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
+        notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(3)]
         thread = _make_shallow_thread(notes=notes)
         result = _shallow_result(
-            shallow_keys=[(1, "path/0", "CLAMP", "")],
+            shallow_keys=[(_NOTE_GAMES[0], "path/0", "CLAMP", "")],
             unparsed_indices=(1,),
         )
         received = []
@@ -1260,11 +1266,11 @@ class TestShallowThreadClassifiedKeysPayload(unittest.TestCase):
             thread.run()
         self.assertEqual(len(received), 1, "shallow_ready must fire once")
         _, _, classified_keys, _ = received[0]
-        # note 1: game_number=2, path_key="path/1" — must be absent (unparsed)
-        self.assertNotIn((2, "path/1", "CLAMP", ""), classified_keys)
+        # note 1 (_NOTE_GAMES[1], path_key="path/1") — must be absent (unparsed)
+        self.assertNotIn((_NOTE_GAMES[1], "path/1", "CLAMP", ""), classified_keys)
         # notes 0 and 2 must be present
-        self.assertIn((1, "path/0", "CLAMP", ""), classified_keys)
-        self.assertIn((3, "path/2", "CLAMP", ""), classified_keys)
+        self.assertIn((_NOTE_GAMES[0], "path/0", "CLAMP", ""), classified_keys)
+        self.assertIn((_NOTE_GAMES[2], "path/2", "CLAMP", ""), classified_keys)
         self.assertEqual(len(classified_keys), 2)
 
 
@@ -1275,9 +1281,9 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
     def _make_mixed_thread(self, legacy_notes=None, three_notes=None, config=None):
         from app.controllers.chess_log_charts_controller import ChessLogShallowThread
         if legacy_notes is None:
-            legacy_notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
+            legacy_notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
         if three_notes is None:
-            three_notes = [(i, i + 10, f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
+            three_notes = [(i, _3X3_NOTE_GAMES[i], f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
         return ChessLogShallowThread(
             games=[],
             provider="anthropic",
@@ -1323,7 +1329,7 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
         three_ok = self._shallow_result_3x3(
             success=True,
-            shallow_keys=[(10, "path3/0", "3x3", "Why1")],
+            shallow_keys=[(_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why1")],
         )
         failed, partial, ready = self._run(legacy_fail, three_ok)
         # Must not be a hard failure (3x3 call succeeded)
@@ -1331,18 +1337,18 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         # Must emit ready eventually
         self.assertEqual(len(ready), 1)
         _, _, classified_keys, _ = ready[0]
-        # Legacy notes (game_numbers 1, 2) must NOT be in classified_keys
-        self.assertNotIn((1, "path/0", "CLAMP", ""), classified_keys)
-        self.assertNotIn((2, "path/1", "CLAMP", ""), classified_keys)
-        # 3x3 notes (game_numbers 10, 11) must be in classified_keys — check one cat each
-        self.assertIn((10, "path3/0", "3x3", "Why1"), classified_keys)
-        self.assertIn((11, "path3/1", "3x3", "Why1"), classified_keys)
+        # Legacy notes (_NOTE_GAMES[0], [1]) must NOT be in classified_keys
+        self.assertNotIn((_NOTE_GAMES[0], "path/0", "CLAMP", ""), classified_keys)
+        self.assertNotIn((_NOTE_GAMES[1], "path/1", "CLAMP", ""), classified_keys)
+        # 3x3 notes (_3X3_NOTE_GAMES[0], [1]) must be in classified_keys — check one cat each
+        self.assertIn((_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why1"), classified_keys)
+        self.assertIn((_3X3_NOTE_GAMES[1], "path3/1", "3x3", "Why1"), classified_keys)
 
     def test_three_fails_legacy_succeeds_three_notes_absent_from_classified(self):
         """When 3x3 call fails and legacy succeeds, 3x3 notes must not be in classified_keys."""
         legacy_ok = _shallow_result(
             success=True,
-            shallow_keys=[(1, "path/0", "CLAMP", "")],
+            shallow_keys=[(_NOTE_GAMES[0], "path/0", "CLAMP", "")],
         )
         three_fail = self._shallow_result_3x3(success=False, error="API timeout")
         failed, partial, ready = self._run(legacy_ok, three_fail)
@@ -1350,18 +1356,18 @@ class TestShallowThreadMixedCallFailure(unittest.TestCase):
         self.assertEqual(len(ready), 1)
         _, _, classified_keys, _ = ready[0]
         # 3x3 notes must NOT be in classified_keys
-        self.assertNotIn((10, "path3/0", "3x3", "Why1"), classified_keys)
-        self.assertNotIn((11, "path3/1", "3x3", "Why1"), classified_keys)
+        self.assertNotIn((_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why1"), classified_keys)
+        self.assertNotIn((_3X3_NOTE_GAMES[1], "path3/1", "3x3", "Why1"), classified_keys)
         # Legacy notes must be in classified_keys
-        self.assertIn((1, "path/0", "CLAMP", ""), classified_keys)
-        self.assertIn((2, "path/1", "CLAMP", ""), classified_keys)
+        self.assertIn((_NOTE_GAMES[0], "path/0", "CLAMP", ""), classified_keys)
+        self.assertIn((_NOTE_GAMES[1], "path/1", "CLAMP", ""), classified_keys)
 
     def test_partial_message_names_failed_note_count(self):
         """The partial message must account for notes from the failed call."""
         legacy_fail = _shallow_result(success=False, error="API timeout", unparsed_indices=(0, 1))
         three_ok = self._shallow_result_3x3(
             success=True,
-            shallow_keys=[(10, "path3/0", "3x3", "Why1")],
+            shallow_keys=[(_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why1")],
         )
         failed, partial, ready = self._run(legacy_fail, three_ok)
         # Partial message must mention the 2 legacy notes that couldn't be classified
@@ -1376,8 +1382,8 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
     def _run_both_succeed(self, legacy_usage, three_usage):
         from app.controllers.chess_log_charts_controller import ChessLogShallowThread
         from app.services.chess_log_shallow_service import ShallowResult
-        legacy_notes = [(i, i + 1, f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
-        three_notes = [(i, i + 10, f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
+        legacy_notes = [(i, _NOTE_GAMES[i], f"path/{i}", "CLAMP", f"note {i}") for i in range(2)]
+        three_notes = [(i, _3X3_NOTE_GAMES[i], f"path3/{i}", "3x3", "w1", "w2", "w3", "w4") for i in range(2)]
         thread = ChessLogShallowThread(
             games=[], provider="anthropic", model="claude-sonnet-4-6",
             api_key="sk-test", base_url_override=None,
@@ -1386,7 +1392,7 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         )
         legacy_result = ShallowResult(
             success=True,
-            shallow_keys=frozenset([(1, "path/0", "CLAMP", "")]),
+            shallow_keys=frozenset([(_NOTE_GAMES[0], "path/0", "CLAMP", "")]),
             vague_keys=frozenset(),
             error=None,
             usage=legacy_usage,
@@ -1396,7 +1402,7 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         three_result = ShallowResult(
             success=True,
             shallow_keys=frozenset(),
-            vague_keys=frozenset([(10, "path3/0", "3x3", "Why4")]),
+            vague_keys=frozenset([(_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why4")]),
             error=None,
             usage=three_usage,
             model="claude-sonnet-4-6",
@@ -1448,8 +1454,8 @@ class TestShallowThreadTokenUsageMerge(unittest.TestCase):
         ready = self._run_both_succeed(u, u)
         self.assertEqual(len(ready), 1)
         shallow_keys, vague_keys, _, _ = ready[0]
-        self.assertIn((1, "path/0", "CLAMP", ""), shallow_keys)
-        self.assertIn((10, "path3/0", "3x3", "Why4"), vague_keys)
+        self.assertIn((_NOTE_GAMES[0], "path/0", "CLAMP", ""), shallow_keys)
+        self.assertIn((_3X3_NOTE_GAMES[0], "path3/0", "3x3", "Why4"), vague_keys)
 
 
 @unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")

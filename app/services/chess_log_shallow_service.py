@@ -17,7 +17,9 @@ failed to classify it.  Now every input index is accounted for:
 
 Key tuples
 ----------
-All key sets use a uniform 4-tuple ``(game_number, path_key, preset, cat)``:
+All key sets use a uniform 4-tuple ``(game, path_key, preset, cat)``
+where ``game`` is the ``GameData`` object (identity-keyed, no custom
+``__hash__``/``__eq__``):
 
 - CLAMP/CCT: ``cat=""`` (empty string) — one entry per distinct note per moment.
 - 3x3: ``cat`` is one of ``"Why1"``, ``"Why2"``, ``"Why3"``, ``"Why4"`` —
@@ -28,9 +30,9 @@ All key sets use a uniform 4-tuple ``(game_number, path_key, preset, cat)``:
 ``classify_notes_3x3`` classifies all four Why answers independently.
 
   WHY1/WHY2/WHY3 → SPECIFIC, GENERIC, or BLANK
-      GENERIC → ``(gn, pk, "3x3", cat)`` in ``shallow_keys``
+      GENERIC → ``(game, pk, "3x3", cat)`` in ``shallow_keys``
   WHY4 (Lesson) → REAL, FILLER, or BLANK
-      FILLER → ``(gn, pk, "3x3", "Why4")`` in ``vague_keys``
+      FILLER → ``(game, pk, "3x3", "Why4")`` in ``vague_keys``
 
 The old "a real lesson rescues a generic Why1" combining rule is removed.
 Each answer stands alone.
@@ -58,18 +60,19 @@ class ShallowResult:
     """Result of classify_notes() or classify_notes_3x3()."""
 
     success: bool
-    # (game_number, path_key, preset, cat) 4-tuples judged SHALLOW.
+    # (game, path_key, preset, cat) 4-tuples judged SHALLOW.
+    # game is a GameData object (identity-keyed).
     # CLAMP/CCT: cat="" (empty).  3x3: cat in {"Why1","Why2","Why3"}.
-    shallow_keys: FrozenSet[Tuple[int, str, str, str]]
+    shallow_keys: FrozenSet[Tuple[Any, str, str, str]]
     error: Optional[str]
     usage: Optional[TokenUsage]
     model: str
     # Input indices for which the model returned no parsable verdict.
     # These notes are left unchanged (not marked shallow).
     unparsed_indices: Tuple[int, ...]
-    # (game_number, path_key, "3x3", "Why4") 4-tuples with a vague lesson.
+    # (game, path_key, "3x3", "Why4") 4-tuples with a vague lesson.
     # Always empty for CLAMP/CCT notes.
-    vague_keys: FrozenSet[Tuple[int, str, str, str]] = field(default_factory=frozenset)
+    vague_keys: FrozenSet[Tuple[Any, str, str, str]] = field(default_factory=frozenset)
 
 
 # ---------------------------------------------------------------------------
@@ -264,11 +267,11 @@ def build_notes(
     Returns:
         ``(legacy_notes, three_notes, three_ignored_sets)``.
 
-        ``legacy_notes``: 5-tuples ``(idx, game_number, path_key, preset, why)``
-        for CLAMP/CCT, one per emitted entry.
+        ``legacy_notes``: 5-tuples ``(idx, game, path_key, preset, why)``
+        for CLAMP/CCT, one per emitted entry.  ``game`` is the GameData object.
 
         ``three_notes``: 8-tuples
-        ``(idx, game_number, path_key, "3x3", why1, why2, why3, why4)``.
+        ``(idx, game, path_key, "3x3", why1, why2, why3, why4)``.
 
         ``three_ignored_sets``: parallel to ``three_notes``; each element is
         the set of ``cat`` strings whose Ignore was honoured for that moment.
@@ -315,7 +318,7 @@ def build_notes(
                     if non_blank and non_blank.issubset(ignored_cats):
                         continue
                     idx = len(three_notes)
-                    three_notes.append((idx, game.game_number, path_key, preset, why1, why2, why3, why4))
+                    three_notes.append((idx, game, path_key, preset, why1, why2, why3, why4))
                     three_ignored_sets.append(frozenset(ignored_cats))
                 else:
                     # One entry per distinct non-blank note text, first-seen order.
@@ -333,7 +336,7 @@ def build_notes(
                     for why, all_ignored in why_all_ignored.items():
                         if not all_ignored:
                             idx = len(legacy_notes)
-                            legacy_notes.append((idx, game.game_number, path_key, preset, why))
+                            legacy_notes.append((idx, game, path_key, preset, why))
 
     return legacy_notes, three_notes, three_ignored_sets
 
@@ -356,9 +359,10 @@ def classify_notes(
     """Classify *notes* as SHALLOW or DEEP via the configured AI provider.
 
     Args:
-        notes: List of ``(idx, game_number, path_key, preset, why)`` tuples.
-               The ``idx`` values must be 0-based sequential integers matching
-               the list positions (i.e. ``notes[i][0] == i``).
+        notes: List of ``(idx, game, path_key, preset, why)`` tuples where
+               ``game`` is the GameData object.  The ``idx`` values must be
+               0-based sequential integers matching list positions
+               (i.e. ``notes[i][0] == i``).
         provider: ``"anthropic"``, ``"openai"``, or ``"custom"``.
         model: Model ID string.
         api_key: Provider API key.
@@ -435,7 +439,7 @@ def classify_notes(
 
     parsed = _parse_verdicts(result.text, len(notes))
 
-    shallow_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(
+    shallow_keys: FrozenSet[Tuple[Any, str, str, str]] = frozenset(
         (notes[i][1], notes[i][2], notes[i][3], "")
         for i, verdict in parsed.items()
         if verdict == "SHALLOW"
@@ -509,8 +513,9 @@ def classify_notes_3x3(
     """Classify 3x3 notes with independent INTENT / LESSON verdicts.
 
     Args:
-        notes: List of ``(idx, game_number, path_key, preset, why1, why2, why3, why4)``
-               tuples.  Indices must be 0-based sequential.
+        notes: List of ``(idx, game, path_key, preset, why1, why2, why3, why4)``
+               tuples where ``game`` is the GameData object.
+               Indices must be 0-based sequential.
         ...
 
     Returns:
@@ -606,16 +611,16 @@ def classify_notes_3x3(
     s_keys = []
     v_keys = []
     for i, (why1, why2, why3, lesson) in parsed.items():
-        gn, pk = notes[i][1], notes[i][2]
+        game, pk = notes[i][1], notes[i][2]
         # Each Why1/Why2/Why3 answer is judged independently: GENERIC → shallow.
         for cat, verdict in (("Why1", why1), ("Why2", why2), ("Why3", why3)):
             if verdict == "GENERIC":
-                s_keys.append((gn, pk, "3x3", cat))
+                s_keys.append((game, pk, "3x3", cat))
         # Why4 (Lesson): FILLER → vague lesson.
         if lesson == "FILLER":
-            v_keys.append((gn, pk, "3x3", "Why4"))
-    shallow_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(s_keys)
-    vague_keys: FrozenSet[Tuple[int, str, str, str]] = frozenset(v_keys)
+            v_keys.append((game, pk, "3x3", "Why4"))
+    shallow_keys: FrozenSet[Tuple[Any, str, str, str]] = frozenset(s_keys)
+    vague_keys: FrozenSet[Tuple[Any, str, str, str]] = frozenset(v_keys)
 
     unparsed = tuple(i for i in range(len(notes)) if i not in parsed)
 

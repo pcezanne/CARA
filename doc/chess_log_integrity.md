@@ -26,7 +26,7 @@ dict below is keyed by `id(game)` (Python object identity), not `game_number`, u
 | Field | Location | Key |
 |---|---|---|
 | `_cached_shallow_keys` / `_cached_vague_keys` | `ChessLogChartsController` | `frozenset` of `(game, path_key, preset, cat)` 4-tuples — `game` is the `GameData` object |
-| `_last_shallow_keys` | `DetailChessLogChartsView` | `frozenset` of `(game, path_key, preset, cat)` 4-tuples |
+| `_last_shallow_keys` / `_last_vague_keys` | `DetailChessLogChartsView` | `frozenset` of `(game, path_key, preset, cat)` 4-tuples |
 
 **Dialog snapshots** (keyed by row index after F3 fix):
 
@@ -202,7 +202,7 @@ CONFIRMED (F2): real controller falsely marks DB unsaved after save of unedited 
 
 ---
 
-### F3 · ShowShallowTagsDialog._original_snapshot keyed by game_number — collision across databases · MISPLACED · **FIXED** (see commit amending `998f940`)
+### F3 · ShowShallowTagsDialog._original_snapshot keyed by game_number — collision across databases · MISPLACED · **FIXED** (see commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)*)
 
 **File:** `show_shallow_tags_dialog.py:128–133`
 
@@ -286,7 +286,7 @@ CONFIRMED (F3): _original_snapshot has 1 entry for key (1, '0', 'CLAMP').
 
 ---
 
-### F5 · AI shallow verdict keyed by game_number — stamps DEEP notes in sibling databases · MISPLACED · **FIXED** (see commit amending `998f940`)
+### F5 · AI shallow verdict keyed by game_number — stamps DEEP notes in sibling databases · MISPLACED · **FIXED** (see commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)*)
 
 **Files:** `chess_log_shallow_service.py:438–442, 606–618`, `show_shallow_tags_dialog.py:160–182, 184–209, 502`, `chess_log_charts_controller.py:299–314, 348–365`
 
@@ -362,7 +362,7 @@ All in `tests/views/`. Fail on pre-fix code, pass after.
 
 ---
 
-### F6 · PDF/clipboard "Check Logs" section always empty — 3-tuple/4-tuple key mismatch · SILENT FAILURE · **FIXED** (see commit amending `998f940`)
+### F6 · PDF/clipboard "Check Logs" section always empty — 3-tuple/4-tuple key mismatch · SILENT FAILURE · **FIXED** (see commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)*)
 
 **File:** `detail_chess_log_charts_view.py:73, 631, 807–827, 860–884`
 
@@ -394,9 +394,9 @@ This bug is independent of cross-database game_number collisions (F5). Even with
 - 3x3: checks any of `(game, path_key, "3x3", cat)` for `cat in ("Why1","Why2","Why3","Why4")`.
 The `seen` dedup set uses `(game, path_key, preset)` 3-tuples (one per moment, not per cat). Both clipboard and PDF export loops use the helper.
 
-**L2 decision (vague keys in export):** `_last_shallow_keys` on the view stores the union of `shallow_keys | vague_keys` (set at line 631: `frozenset(shallow_keys)` — actually only `shallow_keys`; vague_keys are passed to the dialog but not stored on the view). The export only shows notes from `shallow_keys` (not vague ones). This is intentional: vague Why4 lessons are shown in the dialog for user review but are not exported as "Check Logs" rows — the export is a flagged-shallow summary only.
+**Vague keys in export:** The export includes both Shallow and Vague moments, matching what `ShowShallowTagsDialog` shows. `_last_vague_keys` is stored on the view with the same lifecycle as `_last_shallow_keys` (cleared on source/player change, restored via `set_controller`). `_moment_in_last_shallow` checks both fields. Committed in `347e303` — *Chess Log: Charts export includes Vague lessons (#51 F6)*.
 
-**Test (now implemented):** `TestMomentInLastShallowHelper` in `tests/views/test_chess_log_charts_freshness.py` — 8 tests covering CLAMP hit/miss, 3x3 any-cat, stale-cache identity safety, and sort-identity stability. Fail on pre-fix code, pass after.
+**Test (now implemented):** `TestMomentInLastShallowHelper` + `TestVagueKeysFreshness` in `tests/views/test_chess_log_charts_freshness.py` — 4 vague-only hit/miss tests and 6 lifecycle tests for `_last_vague_keys`. Fail on pre-fix code, pass after.
 
 ---
 
@@ -418,12 +418,12 @@ The `seen` dedup set uses `(game, path_key, preset)` 3-tuples (one per moment, n
 |---|---|---|---|---|
 | L1 | Deleted game stays in `_dirty_games`; save writes to orphan | CONFIRMED | SILENT FAILURE | CONFIRMED-BY-RUNNING (F1) |
 | L2 | Chess Log edits to search-result copies don't reach originals | CONFIRMED (by design) | DESIGN QUESTION | CONFIRMED-BY-READING |
-| L3 | `ShowShallowTagsDialog` snapshot collision across databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F3); fixed in commit amending `998f940` |
+| L3 | `ShowShallowTagsDialog` snapshot collision across databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F3); fixed in commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)* |
 | L4 | Rule B false-dirty marking on game switch | CONFIRMED | FALSE UNSAVED | CONFIRMED-BY-RUNNING (F2) |
 | L5 | `reload_database_from_file` missing Chess Log flush | CONFIRMED (dead code) | DESIGN QUESTION | CONFIRMED-BY-READING |
 | L6 | Sort reorder vs. caches | NO RISK | NO RISK | CONFIRMED-BY-READING |
-| — | AI verdict keyed by `game_number` stamps DEEP notes in sibling databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F5); fixed in commit amending `998f940` |
-| — | PDF/clipboard "Check Logs" always empty (3-tuple/4-tuple mismatch) | **FIXED** | SILENT FAILURE | CONFIRMED-BY-READING (F6); fixed in commit amending `998f940` |
+| — | AI verdict keyed by `game_number` stamps DEEP notes in sibling databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F5); fixed in commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)* |
+| — | PDF/clipboard "Check Logs" always empty (3-tuple/4-tuple mismatch) | **FIXED** | SILENT FAILURE | CONFIRMED-BY-READING (F6); fixed in commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)* |
 
 ---
 
@@ -453,13 +453,15 @@ there is no UI hint that Chess Log moments tagged on a search result won't survi
 active game's owning DB is `search_results`; (b) add a warning on the first tag attempt;
 (c) by design intent, leave it as-is and add documentation.
 
+**Decision (2026-10-23):** No change. Consistent with CARA's handling of all edits on search copies — analysis, annotations, and PGN notes also write to the copy only. Addressing this would require coupling Chess Log to the search/DB architecture, which is out of scope for the current audit.
+
 ### L6 — Sort and cache keying
 
 All seven `ChessLogController` caches are keyed by `id(game)`. Sort reorders the `_games` list
 positions but does not replace `GameData` objects — `id(game)` is stable. `game_number` is set
 at load/import time (`database_model.py:443–448`) and is never updated by sort.
 
-Charts-layer caches (`_cached_shallow_keys`, `_last_shallow_keys`) are now keyed by `GameData`
+Charts-layer caches (`_cached_shallow_keys`, `_cached_vague_keys`, `_last_shallow_keys`, `_last_vague_keys`) are now keyed by `GameData`
 object identity (after F5/F6 fix). Sort does not replace game objects — `id(game)` is stable.
 
 `ShowTagsDialog._original_snapshot` uses `(game_number, path_key, preset)` — sort does not
@@ -476,10 +478,13 @@ sort does not affect row indices at dialog-open time.
 |---|---|---|
 | F1 | After `remove_games()`, assert `id(game) not in ctrl._dirty_games`; also assert `save_all_dirty_games()` after a delete returns `(0, 0)` and calls `mark_database_unsaved` zero times | Open — unfixed |
 | F2 | Load a tagged game, switch away without editing, assert `save_all_dirty_games()` returns `(0, 0)` and no DB is marked unsaved | Open — unfixed |
-| F3 | `TestF3SnapshotNoCollision` — `len(dlg._original_snapshot) == 2`, both games' entries preserved separately | **IMPLEMENTED** (commit amending `998f940`) |
+| F3 | `TestF3SnapshotNoCollision` — `len(dlg._original_snapshot) == 2`, both games' entries preserved separately | **IMPLEMENTED** (commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)*) |
 | F4 | No test needed until `reload_database_from_file` is wired | Open — dead code |
-| F5 | `TestF5ClamNoContamination` + `TestF53x3NoContamination` — 4 tests; row count and save-stamp assertions | **IMPLEMENTED** (commit amending `998f940`) |
-| F6 | `TestMomentInLastShallowHelper` — 8 tests; identity-safety, stale-cache, sort-identity, CLAMP/3x3 | **IMPLEMENTED** (commit amending `998f940`) |
+| F5 | `TestF5ClamNoContamination` + `TestF53x3NoContamination` — 4 tests; row count, save-stamp, and positive-control assertions | **IMPLEMENTED** (commit `0c6e613`; positive controls in commit `4d5dea9` — *Chess Log: Check Logs identity tests for sort, DB close and positive controls (#51)*) |
+| F5 (sort) | `TestF5SortScenario` — real `DatabaseModel.sort()` + `ChessLogChartsController` + theme-rebuild; chip survives on correct game | **IMPLEMENTED** (commit `4d5dea9`) |
+| F5 (stale) | `TestF5StaleCacheScenario` — two real `DatabaseModel`s; DB-A game removed before DB-B dialog opened; no false chip | **IMPLEMENTED** (commit `4d5dea9`) |
+| F6 | `TestMomentInLastShallowHelper` — 12 tests; identity-safety, stale-cache, sort-identity, CLAMP/3x3, vague-only hit/miss | **IMPLEMENTED** (commits `0c6e613`, `347e303` — *Chess Log: Charts export includes Vague lessons (#51 F6)*) |
+| F6 (vague lifecycle) | `TestVagueKeysFreshness` — 6 tests; `_last_vague_keys` initial state, store, clear on source/player change, frozenset type | **IMPLEMENTED** (commit `347e303`) |
 
 ---
 

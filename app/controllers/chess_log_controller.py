@@ -400,7 +400,7 @@ class ChessLogController:
             # unsaved UI edits but was never touched by replace_entries_at_path_for_game
             # (the only method that explicitly marks dirty) would be silently skipped by
             # save_all.  setdefault preserves any richer game object already in the map.
-            if old_game is not None and old_gid not in self._dirty_games and self._cached_paths_data:
+            if old_game is not None and old_gid not in self._dirty_games and self._outgoing_has_real_edits():
                 self._dirty_games[old_gid] = old_game
 
         if game is None:

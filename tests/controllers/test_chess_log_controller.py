@@ -1898,5 +1898,114 @@ class TestSaveModel(unittest.TestCase):
         dc.mark_database_unsaved.assert_called_once_with(db_model)
 
 
+class TestF2RuleBFalseUnsaved(unittest.TestCase):
+    """F2: Rule B must not mark an unedited game dirty on game switch.
+
+    Tests (a) must fail before the fix (guard was `self._cached_paths_data`, not
+    `_outgoing_has_real_edits()`); tests (b) and (c) are positive controls that
+    must pass both before and after.
+    """
+
+    def _make_ctrl_with_db(self, game_a, game_b=None):
+        gm = make_game_model_mock()
+        gc = make_game_controller_mock(gm)
+        live = [game_a] + ([game_b] if game_b else [])
+        db_model = MagicMock()
+        db_model.get_all_games.return_value = live
+        pm = MagicMock()
+        pm.get_all_database_models.return_value = [db_model]
+        pm.active_database_changed = MagicMock()
+        pm.active_database_changed.connect = MagicMock()
+        pm.active_database_changed.disconnect = MagicMock()
+        dc = MagicMock()
+        dc.get_panel_model.return_value = pm
+        dc.find_database_model_for_game.return_value = db_model
+        ctrl = ChessLogController({}, gc, database_controller=dc)
+        return ctrl, gm, dc, db_model
+
+    def test_a_unedited_tagged_game_not_saved_after_switch(self):
+        """(a) Load tagged game, switch away with no edits → save_all returns (0, 0).
+
+        Fails before fix: Rule B adds the game to _dirty_games whenever the cache is
+        non-empty, regardless of edits.  Passes after: guard uses
+        _outgoing_has_real_edits() which returns False for an unedited game.
+        """
+        game_a = make_game(1)
+        ChessLogStorageService.store_tags(
+            game_a, {"0": [ChessLogStorageService.make_entry("CLAMP", "M", "disk moment")]}, {}
+        )
+        game_b = make_game(2)
+        ctrl, gm, dc, _db = self._make_ctrl_with_db(game_a, game_b)
+
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        self.assertTrue(ctrl._cached_paths_data, "Precondition: cache non-empty after load")
+        self.assertNotIn(id(game_a), ctrl._dirty_games, "Precondition: game_a not dirty before switch")
+        dc.mark_database_unsaved.reset_mock()
+
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 0)
+        self.assertEqual(failed, 0)
+        dc.mark_database_unsaved.assert_not_called()
+
+    def test_b_add_moment_switch_away_saves_game(self):
+        """(b) Positive control: add moment, switch away → save_all saves the game.
+
+        Must pass both before and after the fix.
+        """
+        game_a = make_game(1)
+        game_b = make_game(2)
+        ctrl, gm, dc, db_model = self._make_ctrl_with_db(game_a, game_b)
+
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "M", "why": "b-test"}])
+        dc.mark_database_unsaved.reset_mock()
+
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+        dc.mark_database_unsaved.assert_called_once_with(db_model)
+        loaded = ChessLogStorageService.load_tags(game_a)
+        self.assertIn("0", loaded)
+        self.assertEqual(loaded["0"][0]["why"], "b-test")
+
+    def test_c_edit_text_switch_away_saves_game(self):
+        """(c) Positive control: edit existing moment text, switch away → save_all saves it.
+
+        Must pass both before and after the fix.
+        """
+        game_a = make_game(1)
+        ChessLogStorageService.store_tags(
+            game_a, {"0": [ChessLogStorageService.make_entry("CLAMP", "M", "old text")]}, {}
+        )
+        game_b = make_game(2)
+        ctrl, gm, dc, db_model = self._make_ctrl_with_db(game_a, game_b)
+
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        ctrl.replace_entries_at_path(
+            "0", "CLAMP", [{"preset": "CLAMP", "cat": "M", "why": "new text"}]
+        )
+        dc.mark_database_unsaved.reset_mock()
+
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 1)
+        self.assertEqual(failed, 0)
+        dc.mark_database_unsaved.assert_called_once_with(db_model)
+        loaded = ChessLogStorageService.load_tags(game_a)
+        self.assertEqual(loaded["0"][0]["why"], "new text")
+
+
 if __name__ == "__main__":
     unittest.main()

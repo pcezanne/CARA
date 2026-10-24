@@ -2007,5 +2007,56 @@ class TestF2RuleBFalseUnsaved(unittest.TestCase):
         self.assertEqual(loaded["0"][0]["why"], "new text")
 
 
+class TestF1DeletedGamePruning(unittest.TestCase):
+    """F1: save_all_dirty_games must skip games no longer in any open database.
+
+    Must fail before the fix (no pre-save prune); must pass after
+    (_prune_dirty_games_against_open_databases is called first in save_all_dirty_games).
+    """
+
+    def test_deleted_game_pruned_before_save_all(self):
+        """Edit and switch away (game becomes dirty), remove from DB, then save_all → (0, 0).
+
+        Fails before fix: save_all iterates _dirty_games without pruning first and
+        writes to the orphaned game object, returning (1, 0).  Passes after:
+        _prune_dirty_games_against_open_databases is called first and drops the game.
+        """
+        game_a = make_game(1)
+        game_b = make_game(2)
+
+        live_games = [game_a, game_b]
+        db_model = MagicMock()
+        db_model.get_all_games.side_effect = lambda: list(live_games)
+        pm = MagicMock()
+        pm.get_all_database_models.return_value = [db_model]
+        pm.active_database_changed = MagicMock()
+        pm.active_database_changed.connect = MagicMock()
+        pm.active_database_changed.disconnect = MagicMock()
+        dc = MagicMock()
+        dc.get_panel_model.return_value = pm
+        dc.find_database_model_for_game.return_value = None
+
+        gm = make_game_model_mock()
+        gc = make_game_controller_mock(gm)
+        ctrl = ChessLogController({}, gc, database_controller=dc)
+
+        gm.active_game = game_a
+        ctrl._on_active_game_changed(game_a)
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "M", "why": "f1-test"}])
+
+        gm.active_game = game_b
+        ctrl._on_active_game_changed(game_b)
+        self.assertIn(id(game_a), ctrl._dirty_games, "Precondition: game_a dirty after switch")
+
+        live_games.remove(game_a)
+
+        saved, failed = ctrl.save_all_dirty_games()
+        self.assertEqual(saved, 0)
+        self.assertEqual(failed, 0)
+        dc.mark_database_unsaved.assert_not_called()
+        self.assertNotIn(id(game_a), ctrl._dirty_games)
+
+
 if __name__ == "__main__":
     unittest.main()

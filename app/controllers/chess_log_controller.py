@@ -319,6 +319,7 @@ class ChessLogController:
         writes only to _cached_paths_data without touching _dirty_games, so without
         this check a Ctrl+Alt+Shift+L after tagging would silently skip the current game.
         """
+        self._prune_dirty_games_against_open_databases()
         saved = failed = 0
 
         # Save the active game's single-game cache if it has unsaved changes and is

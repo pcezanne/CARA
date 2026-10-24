@@ -81,10 +81,10 @@ Dialog Save button                  ShowTagsDialog / ShowShallowTagsDialog
 | Event | Handler | Chess Log effect |
 |---|---|---|
 | User navigates to game G | `_on_active_game_changed(G)` | Rule A: promote from `_multi_cache` or load from disk into `_cached_paths_data`. |
-| User navigates away from G | `_on_active_game_changed(new_game)` | Rule B: flush `_cached_paths_data` → `_multi_cache`; mark G dirty if cache non-empty — without checking whether edits were made. (See F2.) |
+| User navigates away from G | `_on_active_game_changed(new_game)` | Rule B: flush `_cached_paths_data` → `_multi_cache`; mark G dirty **only** if `_outgoing_has_real_edits()` (F2 fixed). |
 | All games closed / DB closed | `_on_active_game_changed(None)` | Flush **only** if `_outgoing_has_real_edits()`; prune orphaned cache entries. |
 | Active database changes | `_on_active_database_changed()` | Flush only if real edits; prune; clear caches. Uses `_outgoing_has_real_edits()`. |
-| Game deleted from DB | `DatabaseModel.remove_games()` | **No signal to ChessLogController.** Game stays in `_dirty_games` if it was there. (See F1.) |
+| Game deleted from DB | `DatabaseModel.remove_games()` | **No signal to ChessLogController.** Game stays in `_dirty_games` — but `save_all_dirty_games()` now calls `_prune_dirty_games_against_open_databases()` first (F1 fixed). |
 | DB reloaded from file | `reload_database_from_file()` | **No callers** — dead code today. (See F4.) |
 | Sort / reorder games | `DatabaseModel` sort operation | `id(game)` unchanged; all controller caches remain valid. `game_number` is immutable through sort. NO RISK. |
 
@@ -97,15 +97,14 @@ on every call. It reflects whether the active game's in-memory state diverges fr
 
 `has_dirty_games()` returns `bool(_dirty_games)` — whether any multi-game edits are pending save.
 
-`save_all_dirty_games()` (lines 310–340) iterates `_dirty_games`, then also saves the active game if
-`has_unsaved_changes()` and it is not already in `_dirty_games`. There is **no pre-save prune** —
-deleted games still in `_dirty_games` (F1) are included.
+`save_all_dirty_games()` calls `_prune_dirty_games_against_open_databases()` **first** (F1 fix),
+then iterates `_dirty_games`, then also saves the active game if `has_unsaved_changes()` and it is
+not already in `_dirty_games`.
 
-`_dirty_games` is pruned by `_prune_dirty_games_against_open_databases()`, called only from:
-- `_on_active_game_changed(None)` (line 419)
-- `_on_active_database_changed()` (line 503)
-
-It is **not** called from `remove_games()`, `save_all_dirty_games()`, or any DB-delete path.
+`_dirty_games` is pruned by `_prune_dirty_games_against_open_databases()`, called from:
+- `save_all_dirty_games()` (F1 fix — drops deleted games before the save loop)
+- `_on_active_game_changed(None)` (existing)
+- `_on_active_database_changed()` (existing)
 
 ---
 
@@ -115,7 +114,7 @@ Severity scale: **DATA LOSS** / **MISPLACED** / **SILENT FAILURE** / **FALSE UNS
 
 ---
 
-### F1 · Deleted game stays in _dirty_games; save_all writes to orphaned object · SILENT FAILURE
+### F1 · Deleted game stays in _dirty_games; save_all writes to orphaned object · SILENT FAILURE · **FIXED** (commit *Chess Log: Save All skips games no longer in an open database (#51 F1)*)
 
 **Files:** `database_model.py:620–655`, `chess_log_controller.py:310–366`, `chess_log_controller.py:537–558`, `chess_log_controller.py:560–568`
 
@@ -149,11 +148,13 @@ CONFIRMED (F1): save_all reported 1 saved, but mark_database_unsaved was never c
 User sees: success toast '1 game(s) saved'. DB never marked unsaved. Disk file unchanged.
 ```
 
-**Test proposal:** In `test_chess_log_controller.py` — add a test: add a game with a moment to a `DatabaseModel`, switch away (enters `_dirty_games`), call `remove_games()`, assert `id(game) not in chess_log_ctrl._dirty_games` (should fail until the prune-on-remove gap is fixed). Alternatively, assert that `save_all_dirty_games()` after a delete calls `mark_database_unsaved` zero times and returns `(0, 0)`.
+**Fix:** `save_all_dirty_games()` now calls `self._prune_dirty_games_against_open_databases()` as its first statement. Games removed from all open databases are dropped before the save loop, so the count and the DB-unsaved signal reflect only real saves.
+
+**Test:** `TestF1DeletedGamePruning::test_deleted_game_pruned_before_save_all` in `tests/controllers/test_chess_log_controller.py`. Adds a moment, switches away (game enters `_dirty_games`), removes the game from the live list, asserts `save_all_dirty_games()` returns `(0, 0)` with no `mark_database_unsaved` call and the game absent from `_dirty_games`. Fails before fix, passes after.
 
 ---
 
-### F2 · Rule B marks any tagged game dirty on game switch, regardless of edits · FALSE UNSAVED
+### F2 · Rule B marks any tagged game dirty on game switch, regardless of edits · FALSE UNSAVED · **FIXED** (commit *Chess Log: don't mark unedited games dirty on game switch (#51 F2)*)
 
 **File:** `chess_log_controller.py:396–404`
 
@@ -198,7 +199,23 @@ After save_all_dirty_games():
 CONFIRMED (F2): real controller falsely marks DB unsaved after save of unedited tagged game
 ```
 
-**Test proposal:** In `test_chess_log_controller.py` — add a test: load a game with tags (no `add_moment_at_active_path` call), switch to a second game, call `save_all_dirty_games()`, assert `mark_database_unsaved` was NOT called and `saved == 0`. Should fail until Rule B is narrowed with `_outgoing_has_real_edits()`.
+**Fix:** Rule B's dirty-marking condition changed from `self._cached_paths_data` (non-empty cache)
+to `self._outgoing_has_real_edits()` (cache differs from disk). The `_multi_cache` flush is kept
+unchanged — it avoids re-reading from disk on back-navigation and is correct regardless of edits.
+
+**Safety analysis for `_outgoing_has_real_edits()` (`chess_log_controller.py:521–535`):** Compares
+`self._cached_paths_data != ChessLogStorageService.load_tags(self._cached_game)` against the
+outgoing game's current `game.pgn`. Every real edit path mutates `_cached_paths_data`:
+`add_moment_at_active_path` (lines 132–139), `replace_entries_at_path` (213–219),
+`replace_entries_at_path_for_game` when active (278–285). No edit can produce a dict that equals
+the on-disk state without first saving — every add, delete, text change, category change, Ignore
+toggle, or is_shallow stamp changes the dict. The `except` fallback returns `bool(_cached_paths_data)`,
+i.e. safe-side "assume dirty" on disk-read failure. **No real edit can be falsely skipped.**
+
+**Tests:** `TestF2RuleBFalseUnsaved` in `tests/controllers/test_chess_log_controller.py`:
+- `test_a_unedited_tagged_game_not_saved_after_switch` — fails before fix, passes after.
+- `test_b_add_moment_switch_away_saves_game` — positive control, passes before and after.
+- `test_c_edit_text_switch_away_saves_game` — positive control, passes before and after.
 
 ---
 
@@ -416,10 +433,10 @@ The `seen` dedup set uses `(game, path_key, preset)` 3-tuples (one per moment, n
 
 | Lead | Description | Verdict | Severity | Evidence |
 |---|---|---|---|---|
-| L1 | Deleted game stays in `_dirty_games`; save writes to orphan | CONFIRMED | SILENT FAILURE | CONFIRMED-BY-RUNNING (F1) |
+| L1 | Deleted game stays in `_dirty_games`; save writes to orphan | **FIXED** | SILENT FAILURE | CONFIRMED-BY-RUNNING (F1); fixed in commit *Chess Log: Save All skips games no longer in an open database (#51 F1)* |
 | L2 | Chess Log edits to search-result copies don't reach originals | CONFIRMED (by design) | DESIGN QUESTION | CONFIRMED-BY-READING |
 | L3 | `ShowShallowTagsDialog` snapshot collision across databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F3); fixed in commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)* |
-| L4 | Rule B false-dirty marking on game switch | CONFIRMED | FALSE UNSAVED | CONFIRMED-BY-RUNNING (F2) |
+| L4 | Rule B false-dirty marking on game switch | **FIXED** | FALSE UNSAVED | CONFIRMED-BY-RUNNING (F2); fixed in commit *Chess Log: don't mark unedited games dirty on game switch (#51 F2)* |
 | L5 | `reload_database_from_file` missing Chess Log flush | CONFIRMED (dead code) | DESIGN QUESTION | CONFIRMED-BY-READING |
 | L6 | Sort reorder vs. caches | NO RISK | NO RISK | CONFIRMED-BY-READING |
 | — | AI verdict keyed by `game_number` stamps DEEP notes in sibling databases | **FIXED** | MISPLACED | CONFIRMED-BY-RUNNING (F5); fixed in commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)* |
@@ -476,8 +493,8 @@ sort does not affect row indices at dialog-open time.
 
 | Finding | Proposed test | Status |
 |---|---|---|
-| F1 | After `remove_games()`, assert `id(game) not in ctrl._dirty_games`; also assert `save_all_dirty_games()` after a delete returns `(0, 0)` and calls `mark_database_unsaved` zero times | Open — unfixed |
-| F2 | Load a tagged game, switch away without editing, assert `save_all_dirty_games()` returns `(0, 0)` and no DB is marked unsaved | Open — unfixed |
+| F1 | After `remove_games()`, assert `id(game) not in ctrl._dirty_games`; also assert `save_all_dirty_games()` after a delete returns `(0, 0)` and calls `mark_database_unsaved` zero times | **IMPLEMENTED** (`TestF1DeletedGamePruning::test_deleted_game_pruned_before_save_all`) |
+| F2 | Load a tagged game, switch away without editing, assert `save_all_dirty_games()` returns `(0, 0)` and no DB is marked unsaved | **IMPLEMENTED** (`TestF2RuleBFalseUnsaved::test_a_unedited_tagged_game_not_saved_after_switch` + two positive controls) |
 | F3 | `TestF3SnapshotNoCollision` — `len(dlg._original_snapshot) == 2`, both games' entries preserved separately | **IMPLEMENTED** (commit `0c6e613` — *Chess Log: Check Logs keys by game object, not game number (#51 F5, F3, F6)*) |
 | F4 | No test needed until `reload_database_from_file` is wired | Open — dead code |
 | F5 | `TestF5ClamNoContamination` + `TestF53x3NoContamination` — 4 tests; row count, save-stamp, and positive-control assertions | **IMPLEMENTED** (commit `0c6e613`; positive controls in commit `4d5dea9` — *Chess Log: Check Logs identity tests for sort, DB close and positive controls (#51)*) |

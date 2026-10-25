@@ -179,6 +179,11 @@ class ChessLogPDFService(BasePDFReportService):
         shallow_rows: List[TagRowSnapshot],
         *,
         model_label: str = "",
+        generated_at: str = "",
+        n_games: int = 0,
+        g_games: int = 0,
+        m_moments: int = 0,
+        k_unflagged: int = 0,
     ) -> bool:
         """Write Chess Log Charts page (charts + narrative + optional shallow rows) to a PDF."""
         painter = None
@@ -194,11 +199,48 @@ class ChessLogPDFService(BasePDFReportService):
             display_name = player_name or "Chess Log"
             title = f"Chess Log Charts — {display_name}"
             y = self._draw_report_header(painter, content, title)
-            generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
-            y = self._draw_source_generated_lines(painter, content, y, source_label, generated_str)
-            if model_label:
+            if player_name:
                 y = self._draw_text_line(
-                    painter, f"AI model: {model_label}",
+                    painter, f"Player: {player_name}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+            if source_label:
+                y = self._draw_text_line(
+                    painter, f"Source: {source_label}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+            narrative = (narrative_text or "").strip()
+            if narrative:
+                counts_line = (
+                    f"{n_games} games · {g_games} with logged moments "
+                    f"· {m_moments} moments · {k_unflagged} not flagged"
+                )
+                y = self._draw_text_line(
+                    painter, counts_line,
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+                gen_str = (
+                    f"Generated: {generated_at}" if generated_at
+                    else datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+                )
+                y = self._draw_text_line(
+                    painter, gen_str,
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+                if model_label:
+                    y = self._draw_text_line(
+                        painter, f"AI model: {model_label}",
+                        content.left(), y, content.width(),
+                        self._font_body, self._muted,
+                    )
+            else:
+                gen_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+                y = self._draw_text_line(
+                    painter, gen_str,
                     content.left(), y, content.width(),
                     self._font_body, self._muted,
                 )
@@ -219,7 +261,6 @@ class ChessLogPDFService(BasePDFReportService):
                 )
                 y += chart_h + self._ROW_GAP
 
-            narrative = (narrative_text or "").strip()
             if narrative:
                 y = self._draw_narrative_paginated(painter, writer, content, y, narrative)
                 y += self._ROW_GAP

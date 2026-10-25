@@ -1405,17 +1405,139 @@ class TestCheckLogsPDFMetadataLines(unittest.TestCase):
         self.assertIn("AI model: OpenAI gpt-4o", text)
         self.assertNotIn("claude", text.lower())
 
-    def test_narrative_summary_pdf_header_unchanged(self):
-        """export_charts_report: Source and Generated still present; no AI model line when model_label empty."""
+    def test_charts_report_without_narrative_header(self):
+        """export_charts_report with no narrative: Player, Source, Generated present; no Exported/AI model."""
         text = self._export_and_extract(
             is_shallow_only=False,
             source_label="Active Database: MyDB",
             export_charts=True,
             charts_model_label="",
         )
+        self.assertIn("Player: Alice", text)
         self.assertIn("Source: Active Database: MyDB", text)
         self.assertIn("Generated:", text)
+        self.assertNotIn("Exported:", text)
         self.assertNotIn("AI model:", text)
+
+
+# ---------------------------------------------------------------------------
+# Directive 15b: Charts PDF report header — narrative metadata
+# ---------------------------------------------------------------------------
+
+@requires_qt
+@unittest.skipUnless(_HAS_PYPDF, "pypdf not installed")
+class TestChartsReportHeaderMetadata(unittest.TestCase):
+    """15b: export_charts_report header shows narrative counts/Generated/AI model when
+    narrative is present; shows only Player/Source/Exported when narrative is absent."""
+
+    def _export_charts_and_extract(
+        self,
+        *,
+        player_name: str = "Alice",
+        source_label: str = "Active Database",
+        narrative_text: str = "",
+        model_label: str = "",
+        generated_at: str = "",
+        n_games: int = 0,
+        g_games: int = 0,
+        m_moments: int = 0,
+        k_unflagged: int = 0,
+    ) -> str:
+        import pypdf as _pypdf
+        import tempfile
+        from datetime import datetime as _real_dt
+        from unittest.mock import patch
+
+        _fixed_dt = _real_dt(2099, 3, 20, 14, 00)
+        svc = ChessLogPDFService({})
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as f:
+            tmp_path = Path(f.name)
+        try:
+            with patch("app.services.chess_log_pdf_service.datetime") as mock_dt:
+                mock_dt.now.return_value = _fixed_dt
+                svc.export_charts_report(
+                    tmp_path,
+                    player_name=player_name,
+                    source_label=source_label,
+                    chart_pixmaps=[],
+                    narrative_text=narrative_text,
+                    shallow_rows=[],
+                    model_label=model_label,
+                    generated_at=generated_at,
+                    n_games=n_games,
+                    g_games=g_games,
+                    m_moments=m_moments,
+                    k_unflagged=k_unflagged,
+                )
+            reader = _pypdf.PdfReader(str(tmp_path))
+            return " ".join(p.extract_text() or "" for p in reader.pages)
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_with_narrative_shows_counts_generated_ai_model(self):
+        """When narrative is present, counts/Generated/AI model appear; no Exported line."""
+        text = self._export_charts_and_extract(
+            player_name="Paul",
+            source_label="Active Database: DB.pgn",
+            narrative_text="This is the narrative.",
+            model_label="Anthropic claude-opus-4-7",
+            generated_at="2026-05-10 09:15",
+            n_games=12,
+            g_games=8,
+            m_moments=20,
+            k_unflagged=15,
+        )
+        self.assertIn("Player: Paul", text)
+        self.assertIn("Source: Active Database: DB.pgn", text)
+        self.assertIn("12 games", text)
+        self.assertIn("8 with logged moments", text)
+        self.assertIn("20 moments", text)
+        # pypdf may extract the 'fl' ligature as 'ﬂ'; match the number + prefix only
+        self.assertIn("15 not", text)
+        self.assertIn("Generated: 2026-05-10 09:15", text)
+        self.assertIn("AI model: Anthropic claude-opus-4-7", text)
+        self.assertNotIn("Exported:", text)
+
+    def test_without_narrative_shows_player_source_generated(self):
+        """When no narrative, Player, Source, and Generated (export time) appear; no counts/AI model."""
+        text = self._export_charts_and_extract(
+            player_name="Paul",
+            source_label="Active Database: DB.pgn",
+            narrative_text="",
+            model_label="Anthropic claude-opus-4-7",
+            generated_at="2026-05-10 09:15",
+            n_games=12,
+            g_games=8,
+            m_moments=20,
+            k_unflagged=15,
+        )
+        self.assertIn("Player: Paul", text)
+        self.assertIn("Source: Active Database: DB.pgn", text)
+        self.assertIn("Generated:", text)
+        self.assertNotIn("Exported:", text)
+        self.assertNotIn("AI model:", text)
+        self.assertNotIn("not flagged", text)
+
+    def test_title_unchanged(self):
+        """Title must remain 'Chess Log Charts — {player}'."""
+        text = self._export_charts_and_extract(player_name="Paul", narrative_text="")
+        self.assertIn("Chess Log Charts", text)
+
+    def test_filename_unchanged(self):
+        """default_chess_log_charts_pdf_filename is unaffected by Directive 15b."""
+        name = default_chess_log_charts_pdf_filename("Paul")
+        self.assertIn("ChessLogCharts", name)
+        self.assertIn("Paul", name)
+        self.assertTrue(name.endswith(".pdf"))
+
+    def test_with_narrative_generated_uses_captured_time_not_now(self):
+        """With narrative, Generated: shows the captured generation time, not datetime.now()."""
+        text = self._export_charts_and_extract(
+            narrative_text="Some narrative.",
+            generated_at="2025-01-01 08:00",
+        )
+        self.assertIn("Generated: 2025-01-01 08:00", text)
+        self.assertNotIn("Exported:", text)
 
 
 # ---------------------------------------------------------------------------

@@ -737,5 +737,94 @@ class TestPdfExportOrphanExclusion(unittest.TestCase):
         self.assertEqual(rows_built, 1, "exactly one snapshot row must be built; orphan must not add a row")
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt unavailable")
+class TestExportPdfReportNarrativeMetadata(unittest.TestCase):
+    """15b: _export_pdf_report passes narrative metadata from get_last_narrative_metadata()
+    to export_charts_report; does NOT pass shallow model label as model_label."""
+
+    def _make_view(self) -> "DetailChessLogChartsView":
+        return DetailChessLogChartsView(config={})
+
+    def test_export_pdf_report_passes_narrative_metadata_when_narrative_present(self):
+        """When narrative is present, get_last_narrative_metadata() is called and
+        its values reach export_charts_report as model_label/generated_at/counts."""
+        from unittest.mock import patch, call
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        view = self._make_view()
+        ctrl = _make_stub_controller(ai_configured=True, models=["m1"])
+        ctrl.get_last_narrative_result.return_value = ("Some narrative", [], None)
+        ctrl.get_last_shallow_result.return_value = (None, None, None)
+        ctrl.get_last_narrative_metadata.return_value = (
+            "2026-06-01 12:00",      # generated_at
+            "Anthropic claude-x",    # model_label
+            10, 7, 18, 14,           # n, g, m, k
+        )
+        ctrl.get_current_source_filenames.return_value = ["DB.pgn"]
+        view.set_controller(ctrl)
+        # Manually set last narrative so the method sees it
+        view._last_narrative = "Some narrative"
+
+        captured: dict = {}
+
+        def _fake_export(_svc, path, player_name, source_label, chart_pixmaps, narrative_text,
+                         shallow_rows, *, model_label="", generated_at="",
+                         n_games=0, g_games=0, m_moments=0, k_unflagged=0):
+            captured.update(
+                model_label=model_label, generated_at=generated_at,
+                n_games=n_games, g_games=g_games, m_moments=m_moments, k_unflagged=k_unflagged,
+            )
+            return True
+
+        with patch.object(ChessLogPDFService, "export_charts_report", _fake_export), \
+             patch("PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+                   return_value=("/tmp/test.pdf", "PDF Files (*.pdf)")):
+            view._export_pdf_report()
+
+        self.assertEqual(captured.get("generated_at"), "2026-06-01 12:00")
+        self.assertEqual(captured.get("model_label"), "Anthropic claude-x")
+        self.assertEqual(captured.get("n_games"), 10)
+        self.assertEqual(captured.get("g_games"), 7)
+        self.assertEqual(captured.get("m_moments"), 18)
+        self.assertEqual(captured.get("k_unflagged"), 14)
+
+    def test_export_pdf_report_passes_empty_metadata_when_no_narrative(self):
+        """When no narrative, counts/generated_at/model_label are all empty/zero."""
+        from unittest.mock import patch
+        from app.services.chess_log_pdf_service import ChessLogPDFService
+
+        view = self._make_view()
+        ctrl = _make_stub_controller(ai_configured=True, models=["m1"])
+        ctrl.get_last_narrative_result.return_value = ("", [], None)
+        ctrl.get_last_shallow_result.return_value = (None, None, None)
+        ctrl.get_current_source_filenames.return_value = []
+        view.set_controller(ctrl)
+        view._last_narrative = ""
+
+        captured: dict = {}
+
+        def _fake_export(_svc, path, player_name, source_label, chart_pixmaps, narrative_text,
+                         shallow_rows, *, model_label="", generated_at="",
+                         n_games=0, g_games=0, m_moments=0, k_unflagged=0):
+            captured.update(
+                model_label=model_label, generated_at=generated_at,
+                n_games=n_games, g_games=g_games, m_moments=m_moments, k_unflagged=k_unflagged,
+            )
+            return True
+
+        with patch.object(ChessLogPDFService, "export_charts_report", _fake_export), \
+             patch("PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+                   return_value=("/tmp/test.pdf", "PDF Files (*.pdf)")):
+            view._export_pdf_report()
+
+        self.assertEqual(captured.get("model_label"), "")
+        self.assertEqual(captured.get("generated_at"), "")
+        self.assertEqual(captured.get("n_games"), 0)
+        self.assertEqual(captured.get("g_games"), 0)
+        self.assertEqual(captured.get("m_moments"), 0)
+        self.assertEqual(captured.get("k_unflagged"), 0)
+        ctrl.get_last_narrative_metadata.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

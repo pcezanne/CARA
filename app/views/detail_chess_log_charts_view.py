@@ -922,7 +922,10 @@ class DetailChessLogChartsView(QWidget):
         label = self._source_combo.currentText()
         files = self._controller.get_current_source_filenames() if self._controller else []
         source_label = f"{label}: {', '.join(files)}" if files else label
-        model_label = self._controller.get_cached_shallow_model_label() if self._controller else ""
+        narrative_model_label = generated_at = ""
+        n = g = m = k = 0
+        if self._controller and narrative_text:
+            generated_at, narrative_model_label, n, g, m, k = self._controller.get_last_narrative_metadata()
         ChessLogPDFService(self._config).export_charts_report(
             Path(path),
             player_name,
@@ -930,7 +933,12 @@ class DetailChessLogChartsView(QWidget):
             chart_pixmaps,
             narrative_text,
             shallow_rows,
-            model_label=model_label,
+            model_label=narrative_model_label,
+            generated_at=generated_at,
+            n_games=n,
+            g_games=g,
+            m_moments=m,
+            k_unflagged=k,
         )
 
     def _export_narrative_pdf(self) -> None:

@@ -40,6 +40,7 @@ if _QT_OK:
         ChessLogPDFService,
         TagRowSnapshot,
         default_chess_log_charts_pdf_filename,
+        default_chess_log_narrative_pdf_filename,
         default_chess_log_tags_pdf_filename,
     )
 
@@ -65,6 +66,69 @@ class TestFilenameHelpers(unittest.TestCase):
         name = default_chess_log_charts_pdf_filename("Paul Morphy")
         self.assertTrue(name.endswith(".pdf"), name)
         self.assertNotIn(" ", name)
+
+    def test_narrative_filename_has_pdf_extension(self):
+        if not _QT_OK:
+            self.skipTest("Qt unavailable")
+        name = default_chess_log_narrative_pdf_filename()
+        self.assertTrue(name.endswith(".pdf"), name)
+
+    def test_narrative_filename_contains_narrative_summary(self):
+        if not _QT_OK:
+            self.skipTest("Qt unavailable")
+        name = default_chess_log_narrative_pdf_filename()
+        self.assertIn("NarrativeSummary", name)
+
+    def test_narrative_filename_includes_player_name(self):
+        if not _QT_OK:
+            self.skipTest("Qt unavailable")
+        name = default_chess_log_narrative_pdf_filename("Paul")
+        self.assertIn("Paul", name)
+
+    def test_narrative_filename_sanitizes_spaces(self):
+        if not _QT_OK:
+            self.skipTest("Qt unavailable")
+        name = default_chess_log_narrative_pdf_filename("Paul Morphy")
+        self.assertTrue(name.endswith(".pdf"), name)
+        self.assertNotIn(" ", name)
+
+
+@requires_qt
+class TestExportNarrativeReport(unittest.TestCase):
+    """Smoke test and title check for export_narrative_report."""
+
+    def test_export_narrative_report_creates_file(self):
+        svc = ChessLogPDFService({})
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            result = svc.export_narrative_report(
+                tmp_path,
+                player_name="Paul",
+                source_label="Active Database",
+                narrative_text="A test narrative.",
+                model_label="Anthropic claude-opus-4-7",
+                generated_at="2026-01-15 10:30",
+                n_games=10,
+                g_games=7,
+                m_moments=23,
+                k_unflagged=18,
+            )
+            self.assertTrue(result, "export_narrative_report returned False")
+            self.assertTrue(tmp_path.exists(), "PDF file not created")
+            self.assertGreater(tmp_path.stat().st_size, 0, "PDF file is empty")
+        finally:
+            tmp_path.unlink(missing_ok=True)
+
+    def test_export_narrative_report_no_narrative_succeeds(self):
+        svc = ChessLogPDFService({})
+        with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
+            tmp_path = Path(tmp.name)
+        try:
+            result = svc.export_narrative_report(tmp_path, "", "", "")
+            self.assertTrue(result)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
 
 @requires_qt

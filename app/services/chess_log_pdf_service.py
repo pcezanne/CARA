@@ -40,6 +40,15 @@ def default_chess_log_charts_pdf_filename(player_name: str = "") -> str:
     return f"CARA-ChessLogCharts-{safe}-{ts}.pdf" if safe else f"CARA-ChessLogCharts-{ts}.pdf"
 
 
+def default_chess_log_narrative_pdf_filename(player_name: str = "") -> str:
+    ts = datetime.now().strftime("%Y-%m-%d-%H%M%S")
+    safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in player_name)[:40]
+    return (
+        f"CARA-ChessLogNarrativeSummary-{safe}-{ts}.pdf" if safe
+        else f"CARA-ChessLogNarrativeSummary-{ts}.pdf"
+    )
+
+
 class ChessLogPDFService(BasePDFReportService):
     """PDF report for Chess Log tags (dialogs) and the Charts page."""
 
@@ -231,6 +240,88 @@ class ChessLogPDFService(BasePDFReportService):
                 from app.services.logging_service import LoggingService
                 LoggingService.get_instance().error(
                     f"ChessLogPDFService.export_charts_report error: {exc}", exc_info=exc
+                )
+            except Exception:
+                pass
+            if painter is not None:
+                try:
+                    painter.end()
+                except Exception:
+                    pass
+            return False
+
+    def export_narrative_report(
+        self,
+        path: Path,
+        player_name: str,
+        source_label: str,
+        narrative_text: str,
+        *,
+        model_label: str = "",
+        generated_at: str = "",
+        n_games: int = 0,
+        g_games: int = 0,
+        m_moments: int = 0,
+        k_unflagged: int = 0,
+    ) -> bool:
+        """Write a narrative-only Narrative Summary PDF."""
+        painter = None
+        try:
+            writer = self._create_pdf_writer(path)
+            painter = QPainter(writer)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+            content = self._content_rect(writer)
+            self._page_number = 1
+            self._draw_page_chrome(painter, content)
+
+            y = self._draw_report_header(painter, content, "Chess Log — Narrative Summary")
+            if player_name:
+                y = self._draw_text_line(
+                    painter, f"Player: {player_name}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+            if source_label:
+                y = self._draw_text_line(
+                    painter, f"Source: {source_label}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+            counts_line = (
+                f"{n_games} games · {g_games} with logged moments "
+                f"· {m_moments} moments · {k_unflagged} not flagged"
+            )
+            y = self._draw_text_line(
+                painter, counts_line,
+                content.left(), y, content.width(),
+                self._font_body, self._muted,
+            )
+            gen_str = f"Generated: {generated_at}" if generated_at else datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+            y = self._draw_text_line(
+                painter, gen_str,
+                content.left(), y, content.width(),
+                self._font_body, self._muted,
+            )
+            if model_label:
+                y = self._draw_text_line(
+                    painter, f"AI model: {model_label}",
+                    content.left(), y, content.width(),
+                    self._font_body, self._muted,
+                )
+            y += 6.0
+
+            narrative = (narrative_text or "").strip()
+            if narrative:
+                y = self._draw_narrative_paginated(painter, writer, content, y, narrative)
+
+            painter.end()
+            return True
+        except Exception as exc:
+            try:
+                from app.services.logging_service import LoggingService
+                LoggingService.get_instance().error(
+                    f"ChessLogPDFService.export_narrative_report error: {exc}", exc_info=exc
                 )
             except Exception:
                 pass

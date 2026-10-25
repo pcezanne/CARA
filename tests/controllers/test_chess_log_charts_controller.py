@@ -1706,5 +1706,116 @@ class TestShallowThreadFailedResultBypassesUnparsedIndices(unittest.TestCase):
         self.assertIn((1, "path/0", "CLAMP", ""), ck)
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestNarrativeMetadataCache(unittest.TestCase):
+    """Tests for counts/timestamp/model cached at narrative-generation time."""
+
+    def _make_controller(self):
+        from unittest.mock import MagicMock
+        db_ctrl = MagicMock()
+        db_ctrl.get_active_database.return_value = None
+        db_ctrl.get_panel_model.return_value = None
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        return ctrl
+
+    def test_metadata_cleared_initially(self):
+        ctrl = self._make_controller()
+        generated_at, model_label, n, g, m, k = ctrl.get_last_narrative_metadata()
+        self.assertEqual(generated_at, "")
+        self.assertEqual(model_label, "")
+        self.assertEqual((n, g, m, k), (0, 0, 0, 0))
+
+    def test_metadata_captured_on_narrative_ready(self):
+        from unittest.mock import patch
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._current_player = "Alice"
+        ctrl._color_filter = "both"
+        ctrl._pending_narrative_model_label = "Anthropic claude-opus-4-7"
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(5, 3, 8, 4),
+        ):
+            ctrl._on_narrative_thread_ready("Narrative text", [], None)
+
+        _, model_label, n, g, m, k = ctrl.get_last_narrative_metadata()
+        self.assertEqual(model_label, "Anthropic claude-opus-4-7")
+        self.assertEqual((n, g, m, k), (5, 3, 8, 4))
+
+    def test_metadata_generated_at_is_set(self):
+        from unittest.mock import patch
+        import re
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(0, 0, 0, 0),
+        ):
+            ctrl._on_narrative_thread_ready("text", [], None)
+
+        generated_at, _, _, _, _, _ = ctrl.get_last_narrative_metadata()
+        self.assertRegex(generated_at, r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$")
+
+    def test_metadata_unchanged_after_resolve_games_changes(self):
+        """Counts are captured at generation; changing games state doesn't alter cached values."""
+        from unittest.mock import patch
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(6, 5, 5, 3),
+        ):
+            ctrl._on_narrative_thread_ready("text", [], None)
+
+        # Now change what _resolve_games would return — shouldn't affect cached counts.
+        ctrl._resolve_games = MagicMock(return_value=["extra_game"])
+        _, _, n, g, m, k = ctrl.get_last_narrative_metadata()
+        self.assertEqual((n, g, m, k), (6, 5, 5, 3))
+
+    def test_metadata_cleared_on_failed_narrative(self):
+        from unittest.mock import patch
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        # First, set some values.
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(3, 2, 4, 1),
+        ):
+            ctrl._on_narrative_thread_ready("text", [], None)
+
+        # Now fail.
+        ctrl._on_narrative_thread_failed("error")
+        generated_at, model_label, n, g, m, k = ctrl.get_last_narrative_metadata()
+        self.assertEqual(generated_at, "")
+        self.assertEqual(model_label, "")
+        self.assertEqual((n, g, m, k), (0, 0, 0, 0))
+
+    def test_metadata_cleared_on_source_change(self):
+        from unittest.mock import patch
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(3, 2, 4, 1),
+        ):
+            ctrl._on_narrative_thread_ready("text", [], None)
+
+        ctrl.set_source_selection(0)
+        _, _, n, g, m, k = ctrl.get_last_narrative_metadata()
+        self.assertEqual((n, g, m, k), (0, 0, 0, 0))
+
+
 if __name__ == "__main__":
     unittest.main()

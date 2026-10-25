@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from app.models.database_model import GameData
 from app.services.chess_log_storage_service import ChessLogStorageService
@@ -222,6 +222,93 @@ def has_any_moments(
         paths_data = ChessLogStorageService.load_resolved_paths(game)
         if paths_data:
             return True
+    return False
+
+
+def compute_narrative_counts(
+    games: List[GameData],
+    player: str,
+    color_filter: str,
+    get_tags_fn: Callable[[GameData], Dict[str, Any]],
+) -> Tuple[int, int, int, int]:
+    """Return (n_games, g_with_moments, m_moments, k_unflagged) for the narrative scope.
+
+    - n_games:        games in scope (match player + color_filter)
+    - g_with_moments: games where the player has at least one logged moment
+    - m_moments:      total (path_key, preset) moments for the player in those games
+    - k_unflagged:    moments with no saved non-ignored Shallow or Vague verdict
+
+    Only path_keys whose color matches the player's own color in each game are
+    counted; opponent-tagged moves are excluded.  Never-checked moments count as
+    not flagged.  An Ignored Shallow/Vague verdict counts as not flagged.
+    """
+    player_cf = (player or "").casefold().strip()
+    n = g = m = k = 0
+
+    for game in games:
+        if not game_matches_player_color(game, player_cf, color_filter):
+            continue
+        n += 1
+
+        if not getattr(game, "has_chess_log_tags", False):
+            continue
+
+        # Determine which color is the player in this game.
+        white_cf = (game.white or "").casefold().strip()
+        black_cf = (game.black or "").casefold().strip()
+        if player_cf and white_cf == player_cf:
+            player_color: Optional[str] = "white"
+        elif player_cf and black_cf == player_cf:
+            player_color = "black"
+        else:
+            player_color = None
+
+        tags = get_tags_fn(game)
+        game_has_moment = False
+
+        for path_key, entries in tags.items():
+            if not entries:
+                continue
+            # Exclude opponent's path_keys (skip when color is known and mismatched).
+            if player_color is not None:
+                pk_color = color_from_path_key(path_key)
+                if pk_color is not None and pk_color != player_color:
+                    continue
+
+            # Group entries by preset — each (path_key, preset) pair = one moment.
+            by_preset: Dict[str, List[Dict[str, Any]]] = {}
+            for e in entries:
+                p = e.get("preset", "")
+                if p:
+                    by_preset.setdefault(p, []).append(e)
+
+            for preset, preset_entries in by_preset.items():
+                m += 1
+                game_has_moment = True
+                if not _moment_is_flagged(preset, preset_entries):
+                    k += 1
+
+        if game_has_moment:
+            g += 1
+
+    return n, g, m, k
+
+
+def _moment_is_flagged(preset: str, entries: List[Dict[str, Any]]) -> bool:
+    """Return True if this (path_key, preset) moment has a non-ignored Shallow or Vague verdict."""
+    if preset == "3x3":
+        for e in entries:
+            cat = e.get("cat", "")
+            if cat in ("Why1", "Why2", "Why3"):
+                if e.get("is_shallow") and not ChessLogStorageService.is_entry_ignore_honoured(e):
+                    return True
+            elif cat == "Why4":
+                if e.get("is_vague") and not ChessLogStorageService.is_entry_ignore_honoured(e):
+                    return True
+    else:
+        for e in entries:
+            if e.get("is_shallow") and not ChessLogStorageService.is_entry_ignore_honoured(e):
+                return True
     return False
 
 

@@ -12,6 +12,7 @@ from app.services.chess_log_stats_service import (
     ChessLogCategoryBin,
     ChessLogPresetSeries,
     aggregate,
+    compute_narrative_counts,
     get_all_players,
     has_any_moments,
 )
@@ -785,6 +786,158 @@ class TestAggregateExcludesOrphans(unittest.TestCase):
         self.assertIn("CLAMP", result)
         total_moments = sum(b.total for b in result["CLAMP"].bins)
         self.assertEqual(total_moments, 1)
+
+
+# ---------------------------------------------------------------------------
+# compute_narrative_counts
+# ---------------------------------------------------------------------------
+
+class TestComputeNarrativeCounts(unittest.TestCase):
+    """Tests for compute_narrative_counts — N/G/M/K counting logic."""
+
+    _BASE_PGN = (
+        '[Event "Test"]\n[Site "?"]\n[Date "2025.06.01"]\n'
+        '[Round "?"]\n[White "{white}"]\n[Black "{black}"]\n'
+        '[Result "*"]\n\n1. e4 e5 2. Nf3 Nc6 3. Bb5 *\n'
+    )
+    # Depth-1 path = White move; depth-2 path = Black move.
+    _WHITE_PATH = "0"          # path_key depth 1 → White's move
+    _BLACK_PATH = "0.0"        # path_key depth 2 → Black's move
+
+    def _make_game(self, white="Alice", black="Bob", entries_per_path=None):
+        pgn = self._BASE_PGN.format(white=white, black=black)
+        game = GameData(game_number=1, pgn=pgn, white=white, black=black, date="2025.06.01")
+        if entries_per_path:
+            ChessLogStorageService.store_tags(game, entries_per_path)
+        return game
+
+    def _get_tags(self, game):
+        return ChessLogStorageService.load_resolved_paths(game)
+
+    def _counts(self, games, player="Alice", color_filter="both"):
+        return compute_narrative_counts(games, player, color_filter, self._get_tags)
+
+    def test_no_games(self):
+        n, g, m, k = self._counts([])
+        self.assertEqual((n, g, m, k), (0, 0, 0, 0))
+
+    def test_game_no_moments_counts_n_not_g(self):
+        game = self._make_game()   # no entries_per_path → has_chess_log_tags=False
+        n, g, m, k = self._counts([game])
+        self.assertEqual(n, 1)
+        self.assertEqual(g, 0)
+        self.assertEqual(m, 0)
+        self.assertEqual(k, 0)
+
+    def test_unflagged_clamp_moment(self):
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "why text")
+        game = self._make_game(entries_per_path={self._WHITE_PATH: [e]})
+        n, g, m, k = self._counts([game])
+        self.assertEqual((n, g, m, k), (1, 1, 1, 1))
+
+    def test_shallow_flagged_clamp_not_in_k(self):
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "why", is_shallow=True)
+        game = self._make_game(entries_per_path={self._WHITE_PATH: [e]})
+        n, g, m, k = self._counts([game])
+        self.assertEqual((n, g, m, k), (1, 1, 1, 0))
+
+    def test_shallow_ignored_counts_as_not_flagged(self):
+        # is_shallow=True, ignore_shallow=True, no hash → legacy ignore → honoured
+        e = ChessLogStorageService.make_entry(
+            "CLAMP", "C", "why", is_shallow=True, ignore_shallow=True
+        )
+        game = self._make_game(entries_per_path={self._WHITE_PATH: [e]})
+        n, g, m, k = self._counts([game])
+        self.assertEqual((n, g, m, k), (1, 1, 1, 1))
+
+    def test_3x3_vague_lesson_is_flagged(self):
+        # Why4 with is_vague=True → flagged, not K
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "w1"),
+            ChessLogStorageService.make_entry("3x3", "Why2", "w2"),
+            ChessLogStorageService.make_entry("3x3", "Why3", "w3"),
+            ChessLogStorageService.make_entry("3x3", "Why4", "w4", is_vague=True),
+        ]
+        game = self._make_game(entries_per_path={self._WHITE_PATH: entries})
+        n, g, m, k = self._counts([game])
+        self.assertEqual((n, g, m, k), (1, 1, 1, 0))
+
+    def test_3x3_shallow_why2_ignored_not_flagged(self):
+        # Why2 is_shallow=True but Ignored → not flagged → K
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "w1"),
+            ChessLogStorageService.make_entry(
+                "3x3", "Why2", "w2", is_shallow=True, ignore_shallow=True
+            ),
+            ChessLogStorageService.make_entry("3x3", "Why3", "w3"),
+            ChessLogStorageService.make_entry("3x3", "Why4", "w4"),
+        ]
+        game = self._make_game(entries_per_path={self._WHITE_PATH: entries})
+        n, g, m, k = self._counts([game])
+        self.assertEqual((n, g, m, k), (1, 1, 1, 1))
+
+    def test_opponent_moment_excluded(self):
+        # Black-path moment when filtering for Alice (White) → excluded from M and K
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "why")
+        game = self._make_game(entries_per_path={self._BLACK_PATH: [e]})
+        n, g, m, k = self._counts([game])
+        self.assertEqual(n, 1)
+        self.assertEqual(g, 0)
+        self.assertEqual(m, 0)
+        self.assertEqual(k, 0)
+
+    def test_combined_set_exact_counts(self):
+        """Full test set as specified: N=6, G=5, M=5, K=3."""
+        # Game 1: Alice White, White path unflagged CLAMP (K), Black path excluded
+        g1 = self._make_game(entries_per_path={
+            self._WHITE_PATH: [ChessLogStorageService.make_entry("CLAMP", "C", "why")],
+            self._BLACK_PATH: [ChessLogStorageService.make_entry("CLAMP", "C", "opp")],
+        })
+        # Game 2: Alice White, White path CLAMP flagged Shallow (not K)
+        g2 = self._make_game(entries_per_path={
+            self._WHITE_PATH: [ChessLogStorageService.make_entry(
+                "CLAMP", "C", "why", is_shallow=True
+            )],
+        })
+        # Game 3: Alice White, White path CLAMP flagged Shallow but Ignored (K)
+        g3 = self._make_game(entries_per_path={
+            self._WHITE_PATH: [ChessLogStorageService.make_entry(
+                "CLAMP", "C", "why", is_shallow=True, ignore_shallow=True
+            )],
+        })
+        # Game 4: Alice White, 3x3 with Vague Lesson (not K)
+        g4 = self._make_game(entries_per_path={
+            self._WHITE_PATH: [
+                ChessLogStorageService.make_entry("3x3", "Why1", "w1"),
+                ChessLogStorageService.make_entry("3x3", "Why2", "w2"),
+                ChessLogStorageService.make_entry("3x3", "Why3", "w3"),
+                ChessLogStorageService.make_entry("3x3", "Why4", "w4", is_vague=True),
+            ],
+        })
+        # Game 5: Alice White, 3x3 Why2 Shallow but Ignored (K)
+        g5 = self._make_game(entries_per_path={
+            self._WHITE_PATH: [
+                ChessLogStorageService.make_entry("3x3", "Why1", "w1"),
+                ChessLogStorageService.make_entry(
+                    "3x3", "Why2", "w2", is_shallow=True, ignore_shallow=True
+                ),
+                ChessLogStorageService.make_entry("3x3", "Why3", "w3"),
+                ChessLogStorageService.make_entry("3x3", "Why4", "w4"),
+            ],
+        })
+        # Game 6: Alice White, no chess log tags
+        g6 = self._make_game()
+
+        n, g, m, k = self._counts([g1, g2, g3, g4, g5, g6])
+        self.assertEqual(n, 6, f"N expected 6, got {n}")
+        self.assertEqual(g, 5, f"G expected 5, got {g}")
+        self.assertEqual(m, 5, f"M expected 5, got {m}")
+        self.assertEqual(k, 3, f"K expected 3, got {k}")
+
+    def test_player_not_in_game_excluded_from_n(self):
+        game = self._make_game(white="Charlie", black="Bob")
+        n, g, m, k = self._counts([game], player="Alice")
+        self.assertEqual(n, 0)
 
 
 if __name__ == "__main__":

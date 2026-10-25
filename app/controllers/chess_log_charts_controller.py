@@ -32,6 +32,7 @@ from app.services.chess_log_narrative_service import NarrativeResult, generate_n
 from app.services.chess_log_stats_service import (
     ChessLogPresetSeries,
     aggregate,
+    compute_narrative_counts,
     get_all_players,
     has_any_moments,
 )
@@ -498,6 +499,7 @@ class ChessLogChartsController(QObject):
         self._narrative_token_limit: int = 12000
         self._narrative_model_override: Optional[str] = None
         self._chess_log_controller: Optional[Any] = None
+        self._pending_narrative_model_label: str = ""
 
         # Result cache — survives view rebuilds (e.g. theme change) so the narrative
         # and shallow-check results are re-displayed on the fresh view without
@@ -506,6 +508,9 @@ class ChessLogChartsController(QObject):
         self._cached_narrative: str = ""
         self._cached_narrative_flags: list = []
         self._cached_narrative_usage: Optional[Any] = None
+        self._cached_narrative_counts: Optional[Tuple[int, int, int, int]] = None
+        self._cached_narrative_generated_at: str = ""
+        self._cached_narrative_model_label: str = ""
         self._cached_shallow_keys: Optional[Any] = None
         self._cached_vague_keys: Optional[Any] = None
         self._cached_shallow_usage: Optional[Any] = None
@@ -605,6 +610,15 @@ class ChessLogChartsController(QObject):
         """Return (narrative, flags, usage) from the most recent successful generation."""
         return self._cached_narrative, self._cached_narrative_flags, self._cached_narrative_usage
 
+    def get_last_narrative_metadata(self) -> tuple:
+        """Return (generated_at, model_label, n_games, g_games, m_moments, k_unflagged)."""
+        n, g, m, k = self._cached_narrative_counts or (0, 0, 0, 0)
+        return (
+            self._cached_narrative_generated_at,
+            self._cached_narrative_model_label,
+            n, g, m, k,
+        )
+
     def get_last_shallow_result(self) -> tuple:
         """Return (shallow_keys, vague_keys, usage) from the most recent successful shallow check."""
         return self._cached_shallow_keys, self._cached_vague_keys, self._cached_shallow_usage
@@ -617,6 +631,9 @@ class ChessLogChartsController(QObject):
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
+        self._cached_narrative_counts = None
+        self._cached_narrative_generated_at = ""
+        self._cached_narrative_model_label = ""
         self._cached_shallow_keys = None
         self._cached_vague_keys = None
         self._cached_shallow_usage = None
@@ -767,6 +784,8 @@ class ChessLogChartsController(QObject):
             return
         provider, default_model, api_key, base_url = provider_tuple
         model = self._narrative_model_override or default_model
+        provider_display = _PROVIDER_DISPLAY.get(provider.lower(), provider)
+        self._pending_narrative_model_label = f"{provider_display} {model}"
         games = self._resolve_games()
         if not games:
             self.narrative_failed.emit("No games in scope.")
@@ -835,15 +854,25 @@ class ChessLogChartsController(QObject):
         thread.start()
 
     def _on_narrative_thread_ready(self, narrative: str, flags: list, usage) -> None:
+        from datetime import datetime
         self._cached_narrative = narrative
         self._cached_narrative_flags = list(flags)
         self._cached_narrative_usage = usage
+        self._cached_narrative_generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._cached_narrative_model_label = self._pending_narrative_model_label
+        games = self._resolve_games()
+        self._cached_narrative_counts = compute_narrative_counts(
+            games, self._current_player, self._color_filter, self.get_tags_for_game
+        )
         self.narrative_ready.emit(narrative, flags, usage)
 
     def _on_narrative_thread_failed(self, message: str) -> None:
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
+        self._cached_narrative_counts = None
+        self._cached_narrative_generated_at = ""
+        self._cached_narrative_model_label = ""
         self.narrative_failed.emit(message)
 
     def _on_shallow_thread_ready(self, shallow_keys, vague_keys, classified_keys, usage, model_label: str = "") -> None:

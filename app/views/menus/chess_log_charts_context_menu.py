@@ -27,6 +27,9 @@ def build_chess_log_charts_context_menu(view, *, section_name: Optional[str]) ->
     export_pdf = menu.addAction("Export PDF Report")
     export_pdf.triggered.connect(view._export_pdf_report)
 
+    export_narrative = menu.addAction("Export Narrative Summary")
+    export_narrative.triggered.connect(view._export_narrative_pdf)
+
     from app.views.style.context_menu import try_wire_context_menu_shared_action_icons
 
     try_wire_context_menu_shared_action_icons(menu)

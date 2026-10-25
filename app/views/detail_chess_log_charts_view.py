@@ -932,3 +932,50 @@ class DetailChessLogChartsView(QWidget):
             shallow_rows,
             model_label=model_label,
         )
+
+    def _export_narrative_pdf(self) -> None:
+        from pathlib import Path
+        from PyQt6.QtWidgets import QFileDialog
+        from app.services.chess_log_pdf_service import (
+            ChessLogPDFService,
+            default_chess_log_narrative_pdf_filename,
+        )
+
+        if not self._last_narrative:
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.information(
+                self,
+                "No Narrative",
+                "Generate a Narrative Summary first.",
+            )
+            return
+
+        player_name = self._player_combo.itemData(self._player_combo.currentIndex()) or ""
+        suggested = default_chess_log_narrative_pdf_filename(player_name)
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Narrative Summary", suggested, "PDF Files (*.pdf)"
+        )
+        if not path:
+            return
+
+        label = self._source_combo.currentText()
+        files = self._controller.get_current_source_filenames() if self._controller else []
+        source_label = f"{label}: {', '.join(files)}" if files else label
+
+        generated_at = model_label = ""
+        n = g = m = k = 0
+        if self._controller:
+            generated_at, model_label, n, g, m, k = self._controller.get_last_narrative_metadata()
+
+        ChessLogPDFService(self._config).export_narrative_report(
+            Path(path),
+            player_name,
+            source_label,
+            self._last_narrative,
+            model_label=model_label,
+            generated_at=generated_at,
+            n_games=n,
+            g_games=g,
+            m_moments=m,
+            k_unflagged=k,
+        )

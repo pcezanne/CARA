@@ -186,6 +186,18 @@ Each `ChessLogCategoryChartWidget` and the narrative `QFrame` carry a `section_n
 
 **Tech debt** (`widget.grab()` chart quality): `ChessLogPDFService.export_charts_report` embeds charts as screen-resolution pixmaps from `widget.grab()`. Player Stats re-renders charts natively via QPainter from series data. If PDF chart quality is inadequate, the upgrade path is a native-QPainter pipeline in `ChessLogPDFService` — flagged as tech debt; the existing path is upgradeable without API changes.
 
+### Narrative Summary PDF and Charts report header (#72)
+
+**Narrative Summary PDF** — context menu item "Export Narrative Summary" → `DetailChessLogChartsView._export_narrative_pdf` → `ChessLogPDFService.export_narrative_report`.
+
+- Title: "Chess Log — Narrative Summary". File name: `CARA-ChessLogNarrativeSummary-{player}-{ts}.pdf` (player name sanitised; no player → timestamp only).
+- Header lines: `Player:`, `Source:`, the counts line, `Generated:`, `AI model:`.
+- The counts line format is `N games · G with logged moments · M moments · K not flagged`. Counts are scoped to the player's own path_key moments only — opponent path_keys are excluded via `color_from_path_key`. A moment is the group of entries at one (path_key, preset) pair. K counts moments with **no** saved Shallow/Vague verdict; moments that have a verdict but whose Ignore flag is honoured (`is_entry_ignore_honoured`) also count as not flagged. Moments that have never been through Check Logs (no `is_shallow`/`is_vague` at all) likewise count as not flagged. For 3x3, a moment is flagged if any non-ignored Why1/Why2/Why3 entry has `is_shallow=True`, or the Why4/Lesson entry has `is_vague=True`.
+- All four values (N, G, M, K), plus the generation timestamp and model label, are captured at narrative-generation time inside `ChessLogChartsController._on_narrative_thread_ready` via `compute_narrative_counts` (in `chess_log_stats_service.py`) and stored in `_cached_narrative_counts`, `_cached_narrative_generated_at`, `_cached_narrative_model_label`. The model label is pre-captured in `_pending_narrative_model_label` at `request_narrative()` time so it reflects the model that was actually sent. `get_last_narrative_metadata()` surfaces all six values to the view.
+- Cache lifecycle matches the narrative text: cleared on source, player, or database change; survives theme rebuilds.
+
+**Charts tab Export PDF Report** (title unchanged: "Chess Log Charts", file name unchanged) shows the same header lines when a narrative has been generated: Player, Source, counts, Generated (the narrative's generation time), AI model. When no narrative has been generated, only Player, Source, and `Generated:` (the current export time) appear — no counts and no AI model line.
+
 ## Multi-game cache and save-all
 
 **Save Chess Logs for all games** (Chess Log menu, no shortcut): saves every game in `ChessLogController._dirty_games` via `ChessLogStorageService.store_tags` directly — does NOT flip the active game. Handler: `MainWindow._save_chess_logs_for_all_games` → `chess_log_controller.save_all_dirty_games()`. Reports count of saved/failed games in the status bar. Cache coherency across active-game transitions: Rule A (activation promotes from multi-cache before hitting disk) and Rule B (deactivation flushes single-game cache into multi-cache) ensure edits to inactive games are never silently discarded.

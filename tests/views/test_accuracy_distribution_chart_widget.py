@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -75,17 +76,27 @@ class TestAccuracyDistributionSmoothRender(unittest.TestCase):
         return img
 
     def test_smooth_mode_renders_without_crash(self) -> None:
-        """_smooth_polyline_path at line 494 must execute without ImportError.
+        """_smooth_polyline_path at line 494 must be called during paint.
 
         10 accuracy values spread over 28 points → bin_count >= 5 →
-        len(points_line) > 1 → smooth branch runs.
+        len(points_line) > 1 → smooth branch runs.  Patching the name as
+        bound in the widget module (wraps=real fn) proves the branch is
+        actually reached, not just that the import succeeded.
         """
+        import app.views.widgets.accuracy_distribution_chart_widget as _wmod
+        from app.views.widgets._chart_layout_helpers import smooth_polyline_path
+
         accuracy_values = [70.0, 75.0, 78.0, 80.0, 82.0, 85.0, 88.0, 92.0, 95.0, 98.0]
         widget = AccuracyDistributionChartWidget(
             config={},
             accuracy_values=accuracy_values,
             text_color=QColor(200, 200, 200),
         )
-        # Default curve setting is "smooth" and line style is "solid",
-        # so _smooth_polyline_path is called during paintEvent.
-        self._render(widget)  # must not raise
+        with mock.patch.object(
+            _wmod, "_smooth_polyline_path", wraps=smooth_polyline_path
+        ) as spy:
+            self._render(widget)
+        self.assertGreaterEqual(
+            spy.call_count, 1,
+            "_smooth_polyline_path was never called — smooth branch not reached",
+        )

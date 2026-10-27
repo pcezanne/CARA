@@ -72,6 +72,8 @@ from app.views.widgets._chart_layout_helpers import (
     week_start_monday_ordinal,
 )
 
+_smooth_polyline_path = smooth_polyline_path  # compat alias for accuracy_distribution_chart_widget
+
 
 # Section id -> menu label (Player Stats menu). Order is the default display order.
 PLAYER_STATS_MENU_SECTIONS: List[Tuple[str, str]] = [

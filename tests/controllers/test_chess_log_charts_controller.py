@@ -2108,10 +2108,16 @@ class TestInFlightGuardViaRealStartPaths(unittest.TestCase):
 
         self.assertEqual(received, [], "stale shallow_partial must be dropped by _on_shallow_thread_partial")
 
-    # --- positive control: chart option toggle does not block a fresh narrative ---
+    # --- positive control: chart option change does not block a fresh narrative ---
 
     def test_positive_control_chart_option_does_not_block_narrative(self):
-        """A chart option toggle must NOT advance the generation (positive control)."""
+        """A chart option change via the real set_user_settings path must not advance the generation.
+
+        Real path: menu action → ChessLogChartsMenuController._apply()
+        → UserSettingsService.update_chess_log_charts_settings()
+        → chess_log_charts_changed signal → set_user_settings() → _selection_debounce.start()
+        (no _clear_result_cache call anywhere in that chain).
+        """
         ctrl = self._make_controller()
         fake_thread = _FakeNarrativeThread()
         received = []
@@ -2123,14 +2129,16 @@ class TestInFlightGuardViaRealStartPaths(unittest.TestCase):
                    return_value=fake_thread):
             ctrl.request_narrative()
 
-        # Chart option toggle: kick debounce — must NOT clear the result cache
-        ctrl._kick_debounce()
+        # Real chart option path: set_user_settings with a changed chart setting
+        # Default x_axis_mode is "uniform_bins"; switching to "calendar_linear" changes it.
+        # resolve_default_provider({...}) returns None (no AI key) — harmless for this test.
+        ctrl.set_user_settings({"chess_log": {"charts": {"progression_x_axis_mode": "calendar_linear"}}})
 
         with patch("app.controllers.chess_log_charts_controller.compute_narrative_counts",
                    return_value=(0, 0, 0, 0)):
             fake_thread.narrative_ready.emit("Fresh", [], None)
 
-        self.assertEqual(len(received), 1, "narrative after chart option toggle must not be blocked")
+        self.assertEqual(len(received), 1, "narrative after chart option change must not be blocked")
         self.assertEqual(received[0], "Fresh")
 
 

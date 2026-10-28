@@ -443,8 +443,7 @@ class DetailChessLogChartsView(QWidget):
             self._controller.set_source_selection(index)
 
     def _on_player_changed(self, index: int) -> None:
-        self._last_shallow_keys = None  # freshness invalidated
-        self._last_vague_keys = None
+        self._clear_narrative_and_check_logs()
         self._refresh_ai_state()
         if not self._controller or index < 0:
             return
@@ -592,10 +591,19 @@ class DetailChessLogChartsView(QWidget):
             w.deleteLater()
         self._chart_widgets.clear()
 
-    def _reset_player_selection(self) -> None:
+    def _clear_narrative_and_check_logs(self) -> None:
+        """Reset narrative and Check Logs display to first-open state."""
+        self._last_narrative = ""
         self._last_shallow_keys = None
         self._last_vague_keys = None
-        self._last_narrative = ""
+        self._narrative_edit.clear()
+        self._narrative_token_label.setText("")
+        self._flagged_box.setVisible(False)
+        self._shallow_token_label.setText("")
+        self._pending_partial_message = None
+
+    def _reset_player_selection(self) -> None:
+        self._clear_narrative_and_check_logs()
         self._player_combo.blockSignals(True)
         self._player_combo.setCurrentIndex(-1)
         self._player_combo.blockSignals(False)

@@ -1817,5 +1817,108 @@ class TestNarrativeMetadataCache(unittest.TestCase):
         self.assertEqual((n, g, m, k), (0, 0, 0, 0))
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestInFlightGuard(unittest.TestCase):
+    """#77: narrative/shallow results arriving after game-set change must be discarded."""
+
+    def _make_controller(self) -> "ChessLogChartsController":
+        db_ctrl = _make_db_controller([])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        return ctrl
+
+    # --- narrative ---
+
+    def test_narrative_discarded_when_game_set_changes_during_run(self):
+        """A narrative result arriving after game-set change must not be emitted or cached."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        ctrl._narrative_launch_gen = ctrl._game_set_generation
+        ctrl._clear_result_cache()  # game set changed; gen advances past launch_gen
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(0, 0, 0, 0),
+        ):
+            ctrl._on_narrative_thread_ready("Stale narrative", [], None)
+
+        self.assertEqual(received, [], "stale narrative must not be emitted")
+        self.assertEqual(ctrl._cached_narrative, "", "stale narrative must not be cached")
+
+    def test_narrative_accepted_when_game_set_unchanged(self):
+        """A narrative result whose launch gen still matches current gen must be shown."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 1
+        ctrl._resolve_games = MagicMock(return_value=[])
+
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        ctrl._narrative_launch_gen = ctrl._game_set_generation  # same generation
+
+        with patch(
+            "app.controllers.chess_log_charts_controller.compute_narrative_counts",
+            return_value=(0, 0, 0, 0),
+        ):
+            ctrl._on_narrative_thread_ready("Fresh narrative", [], None)
+
+        self.assertEqual(len(received), 1)
+        self.assertEqual(received[0], "Fresh narrative")
+        self.assertEqual(ctrl._cached_narrative, "Fresh narrative")
+
+    # --- shallow ---
+
+    def test_shallow_discarded_when_game_set_changes_during_run(self):
+        """A shallow result arriving after game-set change must not be emitted or cached."""
+        ctrl = self._make_controller()
+
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
+
+        ctrl._shallow_launch_gen = ctrl._game_set_generation
+        ctrl._clear_result_cache()  # game set changed
+
+        game = GameData(game_number=1)
+        ctrl._on_shallow_thread_ready(
+            frozenset([(game, "k", "CLAMP", "")]), frozenset(), frozenset(), None
+        )
+
+        self.assertEqual(received, [], "stale shallow result must not be emitted")
+        self.assertIsNone(ctrl._cached_shallow_keys, "stale shallow result must not be cached")
+
+    def test_shallow_accepted_when_game_set_unchanged(self):
+        """A shallow result whose launch gen still matches current gen must be shown."""
+        ctrl = self._make_controller()
+
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
+
+        ctrl._shallow_launch_gen = ctrl._game_set_generation  # same generation
+
+        game = GameData(game_number=1)
+        shallow_keys = frozenset([(game, "k", "CLAMP", "")])
+        ctrl._on_shallow_thread_ready(shallow_keys, frozenset(), frozenset(), None)
+
+        self.assertEqual(len(received), 1)
+        self.assertIsNotNone(ctrl._cached_shallow_keys)
+
+    # --- generation advances on each game-set change ---
+
+    def test_each_clear_result_cache_advances_generation(self):
+        """Every call to _clear_result_cache must increment _game_set_generation."""
+        ctrl = self._make_controller()
+        gen0 = ctrl._game_set_generation
+        ctrl._clear_result_cache()
+        self.assertEqual(ctrl._game_set_generation, gen0 + 1)
+        ctrl._clear_result_cache()
+        self.assertEqual(ctrl._game_set_generation, gen0 + 2)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -521,6 +521,14 @@ class ChessLogChartsController(QObject):
         self._selection_debounce.timeout.connect(self._on_selection_debounced)
         self._selection_debounce_ms = 100
 
+        # Generation counter: incremented by _clear_result_cache() on every game-set
+        # change.  Captured into _narrative_launch_gen / _shallow_launch_gen when a
+        # thread starts; results whose captured gen no longer matches the current gen
+        # are silently discarded so an in-flight run on game-set A cannot appear on B.
+        self._game_set_generation: int = 0
+        self._narrative_launch_gen: int = 0
+        self._shallow_launch_gen: int = 0
+
         self._connect_to_database_panel_model()
 
     # ------------------------------------------------------------------
@@ -628,6 +636,7 @@ class ChessLogChartsController(QObject):
         return self._cached_shallow_model_label
 
     def _clear_result_cache(self) -> None:
+        self._game_set_generation += 1
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
@@ -807,6 +816,7 @@ class ChessLogChartsController(QObject):
         thread.narrative_failed.connect(self._on_narrative_thread_failed)
         thread.finished.connect(self._on_narrative_finished)
         self._narrative_thread = thread
+        self._narrative_launch_gen = self._game_set_generation
         thread.start()
 
     def request_flag_shallow_notes(self) -> None:
@@ -851,9 +861,12 @@ class ChessLogChartsController(QObject):
         thread.shallow_partial.connect(self.shallow_partial)
         thread.finished.connect(self._on_shallow_thread_finished)
         self._shallow_thread = thread
+        self._shallow_launch_gen = self._game_set_generation
         thread.start()
 
     def _on_narrative_thread_ready(self, narrative: str, flags: list, usage) -> None:
+        if self._narrative_launch_gen != self._game_set_generation:
+            return
         from datetime import datetime
         self._cached_narrative = narrative
         self._cached_narrative_flags = list(flags)
@@ -877,6 +890,8 @@ class ChessLogChartsController(QObject):
 
     def _on_shallow_thread_ready(self, shallow_keys, vague_keys, classified_keys, usage, model_label: str = "") -> None:
         """Cache shallow/vague results then pass to the view; the dialog's Save commits them."""
+        if self._shallow_launch_gen != self._game_set_generation:
+            return
         self._cached_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         self._cached_vague_keys = frozenset(vague_keys) if vague_keys else None
         self._cached_shallow_usage = usage

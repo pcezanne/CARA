@@ -332,5 +332,99 @@ class TestMomentInLastShallowHelper(unittest.TestCase):
         self.assertTrue(self._view._moment_in_last_shallow(_GAME_1, "k1", "CLAMP"))
 
 
+@requires_qt
+class TestGameSetChangeClearsDisplay(unittest.TestCase):
+    """#77: narrative edit, token labels, and flagged box must visually clear when
+    the game set changes (DB switch, player change, source change).  Each test
+    that mutates display state must fail before the fix and pass after."""
+
+    def setUp(self):
+        self._view = DetailChessLogChartsView(_MINIMAL_CONFIG)
+        self._view._on_narrative_ready("Old narrative text.", [], None)
+
+    # --- DB switch / reset_player_selection ---
+
+    def test_db_switch_clears_narrative_edit_text(self):
+        """After _reset_player_selection (triggered by DB switch), narrative edit is empty."""
+        self.assertNotEqual(self._view._narrative_edit.toPlainText().strip(), "")
+        self._view._reset_player_selection()
+        self.assertEqual(self._view._narrative_edit.toPlainText().strip(), "")
+
+    def test_db_switch_clears_last_narrative(self):
+        """_reset_player_selection clears _last_narrative (PDF export protection)."""
+        self._view._reset_player_selection()
+        self.assertEqual(self._view._last_narrative, "")
+
+    def test_db_switch_clears_shallow_token_label(self):
+        """_reset_player_selection clears _shallow_token_label."""
+        self._view._shallow_token_label.setText("Tokens: 100 in / 50 out")
+        self._view._reset_player_selection()
+        self.assertEqual(self._view._shallow_token_label.text(), "")
+
+    def test_db_switch_clears_narrative_token_label(self):
+        """_reset_player_selection clears _narrative_token_label."""
+        self._view._narrative_token_label.setText("Tokens: 200 in / 80 out")
+        self._view._reset_player_selection()
+        self.assertEqual(self._view._narrative_token_label.text(), "")
+
+    # --- player change ---
+
+    def test_player_change_clears_narrative_edit_text(self):
+        """Player change must clear _narrative_edit display."""
+        self.assertNotEqual(self._view._narrative_edit.toPlainText().strip(), "")
+        self._view._on_player_changed(-1)
+        self.assertEqual(self._view._narrative_edit.toPlainText().strip(), "")
+
+    def test_player_change_clears_last_narrative(self):
+        """Player change must clear _last_narrative (PDF export protection)."""
+        self.assertEqual(self._view._last_narrative, "Old narrative text.")
+        self._view._on_player_changed(-1)
+        self.assertEqual(self._view._last_narrative, "")
+
+    def test_player_change_clears_shallow_keys(self):
+        """Player change must clear _last_shallow_keys."""
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        self._view._on_player_changed(-1)
+        self.assertIsNone(self._view._last_shallow_keys)
+
+    # --- positive control: chart redraw does NOT clear ---
+
+    def test_chart_loading_does_not_clear_narrative(self):
+        """_on_charts_loading (chart redraw, same game set) must not clear narrative."""
+        narrative_before = self._view._last_narrative
+        self._view._on_charts_loading()
+        self.assertEqual(self._view._last_narrative, narrative_before)
+        self.assertNotEqual(self._view._narrative_edit.toPlainText().strip(), "")
+
+    def test_chart_updated_does_not_clear_narrative(self):
+        """_on_charts_updated (chart redraw result) must not clear narrative."""
+        narrative_before = self._view._last_narrative
+        self._view._on_charts_updated({})
+        self.assertEqual(self._view._last_narrative, narrative_before)
+
+    # --- export after clear ---
+
+    def test_export_field_empty_after_player_change(self):
+        """_last_narrative is empty after player change → PDF export gets no narrative."""
+        self._view._on_player_changed(-1)
+        self.assertEqual(self._view._last_narrative.strip(), "")
+
+    def test_export_shallow_field_empty_after_db_switch(self):
+        """_last_shallow_keys is None after DB switch → PDF export has no Check Logs rows."""
+        self._view._last_shallow_keys = _SHALLOW_KEYS
+        self._view._reset_player_selection()
+        self.assertIsNone(self._view._last_shallow_keys)
+
+    # --- saved data untouched ---
+
+    def test_clear_does_not_call_any_save_method(self):
+        """_clear_narrative_and_check_logs must not invoke any Chess Log storage method."""
+        with patch(
+            "app.services.chess_log_storage_service.ChessLogStorageService.store_tags"
+        ) as mock_store:
+            self._view._clear_narrative_and_check_logs()
+        mock_store.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

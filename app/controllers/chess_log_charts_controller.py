@@ -465,6 +465,7 @@ class ChessLogChartsController(QObject):
     shallow_partial = pyqtSignal(str)            # informational: N notes unparsed, results follow
     ai_configured_changed = pyqtSignal(bool)  # True when LLM becomes available or unavailable
     ai_model_changed = pyqtSignal()           # default provider or model changed in AI Settings
+    results_invalidated = pyqtSignal()        # charted game set changed mid-session; view should clear narrative/Check Logs
 
     def __init__(
         self,
@@ -528,6 +529,9 @@ class ChessLogChartsController(QObject):
         self._game_set_generation: int = 0
         self._narrative_launch_gen: int = 0
         self._shallow_launch_gen: int = 0
+        # Last resolved game-set identity key; compared in _schedule_charts_refresh to
+        # detect mid-session changes (e.g. selected-game source 3/4 picks different rows).
+        self._last_game_set_key: Optional[frozenset] = None
 
         self._connect_to_database_panel_model()
 
@@ -637,6 +641,7 @@ class ChessLogChartsController(QObject):
 
     def _clear_result_cache(self) -> None:
         self._game_set_generation += 1
+        self._last_game_set_key = None
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
@@ -963,6 +968,11 @@ class ChessLogChartsController(QObject):
         self.charts_loading.emit()
         if games is None:
             games = self._resolve_games()
+        new_key = frozenset(id(g) for g in games)
+        if self._last_game_set_key is not None and new_key != self._last_game_set_key:
+            self._clear_result_cache()
+            self.results_invalidated.emit()
+        self._last_game_set_key = new_key
         self._cancel_agg_worker()
         chart_cfg = chart_cfg_with_chess_log_charts_overrides(
             self._config, self._target_progression_bins, self._ordinal_fallback_mode

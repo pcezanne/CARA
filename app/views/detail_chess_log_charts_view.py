@@ -99,6 +99,7 @@ class DetailChessLogChartsView(QWidget):
                 self._controller.shallow_partial.disconnect(self._on_shallow_partial)
                 self._controller.ai_configured_changed.disconnect(self._on_ai_configured_changed)
                 self._controller.ai_model_changed.disconnect(self._on_ai_model_changed)
+                self._controller.results_invalidated.disconnect(self._clear_narrative_and_check_logs)
             except RuntimeError:
                 pass
 
@@ -118,6 +119,7 @@ class DetailChessLogChartsView(QWidget):
         controller.shallow_partial.connect(self._on_shallow_partial)
         controller.ai_configured_changed.connect(self._on_ai_configured_changed)
         controller.ai_model_changed.connect(self._on_ai_model_changed)
+        controller.results_invalidated.connect(self._clear_narrative_and_check_logs)
 
         self._refresh_ai_state()
 

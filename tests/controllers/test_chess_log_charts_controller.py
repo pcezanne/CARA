@@ -2287,5 +2287,197 @@ class TestStaleFailureGuard(unittest.TestCase):
                           "_shallow_thread must be nil after finished even when stale")
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestGameSetKeyInvalidation(unittest.TestCase):
+    """#77 Part B: _schedule_charts_refresh auto-clears results when the resolved game set changes."""
+
+    def _make_controller(self) -> "ChessLogChartsController":
+        db_ctrl = _make_db_controller([])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        ctrl._cancel_agg_worker = MagicMock()
+        ctrl._source_selection = 1
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        return ctrl
+
+    def _run_schedule(self, ctrl, games):
+        """Call _schedule_charts_refresh with given games, mocking the agg worker."""
+        with patch("app.controllers.chess_log_charts_controller.ChessLogAggregationWorker") as MockWorker:
+            mock_w = MagicMock()
+            MockWorker.return_value = mock_w
+            ctrl._schedule_charts_refresh(games=games)
+
+    # --- different game set clears (source 1 as representative) ---
+
+    def test_different_game_set_clears_results_source1(self):
+        """Two consecutive refreshes with different game objects → results cleared."""
+        ctrl = self._make_controller()
+        games1 = [_make_game(white="Alice")]
+        games2 = [_make_game(white="Alice")]  # different objects, same nominal content
+
+        self._run_schedule(ctrl, games1)
+        ctrl._cached_narrative = "Old narrative"
+        gen0 = ctrl._game_set_generation
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games2)
+
+        self.assertEqual(ctrl._cached_narrative, "", "cache must be cleared on game-set change")
+        self.assertEqual(ctrl._game_set_generation, gen0 + 1, "generation must advance")
+        self.assertEqual(len(invalidated), 1, "results_invalidated must be emitted")
+
+    def test_same_game_set_keeps_results(self):
+        """Two consecutive refreshes with the SAME game objects → results kept."""
+        ctrl = self._make_controller()
+        games = [_make_game(white="Alice")]
+
+        self._run_schedule(ctrl, games)
+        ctrl._cached_narrative = "Result to keep"
+        gen0 = ctrl._game_set_generation
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games)
+
+        self.assertEqual(ctrl._cached_narrative, "Result to keep", "cache must be preserved")
+        self.assertEqual(ctrl._game_set_generation, gen0, "generation must not advance")
+        self.assertEqual(invalidated, [], "results_invalidated must not be emitted")
+
+    # --- source 3 ---
+
+    def test_source3_different_games_clears_results(self):
+        """Source 3: resolved selection changes to different objects → results cleared."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 3
+        games1 = [_make_game(white="Alice")]
+        games2 = [_make_game(white="Alice")]  # different object identities
+
+        self._run_schedule(ctrl, games1)
+        ctrl._cached_narrative = "Old"
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games2)
+
+        self.assertEqual(ctrl._cached_narrative, "")
+        self.assertEqual(len(invalidated), 1)
+
+    def test_source3_same_games_keeps_results(self):
+        """Source 3: selection resolves to identical objects → results kept."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 3
+        games = [_make_game(white="Alice")]
+
+        self._run_schedule(ctrl, games)
+        ctrl._cached_narrative = "Keep me"
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games)
+
+        self.assertEqual(ctrl._cached_narrative, "Keep me")
+        self.assertEqual(invalidated, [])
+
+    # --- source 4 ---
+
+    def test_source4_different_games_clears_results(self):
+        """Source 4: resolved selection changes to different objects → results cleared."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 4
+        games1 = [_make_game(white="Alice")]
+        games2 = [_make_game(white="Alice")]
+
+        self._run_schedule(ctrl, games1)
+        ctrl._cached_narrative = "Old"
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games2)
+
+        self.assertEqual(ctrl._cached_narrative, "")
+        self.assertEqual(len(invalidated), 1)
+
+    def test_source4_same_games_keeps_results(self):
+        """Source 4: selection resolves to identical objects → results kept."""
+        ctrl = self._make_controller()
+        ctrl._source_selection = 4
+        games = [_make_game(white="Alice")]
+
+        self._run_schedule(ctrl, games)
+        ctrl._cached_narrative = "Keep me"
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games)
+
+        self.assertEqual(ctrl._cached_narrative, "Keep me")
+        self.assertEqual(invalidated, [])
+
+    # --- first refresh never clears (no prior key) ---
+
+    def test_first_refresh_never_clears(self):
+        """Initial chart load must not emit results_invalidated (no prior key)."""
+        ctrl = self._make_controller()
+        ctrl._cached_narrative = "Cached from prior session"
+        games = [_make_game(white="Alice")]
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        self._run_schedule(ctrl, games)
+
+        self.assertEqual(invalidated, [], "first load must not invalidate")
+
+    # --- positive control: chart option change keeps results ---
+
+    def test_chart_option_change_keeps_results(self):
+        """A chart option change (set_user_settings real path) must not invalidate results."""
+        ctrl = self._make_controller()
+        games = [_make_game(white="Alice")]
+
+        self._run_schedule(ctrl, games)
+        ctrl._cached_narrative = "Result to keep"
+        gen0 = ctrl._game_set_generation
+
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+        ctrl.set_user_settings({"chess_log": {"charts": {"progression_x_axis_mode": "calendar_linear"}}})
+
+        self.assertEqual(ctrl._cached_narrative, "Result to keep")
+        self.assertEqual(ctrl._game_set_generation, gen0)
+        self.assertEqual(invalidated, [])
+
+    # --- mid-run: narrative started on game set A, game set changes → result dropped ---
+
+    def test_mid_run_narrative_dropped_when_game_set_key_changes(self):
+        """Narrative started on game set A is dropped when _schedule_charts_refresh detects B."""
+        _PROVIDER_TUPLE = ("anthropic", "claude-opus-4-5", "fake-key", None)
+        ctrl = self._make_controller()
+        games1 = [_make_game(white="Alice")]
+        games2 = [_make_game(white="Alice")]  # different objects
+        self._run_schedule(ctrl, games1)
+
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=_PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        # Game set changes mid-run via _schedule_charts_refresh detecting different objects
+        self._run_schedule(ctrl, games2)
+
+        with patch("app.controllers.chess_log_charts_controller.compute_narrative_counts",
+                   return_value=(0, 0, 0, 0)):
+            fake_thread.narrative_ready.emit("Stale from old set", [], None)
+
+        self.assertEqual(received, [], "narrative from old game set must be dropped")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -105,9 +105,8 @@ class ChessLogController:
         path_entries = tags.get(path_key, [])
         if path_entries:
             return _pick_preset(path_entries, setting)
-        game_entries = [e for entries in tags.values() for e in entries]
-        if game_entries:
-            return _pick_preset(game_entries, setting)
+        if tags:
+            return _pick_preset_in_game(tags, setting)
         return setting
 
     def get_tags_for_current_game(self) -> Dict[str, List[Dict[str, Any]]]:
@@ -687,22 +686,35 @@ class ChessLogController:
 # Module-level helpers
 # ---------------------------------------------------------------------------
 
-def _pick_preset(entries: List[Dict[str, Any]], tiebreak: str) -> str:
-    """Return the most-common non-empty preset in *entries*.
+def _pick_preset(path_entries: List[Dict[str, Any]], tiebreak: str) -> str:
+    """Return the preset to use for a single path; each method present counts once.
 
-    Tie-break: if *tiebreak* is among the leaders, return it; otherwise
-    return the alphabetically first leader.  Falls back to *tiebreak* when
-    no preset field is found.
+    A CLAMP moment with two categories and a 3x3 moment with three Why entries
+    are both one method each.  Tie-break: prefer *tiebreak*, else alphabetical.
+    """
+    present = {e.get("preset", "") for e in path_entries if e.get("preset", "")}
+    if not present:
+        return tiebreak
+    if len(present) == 1:
+        return next(iter(present))
+    return tiebreak if tiebreak in present else min(present)
+
+
+def _pick_preset_in_game(
+    tags: Dict[str, List[Dict[str, Any]]], tiebreak: str
+) -> str:
+    """Return the preset with the most distinct paths (moments) in the game.
+
+    Counts one per path per method — a 3x3 path with three entries still
+    contributes 1, same as a CLAMP path with two categories.
+    Tie-break: prefer *tiebreak*, else alphabetical.
     """
     counts: Dict[str, int] = {}
-    for e in entries:
-        p = e.get("preset", "")
-        if p:
+    for path_entries in tags.values():
+        for p in {e.get("preset", "") for e in path_entries if e.get("preset", "")}:
             counts[p] = counts.get(p, 0) + 1
     if not counts:
         return tiebreak
     max_count = max(counts.values())
     leaders = [p for p, c in counts.items() if c == max_count]
-    if tiebreak in leaders:
-        return tiebreak
-    return min(leaders)
+    return tiebreak if tiebreak in leaders else min(leaders)

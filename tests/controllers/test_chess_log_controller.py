@@ -2068,13 +2068,15 @@ class TestPickPreset(unittest.TestCase):
     def test_single_preset_returned(self):
         self.assertEqual(self._fn([{"preset": "CLAMP", "cat": "M"}], "3x3"), "CLAMP")
 
-    def test_majority_wins(self):
+    def test_multiple_entries_same_method_count_once(self):
+        # CLAMP has 2 cats at this path, CCT has 1 — both count as ONE method.
+        # Tie → setting "3x3" not among leaders → alphabetical: "CCT" < "CLAMP"
         entries = [
             {"preset": "CLAMP", "cat": "M"},
             {"preset": "CLAMP", "cat": "A"},
             {"preset": "CCT", "cat": "T"},
         ]
-        self.assertEqual(self._fn(entries, "3x3"), "CLAMP")
+        self.assertEqual(self._fn(entries, "3x3"), "CCT")
 
     def test_setting_wins_tie(self):
         entries = [{"preset": "CLAMP", "cat": "M"}, {"preset": "CCT", "cat": "T"}]
@@ -2109,6 +2111,60 @@ class TestPickPreset(unittest.TestCase):
             {"preset": "3x3", "cat": "W"},
         ]
         self.assertEqual(self._fn(entries, "ZZZZ"), "3x3")
+
+
+class TestPickPresetInGame(unittest.TestCase):
+    """Unit tests for _pick_preset_in_game — game-level path counting."""
+
+    def setUp(self):
+        from app.controllers.chess_log_controller import _pick_preset_in_game
+        self._fn = _pick_preset_in_game
+
+    def test_empty_tags_returns_tiebreak(self):
+        self.assertEqual(self._fn({}, "CLAMP"), "CLAMP")
+
+    def test_single_path_single_preset(self):
+        tags = {"0": [{"preset": "CLAMP", "cat": "M"}]}
+        self.assertEqual(self._fn(tags, "3x3"), "CLAMP")
+
+    def test_two_clamp_paths_beat_one_3x3_path(self):
+        tags = {
+            "0": [{"preset": "CLAMP", "cat": "M"}],
+            "0.0": [{"preset": "CLAMP", "cat": "A"}],
+            "0.0.0": [{"preset": "3x3", "cat": "Why1"},
+                      {"preset": "3x3", "cat": "Why2"},
+                      {"preset": "3x3", "cat": "Why3"}],
+        }
+        # CLAMP=2 paths, 3x3=1 path → CLAMP wins regardless of entry count
+        self.assertEqual(self._fn(tags, "3x3"), "CLAMP")
+
+    def test_path_with_multicategory_clamp_counts_once(self):
+        # One path with [CLAMP-M, CLAMP-A] contributes 1 to CLAMP, not 2
+        tags = {
+            "0": [{"preset": "CLAMP", "cat": "M"}, {"preset": "CLAMP", "cat": "A"}],
+            "0.0": [{"preset": "3x3", "cat": "Why1"},
+                    {"preset": "3x3", "cat": "Why2"},
+                    {"preset": "3x3", "cat": "Why3"}],
+        }
+        # CLAMP=1 path, 3x3=1 path → tie → setting 3x3 → 3x3
+        self.assertEqual(self._fn(tags, "3x3"), "3x3")
+
+    def test_tie_setting_wins(self):
+        tags = {"0": [{"preset": "CLAMP", "cat": "M"}],
+                "0.0": [{"preset": "CCT", "cat": "T"}]}
+        self.assertEqual(self._fn(tags, "CCT"), "CCT")
+
+    def test_tie_alphabetical(self):
+        tags = {"0": [{"preset": "CLAMP", "cat": "M"}],
+                "0.0": [{"preset": "CCT", "cat": "T"}]}
+        # "CCT" < "CLAMP"
+        self.assertEqual(self._fn(tags, "3x3"), "CCT")
+
+    def test_path_with_two_presets_credits_both(self):
+        # A single path that has both CLAMP and 3x3 entries credits 1 to each
+        tags = {"0": [{"preset": "CLAMP", "cat": "M"},
+                      {"preset": "3x3", "cat": "Why1"}]}
+        self.assertEqual(self._fn(tags, "CLAMP"), "CLAMP")
 
 
 class TestPresetForLogging(unittest.TestCase):
@@ -2213,6 +2269,37 @@ class TestPresetForLogging(unittest.TestCase):
         with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
             ctrl.preset_for_logging()
         self.assertEqual(ctrl.get_active_preset(), "3x3")
+
+    def test_realistic_counts_clamp_wins_over_3x3_by_paths(self):
+        """Fail-before (entry counting): 3 CLAMP entries vs 3 3x3 entries → tie → '3x3'.
+        Pass-after (path counting): 2 CLAMP paths vs 1 3x3 path → 'CLAMP'."""
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {
+            # 2 CLAMP moments; one has two categories (2 entries), one has one (1 entry) = 3 entries total
+            "0.0": [{"preset": "CLAMP", "cat": "M"}, {"preset": "CLAMP", "cat": "A"}],
+            "0.0.0": [{"preset": "CLAMP", "cat": "M"}],
+            # 1 3x3 moment with all three entries = 3 entries total
+            "1": [{"preset": "3x3", "cat": "Why1"},
+                  {"preset": "3x3", "cat": "Why2"},
+                  {"preset": "3x3", "cat": "Why3"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            result = ctrl.preset_for_logging()
+        self.assertEqual(result, "CLAMP")
+
+    def test_move_level_tie_resolved_by_setting(self):
+        """Fail-before (entry counting): 3x3 has 3 entries, CLAMP has 1 → '3x3'.
+        Pass-after (distinct presets at path): tie {CLAMP, 3x3}, setting CLAMP → 'CLAMP'."""
+        ctrl, _ = self._make_ctrl(active_preset="CLAMP")
+        ctrl._cached_paths_data = {
+            "0": [{"preset": "CLAMP", "cat": "M"},
+                  {"preset": "3x3", "cat": "Why1"},
+                  {"preset": "3x3", "cat": "Why2"},
+                  {"preset": "3x3", "cat": "Why3"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            result = ctrl.preset_for_logging()
+        self.assertEqual(result, "CLAMP")
 
 
 if __name__ == "__main__":

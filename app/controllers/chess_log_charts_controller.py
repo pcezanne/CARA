@@ -880,6 +880,8 @@ class ChessLogChartsController(QObject):
         self.narrative_ready.emit(narrative, flags, usage)
 
     def _on_narrative_thread_failed(self, message: str) -> None:
+        if self._narrative_launch_gen != self._game_set_generation:
+            return
         self._cached_narrative = ""
         self._cached_narrative_flags = []
         self._cached_narrative_usage = None
@@ -904,6 +906,8 @@ class ChessLogChartsController(QObject):
         self.shallow_partial.emit(message)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
+        if self._shallow_launch_gen != self._game_set_generation:
+            return
         self.shallow_failed.emit(message)
 
     def _cancel_shallow_thread(self) -> None:

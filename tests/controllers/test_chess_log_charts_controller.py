@@ -2142,5 +2142,150 @@ class TestInFlightGuardViaRealStartPaths(unittest.TestCase):
         self.assertEqual(received[0], "Fresh")
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestStaleFailureGuard(unittest.TestCase):
+    """#77 Part A: stale narrative/shallow failures must be dropped silently."""
+
+    _PROVIDER_TUPLE = ("anthropic", "claude-opus-4-5", "fake-key", None)
+
+    def _make_controller(self) -> "ChessLogChartsController":
+        db_ctrl = _make_db_controller([_make_game()])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        ctrl._source_selection = 1
+        ctrl._current_player = "Alice"
+        ctrl._resolve_games = MagicMock(return_value=[_make_game()])
+        return ctrl
+
+    # --- narrative failure ---
+
+    def test_stale_narrative_failure_is_dropped(self):
+        """narrative_failed from a stale run must not be re-emitted."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_failed.connect(received.append)
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        ctrl.set_player_selection("Bob")  # game-set change via real public path
+        fake_thread.narrative_failed.emit("Network timeout from old run")
+
+        self.assertEqual(received, [], "stale narrative_failed must not be re-emitted")
+
+    def test_fresh_narrative_failure_is_emitted(self):
+        """narrative_failed with no game-set change since launch must still be emitted."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_failed.connect(received.append)
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        fake_thread.narrative_failed.emit("API error")
+
+        self.assertEqual(len(received), 1, "fresh narrative_failed must be re-emitted")
+        self.assertEqual(received[0], "API error")
+
+    # --- shallow failure ---
+
+    def test_stale_shallow_failure_is_dropped(self):
+        """shallow_failed from a stale run must not be re-emitted."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeShallowThread()
+        received = []
+        ctrl.shallow_failed.connect(received.append)
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()
+
+        ctrl.set_player_selection("Bob")  # game-set change via real public path
+        fake_thread.shallow_failed.emit("Network timeout from old run")
+
+        self.assertEqual(received, [], "stale shallow_failed must not be re-emitted")
+
+    def test_fresh_shallow_failure_is_emitted(self):
+        """shallow_failed with no game-set change since launch must still be emitted."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeShallowThread()
+        received = []
+        ctrl.shallow_failed.connect(received.append)
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()
+
+        fake_thread.shallow_failed.emit("API error")
+
+        self.assertEqual(len(received), 1, "fresh shallow_failed must be re-emitted")
+        self.assertEqual(received[0], "API error")
+
+    # --- finished handlers reset running state even when stale ---
+
+    def test_narrative_finished_resets_thread_ref_when_stale(self):
+        """_on_narrative_finished must nil the thread reference even after a game-set change."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeNarrativeThread()
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        self.assertIsNotNone(ctrl._narrative_thread)
+
+        ctrl.set_player_selection("Bob")
+        fake_thread.finished.emit()
+
+        self.assertIsNone(ctrl._narrative_thread,
+                          "_narrative_thread must be nil after finished even when stale")
+
+    def test_shallow_finished_resets_thread_ref_when_stale(self):
+        """_on_shallow_thread_finished must nil the thread reference even after a game-set change."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeShallowThread()
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()
+
+        self.assertIsNotNone(ctrl._shallow_thread)
+
+        ctrl.set_player_selection("Bob")
+        fake_thread.finished.emit()
+
+        self.assertIsNone(ctrl._shallow_thread,
+                          "_shallow_thread must be nil after finished even when stale")
+
+
 if __name__ == "__main__":
     unittest.main()

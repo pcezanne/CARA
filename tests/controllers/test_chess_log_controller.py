@@ -2169,6 +2169,51 @@ class TestPresetForLogging(unittest.TestCase):
         with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
             self.assertEqual(ctrl.preset_for_logging(), "CCT")
 
+    def test_3x3_at_path_overrides_clamp_game(self):
+        """Case 3: Mostly-CLAMP game; this move has a 3x3 entry → use 3x3."""
+        ctrl, _ = self._make_ctrl(active_preset="CLAMP")
+        ctrl._cached_paths_data = {
+            "0": [{"preset": "3x3", "cat": "Why1"}],   # active path
+            "0.0": [{"preset": "CLAMP", "cat": "M"}],
+            "1": [{"preset": "CLAMP", "cat": "A"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "3x3")
+
+    def test_game_majority_two_clamp_one_3x3(self):
+        """Case 4: 2 CLAMP moments, 1 3x3, no entry at active path → CLAMP."""
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {
+            "0.0": [{"preset": "CLAMP", "cat": "M"}],
+            "0.0.0": [{"preset": "CLAMP", "cat": "A"}],
+            "1": [{"preset": "3x3", "cat": "Why1"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "CLAMP")
+
+    def test_new_moment_on_clamp_game_stored_as_clamp(self):
+        """Case 6: preset_for_logging returns CLAMP; a moment saved under that
+        preset is stored with preset=CLAMP, not the setting (3x3)."""
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {"0.0": [{"preset": "CLAMP", "cat": "M"}]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            method = ctrl.preset_for_logging()
+        self.assertEqual(method, "CLAMP")
+        new_entries = [{"preset": method, "cat": "A", "why": ""}]
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.add_moment_at_active_path(new_entries)
+        stored = ctrl._cached_paths_data.get("0", [])
+        self.assertEqual(len(stored), 1)
+        self.assertEqual(stored[0]["preset"], "CLAMP")
+
+    def test_setting_unchanged_after_preset_for_logging(self):
+        """Case 8: preset_for_logging() never mutates the setting."""
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {"0": [{"preset": "CLAMP", "cat": "M"}]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            ctrl.preset_for_logging()
+        self.assertEqual(ctrl.get_active_preset(), "3x3")
+
 
 if __name__ == "__main__":
     unittest.main()

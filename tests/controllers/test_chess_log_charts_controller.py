@@ -35,6 +35,7 @@ def _qt_starts_cleanly() -> bool:
 _QT_AVAILABLE = _qt_starts_cleanly()
 
 if _QT_AVAILABLE:
+    from PyQt6.QtCore import QObject, pyqtSignal
     from PyQt6.QtWidgets import QApplication
 
     _app = QApplication.instance() or QApplication(sys.argv)
@@ -47,6 +48,37 @@ if _QT_AVAILABLE:
     )
     from app.models.database_model import GameData
     from app.services.chess_log_storage_service import ChessLogStorageService
+
+    class _FakeNarrativeThread(QObject):
+        """Fake narrative thread: holds real signals but never actually starts."""
+        narrative_ready = pyqtSignal(str, list, object)
+        narrative_failed = pyqtSignal(str)
+        finished = pyqtSignal()
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def cancel(self):
+            pass
+
+    class _FakeShallowThread(QObject):
+        """Fake shallow thread: holds real signals but never actually starts."""
+        shallow_ready = pyqtSignal(object, object, object, object, str)
+        shallow_failed = pyqtSignal(str)
+        shallow_partial = pyqtSignal(str)
+        finished = pyqtSignal()
+
+        def start(self):
+            pass
+
+        def isRunning(self):
+            return False
+
+        def cancel(self):
+            pass
 
 # Game objects for shallow-thread tests: position 0 of key tuples, not game_number.
 # _NOTE_GAMES[i] replaces the integer i+1 that was previously at note/key position 1/0.
@@ -1918,6 +1950,188 @@ class TestInFlightGuard(unittest.TestCase):
         self.assertEqual(ctrl._game_set_generation, gen0 + 1)
         ctrl._clear_result_cache()
         self.assertEqual(ctrl._game_set_generation, gen0 + 2)
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestInFlightGuardViaRealStartPaths(unittest.TestCase):
+    """#77: stamp lines in request_narrative/request_flag_shallow_notes prevent stale results.
+
+    Uses fake thread objects (real QObject with real pyqtSignal) injected via
+    patch so that signal emissions work but no real API call is made.
+    """
+
+    _PROVIDER_TUPLE = ("anthropic", "claude-opus-4-5", "fake-key", None)
+
+    def _make_controller(self) -> "ChessLogChartsController":
+        db_ctrl = _make_db_controller([_make_game()])
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        ctrl._source_selection = 1
+        ctrl._current_player = "Alice"
+        ctrl._resolve_games = MagicMock(return_value=[_make_game()])
+        return ctrl
+
+    # --- narrative stamp ---
+
+    def test_stamp_proof_narrative(self):
+        """Stamp ensures a fresh request after a prior game-set change is still accepted.
+
+        Without the stamp line, _narrative_launch_gen stays at its initial value (0)
+        while _game_set_generation is already 1 after the prior clear, so the guard
+        would wrongly drop the result even though no change happened since the request.
+        """
+        ctrl = self._make_controller()
+        # Simulate a prior game-set change before this request
+        ctrl._clear_result_cache()   # gen = 1; without stamp, launch_gen stays 0
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()  # stamp: launch_gen = 1
+
+        # No further game-set change — result must be accepted
+        with patch("app.controllers.chess_log_charts_controller.compute_narrative_counts",
+                   return_value=(0, 0, 0, 0)):
+            fake_thread.narrative_ready.emit("Fresh", [], None)
+
+        self.assertEqual(len(received), 1,
+                         "narrative must be accepted when gen unchanged since request — stamp is required")
+        self.assertEqual(received[0], "Fresh")
+
+    def test_switch_mid_run_narrative_via_real_path(self):
+        """Narrative result arriving after game-set switch is dropped even via real start path."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        # Game set changes while thread is "running"
+        ctrl._clear_result_cache()
+
+        with patch("app.controllers.chess_log_charts_controller.compute_narrative_counts",
+                   return_value=(0, 0, 0, 0)):
+            fake_thread.narrative_ready.emit("Stale", [], None)
+
+        self.assertEqual(received, [], "stale narrative from real start path must be dropped")
+
+    # --- shallow stamp ---
+
+    def test_stamp_proof_shallow(self):
+        """Stamp ensures a fresh shallow request after a prior game-set change is still accepted.
+
+        Without the stamp line, _shallow_launch_gen stays at 0 while gen is 1, so the
+        guard would wrongly drop the result even though no change happened since the request.
+        """
+        ctrl = self._make_controller()
+        # Simulate a prior game-set change before this request
+        ctrl._clear_result_cache()   # gen = 1; without stamp, launch_gen stays 0
+        fake_thread = _FakeShallowThread()
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()  # stamp: launch_gen = 1
+
+        # No further game-set change — result must be accepted
+        game = GameData(game_number=1)
+        shallow_keys = frozenset([(game, "k", "CLAMP", "")])
+        fake_thread.shallow_ready.emit(shallow_keys, frozenset(), frozenset(), None, "")
+
+        self.assertEqual(len(received), 1,
+                         "shallow result must be accepted when gen unchanged since request — stamp is required")
+        self.assertIsNotNone(received[0])
+
+    def test_switch_mid_run_shallow_via_real_path(self):
+        """Shallow result arriving after game-set switch is dropped even via real start path."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeShallowThread()
+        received = []
+        ctrl.shallow_ready.connect(lambda k, vk, ck, u: received.append(k))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()
+
+        # Game set changes while thread is "running"
+        ctrl._clear_result_cache()
+
+        game = GameData(game_number=1)
+        fake_thread.shallow_ready.emit(frozenset([(game, "k", "CLAMP", "")]), frozenset(), frozenset(), None, "")
+
+        self.assertEqual(received, [], "stale shallow result from real start path must be dropped")
+
+    # --- stale partial is dropped ---
+
+    def test_stale_partial_is_dropped(self):
+        """shallow_partial arriving after game-set change must not be re-emitted."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeShallowThread()
+        received = []
+        ctrl.shallow_partial.connect(received.append)
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+                   return_value=fake_thread), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogChartsController"
+                   ".get_tags_for_game", return_value={}), \
+             patch("app.services.chess_log_shallow_service.build_notes",
+                   return_value=([("n",)], [], [])):
+            ctrl.request_flag_shallow_notes()
+
+        ctrl._clear_result_cache()
+        fake_thread.shallow_partial.emit("3 notes could not be parsed")
+
+        self.assertEqual(received, [], "stale shallow_partial must be dropped by _on_shallow_thread_partial")
+
+    # --- positive control: chart option toggle does not block a fresh narrative ---
+
+    def test_positive_control_chart_option_does_not_block_narrative(self):
+        """A chart option toggle must NOT advance the generation (positive control)."""
+        ctrl = self._make_controller()
+        fake_thread = _FakeNarrativeThread()
+        received = []
+        ctrl.narrative_ready.connect(lambda n, f, u: received.append(n))
+
+        with patch("app.controllers.chess_log_charts_controller.resolve_default_provider",
+                   return_value=self._PROVIDER_TUPLE), \
+             patch("app.controllers.chess_log_charts_controller.ChessLogNarrativeThread",
+                   return_value=fake_thread):
+            ctrl.request_narrative()
+
+        # Chart option toggle: kick debounce — must NOT clear the result cache
+        ctrl._kick_debounce()
+
+        with patch("app.controllers.chess_log_charts_controller.compute_narrative_counts",
+                   return_value=(0, 0, 0, 0)):
+            fake_thread.narrative_ready.emit("Fresh", [], None)
+
+        self.assertEqual(len(received), 1, "narrative after chart option toggle must not be blocked")
+        self.assertEqual(received[0], "Fresh")
 
 
 if __name__ == "__main__":

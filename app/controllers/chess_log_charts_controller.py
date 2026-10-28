@@ -858,7 +858,7 @@ class ChessLogChartsController(QObject):
         )
         thread.shallow_ready.connect(self._on_shallow_thread_ready)
         thread.shallow_failed.connect(self._on_shallow_thread_failed)
-        thread.shallow_partial.connect(self.shallow_partial)
+        thread.shallow_partial.connect(self._on_shallow_thread_partial)
         thread.finished.connect(self._on_shallow_thread_finished)
         self._shallow_thread = thread
         self._shallow_launch_gen = self._game_set_generation
@@ -897,6 +897,11 @@ class ChessLogChartsController(QObject):
         self._cached_shallow_usage = usage
         self._cached_shallow_model_label = model_label
         self.shallow_ready.emit(shallow_keys, vague_keys, classified_keys, usage)
+
+    def _on_shallow_thread_partial(self, message: str) -> None:
+        if self._shallow_launch_gen != self._game_set_generation:
+            return
+        self.shallow_partial.emit(message)
 
     def _on_shallow_thread_failed(self, message: str) -> None:
         self.shallow_failed.emit(message)

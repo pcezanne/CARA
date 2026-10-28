@@ -520,7 +520,7 @@ class DetailMovesListView(QWidget):
                 if not self._game_controller.navigate_to_ply(ply_index):
                     return
 
-        active_preset = self._chess_log_controller.get_active_preset()
+        active_preset = self._chess_log_controller.preset_for_logging()
         existing_entries = self._chess_log_controller.get_entries_at_active_path()
 
         if not self._chess_log_controller.should_confirm_extra_moment(self):

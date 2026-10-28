@@ -88,6 +88,28 @@ class ChessLogController:
         preset = self._user_settings_service.get_chess_log().get("active_preset", "CLAMP")
         return preset if preset in {"CLAMP", "CCT", "3x3"} else "CLAMP"
 
+    def preset_for_logging(self) -> str:
+        """Return the preset to use when opening MomentDialog at the active path.
+
+        1. Active path has entries → most-common preset among them.
+        2. Game has entries but not at this path → most-common across the game.
+        3. No entries → active-preset setting.
+        Tie-break: prefer the setting; otherwise alphabetically first.
+        """
+        setting = self.get_active_preset()
+        game = self._game_controller.get_game_model().active_game
+        if game is None:
+            return setting
+        path_key = encode_path(self._game_controller.get_game_model().get_active_path())
+        tags = self.get_tags_for_game(game)
+        path_entries = tags.get(path_key, [])
+        if path_entries:
+            return _pick_preset(path_entries, setting)
+        game_entries = [e for entries in tags.values() for e in entries]
+        if game_entries:
+            return _pick_preset(game_entries, setting)
+        return setting
+
     def get_tags_for_current_game(self) -> Dict[str, List[Dict[str, Any]]]:
         """Return in-memory moments for the active game (orphan-filtered copy)."""
         game = self._game_controller.get_game_model().active_game
@@ -659,3 +681,28 @@ class ChessLogController:
             )
         except Exception:
             return True
+
+
+# ---------------------------------------------------------------------------
+# Module-level helpers
+# ---------------------------------------------------------------------------
+
+def _pick_preset(entries: List[Dict[str, Any]], tiebreak: str) -> str:
+    """Return the most-common non-empty preset in *entries*.
+
+    Tie-break: if *tiebreak* is among the leaders, return it; otherwise
+    return the alphabetically first leader.  Falls back to *tiebreak* when
+    no preset field is found.
+    """
+    counts: Dict[str, int] = {}
+    for e in entries:
+        p = e.get("preset", "")
+        if p:
+            counts[p] = counts.get(p, 0) + 1
+    if not counts:
+        return tiebreak
+    max_count = max(counts.values())
+    leaders = [p for p, c in counts.items() if c == max_count]
+    if tiebreak in leaders:
+        return tiebreak
+    return min(leaders)

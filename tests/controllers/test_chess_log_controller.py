@@ -2058,5 +2058,117 @@ class TestF1DeletedGamePruning(unittest.TestCase):
         self.assertNotIn(id(game_a), ctrl._dirty_games)
 
 
+class TestPickPreset(unittest.TestCase):
+    """Unit tests for the _pick_preset module-level helper."""
+
+    def setUp(self):
+        from app.controllers.chess_log_controller import _pick_preset
+        self._fn = _pick_preset
+
+    def test_single_preset_returned(self):
+        self.assertEqual(self._fn([{"preset": "CLAMP", "cat": "M"}], "3x3"), "CLAMP")
+
+    def test_majority_wins(self):
+        entries = [
+            {"preset": "CLAMP", "cat": "M"},
+            {"preset": "CLAMP", "cat": "A"},
+            {"preset": "CCT", "cat": "T"},
+        ]
+        self.assertEqual(self._fn(entries, "3x3"), "CLAMP")
+
+    def test_setting_wins_tie(self):
+        entries = [{"preset": "CLAMP", "cat": "M"}, {"preset": "CCT", "cat": "T"}]
+        self.assertEqual(self._fn(entries, "CCT"), "CCT")
+
+    def test_alphabetically_first_wins_tie_when_setting_absent(self):
+        entries = [{"preset": "CLAMP", "cat": "M"}, {"preset": "CCT", "cat": "T"}]
+        self.assertEqual(self._fn(entries, "3x3"), "CCT")  # "CCT" < "CLAMP"
+
+    def test_empty_entries_returns_tiebreak(self):
+        self.assertEqual(self._fn([], "3x3"), "3x3")
+
+    def test_entries_with_empty_preset_ignored(self):
+        entries = [{"preset": "", "cat": "M"}, {"preset": "CCT", "cat": "T"}]
+        self.assertEqual(self._fn(entries, "3x3"), "CCT")
+
+    def test_all_empty_preset_returns_tiebreak(self):
+        self.assertEqual(self._fn([{"preset": "", "cat": "M"}], "CLAMP"), "CLAMP")
+
+    def test_three_way_tie_setting_wins(self):
+        entries = [
+            {"preset": "CLAMP", "cat": "M"},
+            {"preset": "CCT", "cat": "T"},
+            {"preset": "3x3", "cat": "W"},
+        ]
+        self.assertEqual(self._fn(entries, "CCT"), "CCT")
+
+    def test_three_way_tie_alphabetically_first(self):
+        entries = [
+            {"preset": "CLAMP", "cat": "M"},
+            {"preset": "CCT", "cat": "T"},
+            {"preset": "3x3", "cat": "W"},
+        ]
+        self.assertEqual(self._fn(entries, "ZZZZ"), "3x3")
+
+
+class TestPresetForLogging(unittest.TestCase):
+    """Integration tests for ChessLogController.preset_for_logging().
+
+    The tests fail before the fix (method does not exist) and pass after.
+    The core behavioral case: setting=3x3, game has CLAMP entries at the
+    active path → preset_for_logging() must return CLAMP, not 3x3.
+    """
+
+    def _make_ctrl(self, active_preset="3x3"):
+        game = make_game()
+        uss = make_user_settings_mock(active_preset)
+        ctrl, _ = make_controller(game, active_path=(0,), user_settings_service=uss)
+        ctrl._cached_game_id = id(game)
+        return ctrl, game
+
+    def test_no_active_game_returns_setting(self):
+        uss = make_user_settings_mock("3x3")
+        ctrl, _ = make_controller(game=None, user_settings_service=uss)
+        self.assertEqual(ctrl.preset_for_logging(), "3x3")
+
+    def test_no_entries_returns_setting(self):
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "3x3")
+
+    def test_path_entries_override_setting(self):
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {"0": [{"preset": "CLAMP", "cat": "M"}]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "CLAMP")
+
+    def test_game_entries_used_when_path_empty(self):
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        # "0.0" is a valid path in MINIMAL_PGN (e5); "0" is the active path
+        ctrl._cached_paths_data = {"0.0": [{"preset": "CLAMP", "cat": "M"}]}
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "CLAMP")
+
+    def test_path_takes_precedence_over_game_majority(self):
+        ctrl, _ = self._make_ctrl(active_preset="3x3")
+        ctrl._cached_paths_data = {
+            "0": [{"preset": "CCT", "cat": "T"}],
+            "0.0": [{"preset": "CLAMP", "cat": "M"}],
+            "0.0.0": [{"preset": "CLAMP", "cat": "M"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "CCT")
+
+    def test_game_majority_with_tie_prefers_setting(self):
+        ctrl, _ = self._make_ctrl(active_preset="CCT")
+        ctrl._cached_paths_data = {
+            "0.0": [{"preset": "CLAMP", "cat": "M"}],
+            "0.0.0": [{"preset": "CCT", "cat": "T"}],
+        }
+        with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
+            self.assertEqual(ctrl.preset_for_logging(), "CCT")
+
+
 if __name__ == "__main__":
     unittest.main()

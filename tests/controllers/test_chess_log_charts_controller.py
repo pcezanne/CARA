@@ -46,7 +46,7 @@ if _QT_AVAILABLE:
         ChessLogNarrativeThread,
         ChessLogPlayerDropdownWorker,
     )
-    from app.models.database_model import GameData
+    from app.models.database_model import DatabaseModel, GameData
     from app.services.chess_log_storage_service import ChessLogStorageService
 
     class _FakeNarrativeThread(QObject):
@@ -2477,6 +2477,137 @@ class TestGameSetKeyInvalidation(unittest.TestCase):
             fake_thread.narrative_ready.emit("Stale from old set", [], None)
 
         self.assertEqual(received, [], "narrative from old game set must be dropped")
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestGameSetKeyStability(unittest.TestCase):
+    """#77: _resolve_games() returns the same GameData object identities on consecutive calls.
+
+    Validates that frozenset(id(g) for g in games) is a stable key for each source:
+    the key must equal itself across calls when nothing changed, so that
+    _schedule_charts_refresh does not falsely detect a game-set change and
+    clear cached results.
+    """
+
+    def _make_db_with_games(self):
+        """Create a real DatabaseModel with 2 games inserted directly into _games."""
+        db = DatabaseModel()
+        game1 = GameData(game_number=1, white="Alice", black="Bob")
+        game2 = GameData(game_number=2, white="Alice", black="Bob")
+        db._games = [game1, game2]
+        return db, [game1, game2]
+
+    def _make_ctrl(self, source: int) -> "ChessLogChartsController":
+        """Controller backed by a real DatabaseModel; sources 3/4 use a fixed callback."""
+        db, games = self._make_db_with_games()
+        panel = MagicMock()
+        panel.get_all_database_models.return_value = [db]
+        db_ctrl = MagicMock()
+        db_ctrl.get_active_database.return_value = db
+        db_ctrl.get_panel_model.return_value = panel
+        ctrl = ChessLogChartsController(config={}, database_controller=db_ctrl)
+        ctrl._start_dropdown_worker = MagicMock()
+        ctrl._cancel_dropdown_worker = MagicMock()
+        ctrl._cancel_agg_worker = MagicMock()
+        ctrl._source_selection = source
+        ctrl._player_explicit_selected = True
+        ctrl._current_player = "Alice"
+        if source in (3, 4):
+            # Callback returns the same objects each time (mimics real get_selected_games)
+            stored = list(db._games)
+            ctrl.set_get_selected_games_callback(lambda active_only: list(stored))
+        return ctrl
+
+    # ------------------------------------------------------------------
+    # Identity tests: same objects returned on repeat calls
+    # ------------------------------------------------------------------
+
+    def test_source1_same_objects_on_repeat_resolve(self):
+        """Source 1 (Active DB): _resolve_games returns identical game objects each call."""
+        ctrl = self._make_ctrl(1)
+        r1 = ctrl._resolve_games()
+        r2 = ctrl._resolve_games()
+        self.assertTrue(r1, "must return non-empty list")
+        self.assertEqual([id(g) for g in r1], [id(g) for g in r2],
+                         "source 1: GameData object identities must be stable across calls")
+
+    def test_source2_same_objects_on_repeat_resolve(self):
+        """Source 2 (All DBs): _resolve_games returns identical game objects each call."""
+        ctrl = self._make_ctrl(2)
+        r1 = ctrl._resolve_games()
+        r2 = ctrl._resolve_games()
+        self.assertTrue(r1, "must return non-empty list")
+        self.assertEqual([id(g) for g in r1], [id(g) for g in r2],
+                         "source 2: GameData object identities must be stable across calls")
+
+    def test_source3_same_objects_on_repeat_resolve(self):
+        """Source 3 (Selected Active): callback returns identical game objects each call."""
+        ctrl = self._make_ctrl(3)
+        r1 = ctrl._resolve_games()
+        r2 = ctrl._resolve_games()
+        self.assertTrue(r1, "must return non-empty list")
+        self.assertEqual([id(g) for g in r1], [id(g) for g in r2],
+                         "source 3: GameData object identities must be stable across calls")
+
+    def test_source4_same_objects_on_repeat_resolve(self):
+        """Source 4 (Selected All): callback returns identical game objects each call."""
+        ctrl = self._make_ctrl(4)
+        r1 = ctrl._resolve_games()
+        r2 = ctrl._resolve_games()
+        self.assertTrue(r1, "must return non-empty list")
+        self.assertEqual([id(g) for g in r1], [id(g) for g in r2],
+                         "source 4: GameData object identities must be stable across calls")
+
+    # ------------------------------------------------------------------
+    # Debounce actually fires: same game set after chart option → no clear
+    # ------------------------------------------------------------------
+
+    def _fire_debounce_with_patched_worker(self, ctrl):
+        """Invoke _on_selection_debounced() with ChessLogAggregationWorker mocked out."""
+        with patch("app.controllers.chess_log_charts_controller.ChessLogAggregationWorker") as MockWorker:
+            MockWorker.return_value = MagicMock()
+            ctrl._on_selection_debounced()
+
+    def _run_debounce_test(self, source: int):
+        """Set up, fire debounce once to seed key, cache narrative, change chart option,
+        fire debounce again, return (ctrl, gen_before, invalidated_list)."""
+        ctrl = self._make_ctrl(source)
+
+        # First debounce: establishes _last_game_set_key
+        self._fire_debounce_with_patched_worker(ctrl)
+
+        ctrl._cached_narrative = "Cached narrative"
+        gen0 = ctrl._game_set_generation
+        invalidated = []
+        ctrl.results_invalidated.connect(lambda: invalidated.append(True))
+
+        # Chart option change via real set_user_settings path (starts debounce timer)
+        ctrl.set_user_settings({"chess_log": {"charts": {"progression_x_axis_mode": "calendar_linear"}}})
+
+        # Fire debounce slot directly — same game objects, key must match
+        self._fire_debounce_with_patched_worker(ctrl)
+
+        return ctrl, gen0, invalidated
+
+    def test_source3_debounce_fires_keeps_narrative(self):
+        """Source 3: debounce fires after chart option change with unchanged games → narrative kept."""
+        ctrl, gen0, invalidated = self._run_debounce_test(3)
+        self.assertEqual(ctrl._cached_narrative, "Cached narrative",
+                         "narrative must be preserved when game set unchanged")
+        self.assertEqual(ctrl._game_set_generation, gen0,
+                         "generation must not advance when game set unchanged")
+        self.assertEqual(invalidated, [],
+                         "results_invalidated must not fire when game set unchanged")
+
+    def test_source1_debounce_fires_keeps_narrative(self):
+        """Source 1: debounce fires after chart option change with unchanged games → narrative kept."""
+        ctrl, gen0, invalidated = self._run_debounce_test(1)
+        self.assertEqual(ctrl._cached_narrative, "Cached narrative",
+                         "narrative must be preserved when game set unchanged")
+        self.assertEqual(ctrl._game_set_generation, gen0,
+                         "generation must not advance when game set unchanged")
+        self.assertEqual(invalidated, [],
+                         "results_invalidated must not fire when game set unchanged")
 
 
 if __name__ == "__main__":

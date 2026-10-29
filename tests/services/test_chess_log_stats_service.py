@@ -9,12 +9,12 @@ from app.services.chess_log_storage_service import ChessLogStorageService
 from app.services.chess_log_stats_service import (
     CHARTED_PRESETS,
     UNCATEGORIZED,
+    AggregateResult,
     ChessLogCategoryBin,
     ChessLogPresetSeries,
     aggregate,
     compute_narrative_counts,
     get_all_players,
-    has_any_moments,
 )
 
 
@@ -76,18 +76,18 @@ class TestBasicAggregation(unittest.TestCase):
 
     def test_single_clamp_moment_returns_one_preset(self):
         result = self._one_game({"0": [_clamp_entry("C")]})
-        self.assertIn("CLAMP", result)
-        self.assertEqual(len(result), 1)
+        self.assertIn("CLAMP", result.series)
+        self.assertEqual(len(result.series), 1)
 
     def test_clamp_moment_count_correct(self):
         result = self._one_game({"0": [_clamp_entry("C"), _clamp_entry("L")]})
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         total = sum(b.total for b in series.bins)
         self.assertEqual(total, 2)
 
     def test_uncategorized_moment_surfaces_as_empty_key(self):
         result = self._one_game({"0": [_clamp_entry("")]})
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         self.assertIn(UNCATEGORIZED, series.categories)
         all_counts = {}
         for b in series.bins:
@@ -97,16 +97,16 @@ class TestBasicAggregation(unittest.TestCase):
 
     def test_uncategorized_is_last_in_categories(self):
         result = self._one_game({"0": [_clamp_entry("C"), _clamp_entry("")]})
-        cats = result["CLAMP"].categories
+        cats = result.series["CLAMP"].categories
         self.assertEqual(cats[-1], UNCATEGORIZED)
 
     def test_no_games_returns_empty(self):
-        self.assertEqual(aggregate([], player="Alice"), {})
+        self.assertEqual(aggregate([], player="Alice").series, {})
 
     def test_game_with_no_chess_log_tags_skipped(self):
         game = _make_game(white="Alice", black="Bob", date="2025.06.01")
         result = aggregate([game], player="Alice")
-        self.assertEqual(result, {})
+        self.assertEqual(result.series, {})
 
 
 # ---------------------------------------------------------------------------
@@ -126,14 +126,14 @@ class TestPresetSeparation(unittest.TestCase):
 
     def test_two_presets_produce_two_series(self):
         result = aggregate([self._mixed_game()], player="Alice")
-        self.assertIn("CLAMP", result)
-        self.assertIn("CCT", result)
-        self.assertEqual(len(result), 2)
+        self.assertIn("CLAMP", result.series)
+        self.assertIn("CCT", result.series)
+        self.assertEqual(len(result.series), 2)
 
     def test_presets_not_mixed(self):
         result = aggregate([self._mixed_game()], player="Alice")
-        clamp_cats = set().union(*(b.counts.keys() for b in result["CLAMP"].bins))
-        cct_cats = set().union(*(b.counts.keys() for b in result["CCT"].bins))
+        clamp_cats = set().union(*(b.counts.keys() for b in result.series["CLAMP"].bins))
+        cct_cats = set().union(*(b.counts.keys() for b in result.series["CCT"].bins))
         self.assertNotIn("Checks", clamp_cats)
         self.assertNotIn("C", cct_cats)
 
@@ -143,7 +143,7 @@ class TestPresetSeparation(unittest.TestCase):
             entries_per_path={"0": [_threexthree_entry("Why1", "reason")]},
         )
         result = aggregate([game], player="Alice")
-        self.assertNotIn("3x3", result)
+        self.assertNotIn("3x3", result.series)
 
     def test_3x3_alongside_clamp_clamp_present_3x3_absent(self):
         game = _make_game(
@@ -154,8 +154,8 @@ class TestPresetSeparation(unittest.TestCase):
             },
         )
         result = aggregate([game], player="Alice")
-        self.assertIn("CLAMP", result)
-        self.assertNotIn("3x3", result)
+        self.assertIn("CLAMP", result.series)
+        self.assertNotIn("3x3", result.series)
 
 
 # ---------------------------------------------------------------------------
@@ -175,27 +175,27 @@ class TestPlayerFilter(unittest.TestCase):
 
     def test_player_filter_excludes_games_without_player(self):
         result = aggregate(self._two_games(), player="Alice")
-        total = sum(b.total for b in result["CLAMP"].bins)
+        total = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total, 2)  # g1 and g2, not g3
 
     def test_color_filter_white_only(self):
         result = aggregate(self._two_games(), player="Alice", color_filter="white")
-        total = sum(b.total for b in result["CLAMP"].bins)
+        total = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total, 1)  # only g1 (Alice is White)
 
     def test_color_filter_black_only(self):
         result = aggregate(self._two_games(), player="Alice", color_filter="black")
-        total = sum(b.total for b in result["CLAMP"].bins)
+        total = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total, 1)  # only g2 (Alice is Black)
 
     def test_no_player_includes_all_games(self):
         result = aggregate(self._two_games(), player="")
-        total = sum(b.total for b in result["CLAMP"].bins)
+        total = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total, 3)
 
     def test_player_name_case_insensitive(self):
         result = aggregate(self._two_games(), player="alice")
-        total = sum(b.total for b in result["CLAMP"].bins)
+        total = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total, 2)
 
 
@@ -211,8 +211,8 @@ class TestMixedPresetHistory(unittest.TestCase):
         g2 = _make_game(white="Alice", black="Bob", date="2025.02.01",
                         entries_per_path={"0": [_cct_entry("Threats")]})
         result = aggregate([g1, g2], player="Alice")
-        self.assertIn("CLAMP", result)
-        self.assertIn("CCT", result)
+        self.assertIn("CLAMP", result.series)
+        self.assertIn("CCT", result.series)
 
     def test_categories_from_same_preset_across_games_merged(self):
         g1 = _make_game(white="Alice", black="Bob", date="2025.01.01",
@@ -220,7 +220,7 @@ class TestMixedPresetHistory(unittest.TestCase):
         g2 = _make_game(white="Alice", black="Bob", date="2025.02.01",
                         entries_per_path={"0": [_clamp_entry("L")]})
         result = aggregate([g1, g2], player="Alice")
-        cats = result["CLAMP"].categories
+        cats = result.series["CLAMP"].categories
         self.assertIn("C", cats)
         self.assertIn("L", cats)
 
@@ -240,20 +240,20 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
         # Tag in reverse canonical order (P, M, A, L, C)
         game = self._game_with_cats("CLAMP", ["P", "M", "A", "L", "C"], _clamp_entry)
         result = aggregate([game], player="Alice")
-        cats = result["CLAMP"].categories
+        cats = result.series["CLAMP"].categories
         self.assertEqual(cats, ["C", "L", "A", "M", "P"])
 
     def test_cct_canonical_order_regardless_of_tag_order(self):
         game = self._game_with_cats("CCT", ["Threats", "Checks", "Captures"], _cct_entry)
         result = aggregate([game], player="Alice")
-        cats = result["CCT"].categories
+        cats = result.series["CCT"].categories
         self.assertEqual(cats, ["Checks", "Captures", "Threats"])
 
     def test_clamp_partial_subset_canonical_order(self):
         # CLAMP always seeds all 5 canonical categories even when only a subset is tagged.
         game = self._game_with_cats("CLAMP", ["P", "C"], _clamp_entry)
         result = aggregate([game], player="Alice")
-        cats = result["CLAMP"].categories
+        cats = result.series["CLAMP"].categories
         self.assertEqual(cats, ["C", "L", "A", "M", "P"])
 
     def test_uncategorized_always_last_in_canonical_order(self):
@@ -265,7 +265,7 @@ class TestCanonicalCategoryOrder(unittest.TestCase):
         game = _make_game(white="Alice", black="Bob", date="2025.06.01",
                           entries_per_path=paths)
         result = aggregate([game], player="Alice")
-        cats = result["CLAMP"].categories
+        cats = result.series["CLAMP"].categories
         self.assertEqual(cats[-1], "")
         self.assertEqual(cats[0], "C")
 
@@ -285,19 +285,19 @@ class TestCanonicalCategoryAlwaysPresent(unittest.TestCase):
     def test_clamp_missing_categories_seeded(self):
         game = self._game_with_cats("CLAMP", ["C"], _clamp_entry)
         result = aggregate([game], player="Alice")
-        self.assertEqual(result["CLAMP"].categories, ["C", "L", "A", "M", "P"])
+        self.assertEqual(result.series["CLAMP"].categories, ["C", "L", "A", "M", "P"])
 
     def test_cct_missing_categories_seeded(self):
         game = self._game_with_cats("CCT", ["Threats"], _cct_entry)
         result = aggregate([game], player="Alice")
-        self.assertEqual(result["CCT"].categories, ["Checks", "Captures", "Threats"])
+        self.assertEqual(result.series["CCT"].categories, ["Checks", "Captures", "Threats"])
 
     def test_clamp_seeded_cats_have_zero_counts_in_bins(self):
         # Seeded categories absent from data must appear in categories list
         # with zero counts across all bins.
         game = self._game_with_cats("CLAMP", ["C"], _clamp_entry)
         result = aggregate([game], player="Alice")
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         for absent_cat in ("L", "A", "M", "P"):
             self.assertIn(absent_cat, series.categories)
             for b in series.bins:
@@ -314,13 +314,13 @@ class TestDateFiltering(unittest.TestCase):
         game = _make_game(white="Alice", black="Bob", date="????.??.??",
                           entries_per_path={"0": [_clamp_entry("C")]})
         result = aggregate([game], player="Alice")
-        self.assertEqual(result, {})
+        self.assertEqual(result.series, {})
 
     def test_game_with_partial_date_included(self):
         game = _make_game(white="Alice", black="Bob", date="2025.??.??",
                           entries_per_path={"0": [_clamp_entry("C")]})
         result = aggregate([game], player="Alice")
-        self.assertIn("CLAMP", result)
+        self.assertIn("CLAMP", result.series)
 
 
 # ---------------------------------------------------------------------------
@@ -495,40 +495,6 @@ class TestGetAllPlayers(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
-# has_any_moments
-# ---------------------------------------------------------------------------
-
-class TestHasAnyMoments(unittest.TestCase):
-
-    def test_returns_true_for_3x3_only_data(self):
-        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
-        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
-                          entries_per_path={"0": [entry]})
-        self.assertTrue(has_any_moments([game], player="Alice"))
-
-    def test_returns_true_for_clamp_data(self):
-        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
-                          entries_per_path={"0": [_clamp_entry("C")]})
-        self.assertTrue(has_any_moments([game], player="Alice"))
-
-    def test_returns_false_for_no_tagged_games(self):
-        game = _make_game(white="Alice", black="Bob", date="2025.01.01")
-        self.assertFalse(has_any_moments([game], player="Alice"))
-
-    def test_returns_false_for_wrong_player(self):
-        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
-        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
-                          entries_per_path={"0": [entry]})
-        self.assertFalse(has_any_moments([game], player="Carlos"))
-
-    def test_empty_player_matches_all(self):
-        entry = ChessLogStorageService.make_entry("3x3", "Why1", "text")
-        game = _make_game(white="Alice", black="Bob", date="2025.01.01",
-                          entries_per_path={"0": [entry]})
-        self.assertTrue(has_any_moments([game], player=""))
-
-
-# ---------------------------------------------------------------------------
 # Binning mode routing (chart_cfg.ordinal_fallback_mode)
 # ---------------------------------------------------------------------------
 
@@ -553,7 +519,7 @@ class TestBinningModeRouting(unittest.TestCase):
         cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "quantile",
                "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
         result = aggregate(games, player="Alice", chart_cfg=cfg)
-        bins = result["CLAMP"].bins
+        bins = result.series["CLAMP"].bins
         totals = [b.total for b in bins]
         # quantile splits evenly (within ±1) across N moments
         self.assertAlmostEqual(totals[0], totals[-1], delta=1)
@@ -563,7 +529,7 @@ class TestBinningModeRouting(unittest.TestCase):
         cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "equal_width",
                "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
         result = aggregate(games, player="Alice", chart_cfg=cfg)
-        bins = result["CLAMP"].bins
+        bins = result.series["CLAMP"].bins
         # equal_width splits the calendar; dense Jan cluster → all 5 Jan moments in bin 0
         totals = [b.total for b in bins]
         self.assertGreater(totals[0], totals[-1])
@@ -573,7 +539,7 @@ class TestBinningModeRouting(unittest.TestCase):
         cfg = {"target_progression_bins": 2, "ordinal_fallback_mode": "quantile",
                "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
         result = aggregate(games, player="Alice", chart_cfg=cfg)
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         # Rendering fields are defaults — aggregate() doesn't set them
         self.assertEqual(series.progression_x_axis_mode, "uniform_bins")
         self.assertEqual(series.compress_gap_max_segment_days, 28)
@@ -598,23 +564,23 @@ class TestPresetSeriesRenderingFields(unittest.TestCase):
 
     def test_default_x_axis_layout(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].progression_x_axis_mode, "uniform_bins")
+        self.assertEqual(result.series["CLAMP"].progression_x_axis_mode, "uniform_bins")
 
     def test_default_max_gap_segment_days(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].compress_gap_max_segment_days, 28)
+        self.assertEqual(result.series["CLAMP"].compress_gap_max_segment_days, 28)
 
     def test_default_line_style(self):
         result = self._one_game_result()
-        self.assertEqual(result["CLAMP"].progression_line_style, "smooth")
+        self.assertEqual(result.series["CLAMP"].progression_line_style, "smooth")
 
     def test_default_smoothing_strength(self):
         result = self._one_game_result()
-        self.assertAlmostEqual(result["CLAMP"].progression_line_smooth_strength, 1.0)
+        self.assertAlmostEqual(result.series["CLAMP"].progression_line_smooth_strength, 1.0)
 
     def test_rendering_fields_are_mutable(self):
         result = self._one_game_result()
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         series.progression_x_axis_mode = "gap_compressed"
         series.progression_line_style = "straight"
         self.assertEqual(series.progression_x_axis_mode, "gap_compressed")
@@ -654,7 +620,7 @@ class TestCalendarLinearTimePct(unittest.TestCase):
 
     def test_april_bins_have_low_time_pct(self):
         result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
-        bins = result["CLAMP"].bins
+        bins = result.series["CLAMP"].bins
         april_bins = [b for b in bins if b.lab0 < "2026-05"]
         self.assertTrue(len(april_bins) > 0)
         for b in april_bins:
@@ -662,7 +628,7 @@ class TestCalendarLinearTimePct(unittest.TestCase):
 
     def test_july_bins_have_high_time_pct(self):
         result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
-        bins = result["CLAMP"].bins
+        bins = result.series["CLAMP"].bins
         july_bins = [b for b in bins if b.lab0 >= "2026-07"]
         self.assertTrue(len(july_bins) > 0)
         for b in july_bins:
@@ -671,7 +637,7 @@ class TestCalendarLinearTimePct(unittest.TestCase):
     def test_large_gap_in_time_pct_between_clusters(self):
         """The gap between last April bin and first July bin must exceed 50pp."""
         result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
-        bins = sorted(result["CLAMP"].bins, key=lambda b: b.time_pct)
+        bins = sorted(result.series["CLAMP"].bins, key=lambda b: b.time_pct)
         april_bins = [b for b in bins if b.lab0 < "2026-05"]
         july_bins  = [b for b in bins if b.lab0 >= "2026-07"]
         self.assertTrue(april_bins and july_bins)
@@ -683,7 +649,7 @@ class TestCalendarLinearTimePct(unittest.TestCase):
     def test_time_pct_not_evenly_spaced(self):
         """time_pct values must NOT be uniformly distributed for gappy data."""
         result = aggregate(self._gappy_games(), player="Alice", chart_cfg=self._CHART_CFG)
-        bins = sorted(result["CLAMP"].bins, key=lambda b: b.time_pct)
+        bins = sorted(result.series["CLAMP"].bins, key=lambda b: b.time_pct)
         pcts = [b.time_pct for b in bins]
         gaps = [pcts[i + 1] - pcts[i] for i in range(len(pcts) - 1)]
         max_gap = max(gaps)
@@ -716,7 +682,7 @@ class TestSeriesDateExtent(unittest.TestCase):
         from datetime import date
         games = self._games_with_dates(["2026-06-15"])
         result = aggregate(games, player="Alice")
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         expected = date.fromisoformat("2026-06-15").toordinal()
         self.assertEqual(series.t_min, expected)
         self.assertEqual(series.t_max, expected)
@@ -725,14 +691,14 @@ class TestSeriesDateExtent(unittest.TestCase):
         from datetime import date
         games = self._games_with_dates(["2026-04-01", "2026-07-15", "2026-12-31"])
         result = aggregate(games, player="Alice")
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         self.assertEqual(series.t_min, date.fromisoformat("2026-04-01").toordinal())
 
     def test_t_max_is_latest_game_ordinal(self):
         from datetime import date
         games = self._games_with_dates(["2026-04-01", "2026-07-15", "2026-12-31"])
         result = aggregate(games, player="Alice")
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         self.assertEqual(series.t_max, date.fromisoformat("2026-12-31").toordinal())
 
     def test_t_min_t_max_independent_of_binning_mode(self):
@@ -745,10 +711,10 @@ class TestSeriesDateExtent(unittest.TestCase):
                  "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
         r_q = aggregate(games, player="Alice", chart_cfg=cfg_q)
         r_e = aggregate(games, player="Alice", chart_cfg=cfg_e)
-        self.assertEqual(r_q["CLAMP"].t_min, r_e["CLAMP"].t_min)
-        self.assertEqual(r_q["CLAMP"].t_max, r_e["CLAMP"].t_max)
-        self.assertEqual(r_q["CLAMP"].t_min, date.fromisoformat("2026-01-01").toordinal())
-        self.assertEqual(r_q["CLAMP"].t_max, date.fromisoformat("2026-12-31").toordinal())
+        self.assertEqual(r_q.series["CLAMP"].t_min, r_e.series["CLAMP"].t_min)
+        self.assertEqual(r_q.series["CLAMP"].t_max, r_e.series["CLAMP"].t_max)
+        self.assertEqual(r_q.series["CLAMP"].t_min, date.fromisoformat("2026-01-01").toordinal())
+        self.assertEqual(r_q.series["CLAMP"].t_max, date.fromisoformat("2026-12-31").toordinal())
 
     def test_equal_width_skipped_bins_do_not_affect_t_min_t_max(self):
         """equal_width may skip empty bins; t_min/t_max must still be the raw data extremes."""
@@ -758,7 +724,7 @@ class TestSeriesDateExtent(unittest.TestCase):
         cfg = {"ordinal_fallback_mode": "equal_width", "target_progression_bins": 10,
                "min_games_per_ordinal_bin": 1, "max_ordinal_bins": 120}
         result = aggregate(games, player="Alice", chart_cfg=cfg)
-        series = result["CLAMP"]
+        series = result.series["CLAMP"]
         self.assertEqual(series.t_min, date.fromisoformat("2026-01-01").toordinal())
         self.assertEqual(series.t_max, date.fromisoformat("2026-12-31").toordinal())
 
@@ -783,8 +749,8 @@ class TestAggregateExcludesOrphans(unittest.TestCase):
             },
         )
         result = aggregate([game], player="Alice")
-        self.assertIn("CLAMP", result)
-        total_moments = sum(b.total for b in result["CLAMP"].bins)
+        self.assertIn("CLAMP", result.series)
+        total_moments = sum(b.total for b in result.series["CLAMP"].bins)
         self.assertEqual(total_moments, 1)
 
 
@@ -938,6 +904,83 @@ class TestComputeNarrativeCounts(unittest.TestCase):
         game = self._make_game(white="Charlie", black="Bob")
         n, g, m, k = self._counts([game], player="Alice")
         self.assertEqual(n, 0)
+
+
+# ---------------------------------------------------------------------------
+# AggregateResult skip-count and has_3x3 fields
+# ---------------------------------------------------------------------------
+
+class TestAggregateSkipCounting(unittest.TestCase):
+
+    def _dated_clamp_game(self, date="2025.01.15"):
+        return _make_game(date=date, entries_per_path={"0": [_clamp_entry("C")]})
+
+    def _undated_clamp_game(self):
+        return _make_game(date="????.??.??", entries_per_path={"0": [_clamp_entry("C")]})
+
+    def _undated_3x3_game(self):
+        return _make_game(date="????.??.??",
+                          entries_per_path={"0": [_threexthree_entry("Why1", "because")]})
+
+    def test_no_undated_games_produces_zero_skip_count(self):
+        game = self._dated_clamp_game()
+        result = aggregate([game], player="Alice")
+        self.assertEqual(result.n_undated_clamp_cct, 0)
+
+    def test_one_undated_clamp_game_counted(self):
+        result = aggregate([self._undated_clamp_game()], player="Alice")
+        self.assertEqual(result.n_undated_clamp_cct, 1)
+
+    def test_multiple_undated_games_all_counted(self):
+        games = [self._undated_clamp_game() for _ in range(4)]
+        result = aggregate(games, player="Alice")
+        self.assertEqual(result.n_undated_clamp_cct, 4)
+
+    def test_mix_dated_and_undated_counts_only_undated(self):
+        dated = [self._dated_clamp_game() for _ in range(3)]
+        undated = [self._undated_clamp_game() for _ in range(2)]
+        result = aggregate(dated + undated, player="Alice")
+        self.assertEqual(result.n_undated_clamp_cct, 2)
+        self.assertIn("CLAMP", result.series)
+
+    def test_undated_3x3_does_not_count_in_skip_count(self):
+        result = aggregate([self._undated_3x3_game()], player="Alice")
+        self.assertEqual(result.n_undated_clamp_cct, 0)
+
+    def test_has_3x3_false_when_no_3x3_data(self):
+        game = self._dated_clamp_game()
+        result = aggregate([game], player="Alice")
+        self.assertFalse(result.has_3x3)
+
+    def test_has_3x3_true_when_3x3_present(self):
+        game = _make_game(entries_per_path={"0": [_threexthree_entry("Why1", "because")]})
+        result = aggregate([game], player="Alice")
+        self.assertTrue(result.has_3x3)
+
+    def test_has_3x3_true_alongside_clamp(self):
+        game = _make_game(entries_per_path={
+            "0": [_clamp_entry("C")],
+            "0.0": [_threexthree_entry("Why1", "x")],
+        })
+        result = aggregate([game], player="Alice")
+        self.assertTrue(result.has_3x3)
+        self.assertIn("CLAMP", result.series)
+
+    def test_undated_game_not_matched_by_player_not_counted(self):
+        game = _make_game(white="Alice", black="Bob", date="????.??.??",
+                          entries_per_path={"0": [_clamp_entry("C")]})
+        result = aggregate([game], player="Carol")
+        self.assertEqual(result.n_undated_clamp_cct, 0)
+
+    def test_all_undated_returns_empty_series_with_count(self):
+        games = [self._undated_clamp_game() for _ in range(4)]
+        result = aggregate(games, player="Alice")
+        self.assertFalse(bool(result.series))
+        self.assertEqual(result.n_undated_clamp_cct, 4)
+
+    def test_has_3x3_true_on_undated_game(self):
+        result = aggregate([self._undated_3x3_game()], player="Alice")
+        self.assertTrue(result.has_3x3)
 
 
 if __name__ == "__main__":

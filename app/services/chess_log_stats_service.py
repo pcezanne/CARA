@@ -75,12 +75,24 @@ class ChessLogPresetSeries:
     t_max: Optional[int] = None           # day ordinal of the latest game
 
 
+@dataclass
+class AggregateResult:
+    """Return type from aggregate().
+
+    Wraps the per-preset series dict plus skip-count metadata.
+    """
+
+    series: Dict[str, ChessLogPresetSeries] = field(default_factory=dict)
+    n_undated_clamp_cct: int = 0   # CLAMP/CCT games skipped because Date is undatable
+    has_3x3: bool = False           # any 3x3 moment seen in the filtered games
+
+
 def aggregate(
     games: List[GameData],
     player: str,
     color_filter: str = "both",       # "white", "black", or "both"
     chart_cfg: Optional[Dict[str, Any]] = None,
-) -> Dict[str, ChessLogPresetSeries]:
+) -> "AggregateResult":
     """Aggregate Chess Log moments into per-preset time series.
 
     Args:
@@ -95,8 +107,10 @@ def aggregate(
                       the user's ``target_bins`` and ``binning_mode`` are applied.
 
     Returns:
-        Dict mapping preset name → ChessLogPresetSeries, one entry per preset
-        that has at least one moment in the filtered games. Empty if no data.
+        AggregateResult with series mapping preset name → ChessLogPresetSeries
+        (one entry per preset with at least one dated moment), plus
+        n_undated_clamp_cct (games with CLAMP/CCT moments but no date) and
+        has_3x3 (any 3x3 moment seen in the filtered games).
         Rendering fields (progression_x_axis_mode, etc.) are at their defaults; the caller
         (ChessLogAggregationWorker) sets them from live controller fields before
         emitting.
@@ -105,29 +119,36 @@ def aggregate(
     player_cf = (player or "").casefold().strip()
 
     raw: List[Tuple[int, str, str]] = []  # (ordinal, preset, cat)
+    n_undated_clamp_cct: int = 0
+    has_3x3: bool = False
 
     for game in games:
         if not getattr(game, "has_chess_log_tags", False):
-            continue
-
-        ordinal = _game_date_ordinal_for_trends(game.date or "")
-        if ordinal is None:
             continue
 
         if not game_matches_player_color(game, player_cf, color_filter):
             continue
 
         paths_data = ChessLogStorageService.load_resolved_paths(game)
+        ordinal = _game_date_ordinal_for_trends(game.date or "")
+
+        game_has_clamp_cct = False
         for entries in paths_data.values():
             for entry in entries:
                 preset = entry.get("preset", "")
-                if preset not in CHARTED_PRESETS:
-                    continue
-                cat = entry.get("cat", "")
-                raw.append((ordinal, preset, cat))
+                if preset in CHARTED_PRESETS:
+                    game_has_clamp_cct = True
+                    if ordinal is not None:
+                        cat = entry.get("cat", "")
+                        raw.append((ordinal, preset, cat))
+                elif preset == "3x3":
+                    has_3x3 = True
+
+        if ordinal is None and game_has_clamp_cct:
+            n_undated_clamp_cct += 1
 
     if not raw:
-        return {}
+        return AggregateResult(series={}, n_undated_clamp_cct=n_undated_clamp_cct, has_3x3=has_3x3)
 
     result: Dict[str, ChessLogPresetSeries] = {}
     presets_in_data: Set[str] = {r[1] for r in raw}
@@ -136,7 +157,7 @@ def aggregate(
         samples = [(o, c) for o, p, c in raw if p == preset]
         result[preset] = _bin_preset(preset, samples, chart_cfg)
 
-    return result
+    return AggregateResult(series=result, n_undated_clamp_cct=n_undated_clamp_cct, has_3x3=has_3x3)
 
 
 def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
@@ -201,28 +222,6 @@ def get_all_players(games: List[GameData]) -> List[Tuple[str, int]]:
     ]
     qualified.sort(key=lambda x: (-x[1], x[0]))
     return qualified
-
-
-def has_any_moments(
-    games: List[GameData],
-    player: str,
-    color_filter: str = "both",
-) -> bool:
-    """Return True if any game has tagged moments for this player/color, any preset.
-
-    Used by ChessLogAggregationWorker to distinguish 'moments exist but are not
-    chartable (e.g. 3x3 only)' from 'truly no moments for this selection'.
-    """
-    player_cf = (player or "").casefold().strip()
-    for game in games:
-        if not getattr(game, "has_chess_log_tags", False):
-            continue
-        if not game_matches_player_color(game, player_cf, color_filter):
-            continue
-        paths_data = ChessLogStorageService.load_resolved_paths(game)
-        if paths_data:
-            return True
-    return False
 
 
 def compute_narrative_counts(

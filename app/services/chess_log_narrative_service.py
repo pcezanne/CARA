@@ -149,7 +149,7 @@ def build_prompt(
         player=player or "",
         color_filter=color_filter,
         chart_cfg={"target_progression_bins": 4, "min_games_per_ordinal_bin": 1},
-    )
+    ).series
 
     glossary_block = _format_glossary(preset_names, cl_prompts["narrative_glossaries"])
     threexthree_block = _format_3x3_structure(preset_names, cl_prompts["narrative_3x3_structure"])

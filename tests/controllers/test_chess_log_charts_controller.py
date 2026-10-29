@@ -2610,5 +2610,106 @@ class TestGameSetKeyStability(unittest.TestCase):
                          "results_invalidated must not fire when game set unchanged")
 
 
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestChessLogAggregationWorkerReasonCodes(unittest.TestCase):
+    """Worker emits the correct reason strings for each empty-result scenario."""
+
+    def _run_worker(self, games, player="Alice"):
+        """Run ChessLogAggregationWorker synchronously; return (reason, skipped)."""
+        from PyQt6.QtCore import QEventLoop
+        reasons = []
+        skipped = []
+        worker = ChessLogAggregationWorker(
+            games=games, player=player, color_filter="both", chart_cfg={}
+        )
+        worker.charts_unavailable.connect(reasons.append)
+        worker.charts_skipped.connect(skipped.append)
+        loop = QEventLoop()
+        worker.finished.connect(loop.quit)
+        worker.start()
+        loop.exec()
+        return reasons, skipped
+
+    def _dated_clamp_game(self):
+        return _make_game(entries_per_path={"0": [_clamp(cat="C")]})
+
+    def _undated_clamp_game(self):
+        pgn = (
+            '[Event "Test"]\n[Site "?"]\n[Date "????.??.??"]\n'
+            '[Round "?"]\n[White "Alice"]\n[Black "Bob"]\n'
+            '[Result "*"]\n\n1. e4 *\n'
+        )
+        game = GameData(game_number=1, pgn=pgn, white="Alice", black="Bob", date="????.??.??")
+        ChessLogStorageService.store_tags(game, {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]})
+        return game
+
+    def test_no_games_emits_no_data(self):
+        reasons, _ = self._run_worker([])
+        self.assertEqual(reasons, ["no_data"])
+
+    def test_all_undated_clamp_emits_no_dated_reason(self):
+        games = [self._undated_clamp_game() for _ in range(4)]
+        reasons, _ = self._run_worker(games)
+        self.assertEqual(len(reasons), 1)
+        self.assertTrue(reasons[0].startswith("no_dated_clamp_cct:"))
+
+    def test_all_undated_clamp_reason_encodes_count(self):
+        games = [self._undated_clamp_game() for _ in range(4)]
+        reasons, _ = self._run_worker(games)
+        parts = reasons[0].split(":")
+        self.assertEqual(parts[1], "4")
+
+    def test_dated_games_emit_charts_updated_and_skipped(self):
+        from PyQt6.QtCore import QEventLoop
+        updated = []
+        skipped = []
+        worker = ChessLogAggregationWorker(
+            games=[self._dated_clamp_game()], player="Alice", color_filter="both", chart_cfg={}
+        )
+        worker.charts_updated.connect(updated.append)
+        worker.charts_skipped.connect(skipped.append)
+        loop = QEventLoop()
+        worker.finished.connect(loop.quit)
+        worker.start()
+        loop.exec()
+        self.assertEqual(len(updated), 1)
+        self.assertEqual(skipped, [0])
+
+    def test_mixed_dated_and_undated_emits_skipped_count(self):
+        from PyQt6.QtCore import QEventLoop
+        skipped = []
+        games = [self._dated_clamp_game(), self._undated_clamp_game(), self._undated_clamp_game()]
+        worker = ChessLogAggregationWorker(
+            games=games, player="Alice", color_filter="both", chart_cfg={}
+        )
+        worker.charts_skipped.connect(skipped.append)
+        loop = QEventLoop()
+        worker.finished.connect(loop.quit)
+        worker.start()
+        loop.exec()
+        self.assertEqual(skipped, [2])
+
+    def test_cancelled_worker_emits_no_signals(self):
+        from PyQt6.QtCore import QEventLoop
+        updated = []
+        reasons = []
+        skipped = []
+        worker = ChessLogAggregationWorker(
+            games=[self._dated_clamp_game()], player="Alice", color_filter="both", chart_cfg={}
+        )
+        worker.charts_updated.connect(updated.append)
+        worker.charts_unavailable.connect(reasons.append)
+        worker.charts_skipped.connect(skipped.append)
+        loop = QEventLoop()
+        worker.finished.connect(loop.quit)
+        worker.cancel()
+        worker.start()
+        loop.exec()
+        self.assertEqual(updated, [], "cancelled worker must not emit charts_updated")
+        self.assertEqual(reasons, [], "cancelled worker must not emit charts_unavailable")
+        self.assertEqual(skipped, [], "cancelled worker must not emit charts_skipped")
+
+
+
 if __name__ == "__main__":
     unittest.main()

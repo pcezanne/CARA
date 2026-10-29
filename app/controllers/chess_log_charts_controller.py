@@ -34,7 +34,6 @@ from app.services.chess_log_stats_service import (
     aggregate,
     compute_narrative_counts,
     get_all_players,
-    has_any_moments,
 )
 from app.services.user_settings_service import UserSettingsService
 from app.utils.ai_provider_config import (
@@ -92,6 +91,7 @@ class ChessLogAggregationWorker(QThread):
 
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
     charts_unavailable = pyqtSignal(str)   # reason string
+    charts_skipped = pyqtSignal(int)       # n undated CLAMP/CCT games skipped, emitted after charts_updated
 
     def __init__(
         self,
@@ -139,19 +139,28 @@ class ChessLogAggregationWorker(QThread):
         with QMutexLocker(self._mutex):
             if self._cancelled:
                 return
-        if result:
+        if result.series:
             # Stamp rendering fields onto each series before emit.
-            for series in result.values():
+            for series in result.series.values():
                 series.progression_x_axis_mode = self._progression_x_axis_mode
                 series.compress_gap_max_segment_days = self._compress_gap_max_segment_days
                 series.progression_line_style = self._progression_line_style
                 series.progression_line_smooth_strength = self._progression_line_smooth_strength
-            self.charts_updated.emit(result)
+            self.charts_updated.emit(result.series)
+            with QMutexLocker(self._mutex):
+                if self._cancelled:
+                    return
+            self.charts_skipped.emit(result.n_undated_clamp_cct)
         else:
             with QMutexLocker(self._mutex):
                 if self._cancelled:
                     return
-            if has_any_moments(self._games, self._player, self._color_filter):
+            n = result.n_undated_clamp_cct
+            if n > 0:
+                self.charts_unavailable.emit(
+                    f"no_dated_clamp_cct:{n}:{1 if result.has_3x3 else 0}"
+                )
+            elif result.has_3x3:
                 self.charts_unavailable.emit("no_chartable_preset")
             else:
                 self.charts_unavailable.emit("no_data")
@@ -455,6 +464,7 @@ class ChessLogChartsController(QObject):
 
     charts_updated = pyqtSignal(object)    # Dict[str, ChessLogPresetSeries]
     charts_unavailable = pyqtSignal(str)   # reason ("no_source", "no_player", "no_data", ...)
+    charts_skipped = pyqtSignal(int)       # n undated CLAMP/CCT games skipped; always emitted after charts_updated
     charts_loading = pyqtSignal()          # aggregation worker about to start; view should clear stale chart
     players_ready = pyqtSignal(list)       # List[Tuple[str, int]]
     player_selection_cleared = pyqtSignal()  # view should reset player combo to unselected
@@ -989,6 +999,7 @@ class ChessLogChartsController(QObject):
         )
         worker.charts_updated.connect(self.charts_updated)
         worker.charts_unavailable.connect(self.charts_unavailable)
+        worker.charts_skipped.connect(self.charts_skipped)
         worker.finished.connect(self._on_agg_worker_finished)
         self._agg_worker = worker
         worker.start()

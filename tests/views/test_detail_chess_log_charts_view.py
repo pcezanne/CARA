@@ -62,8 +62,10 @@ def _make_stub_controller(ai_configured: bool = False, models=None, timeout: int
     ctrl.get_last_shallow_result.return_value = (None, None, None)
     # Simulate signal attributes so connect() calls succeed
     for sig in (
-        "charts_updated", "charts_unavailable", "charts_loading",
-        "players_ready", "player_selection_cleared", "narrative_ready", "narrative_failed", "ai_configured_changed",
+        "charts_updated", "charts_unavailable", "charts_skipped", "charts_loading",
+        "players_ready", "player_selection_cleared", "narrative_ready", "narrative_failed",
+        "shallow_ready", "shallow_failed", "shallow_partial",
+        "ai_configured_changed", "ai_model_changed", "results_invalidated",
     ):
         mock_signal = MagicMock()
         mock_signal.connect = MagicMock()
@@ -824,6 +826,106 @@ class TestExportPdfReportNarrativeMetadata(unittest.TestCase):
         self.assertEqual(captured.get("m_moments"), 0)
         self.assertEqual(captured.get("k_unflagged"), 0)
         ctrl.get_last_narrative_metadata.assert_not_called()
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewSkipNote(unittest.TestCase):
+    """_skip_note shown after charts_updated(n>0); hidden otherwise."""
+
+    def _make_view(self) -> "DetailChessLogChartsView":
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        return view
+
+    def test_skip_note_hidden_on_startup(self):
+        view = self._make_view()
+        self.assertTrue(view._skip_note.isHidden())
+
+    def test_skip_note_shown_when_n_positive(self):
+        view = self._make_view()
+        view._on_charts_skipped(4)
+        self.assertFalse(view._skip_note.isHidden())
+
+    def test_skip_note_hidden_when_n_zero(self):
+        view = self._make_view()
+        view._on_charts_skipped(4)
+        view._on_charts_skipped(0)
+        self.assertTrue(view._skip_note.isHidden())
+
+    def test_skip_note_text_singular(self):
+        view = self._make_view()
+        view._on_charts_skipped(1)
+        self.assertEqual(view._skip_note.text(), "1 game not charted: no date.")
+
+    def test_skip_note_text_plural(self):
+        view = self._make_view()
+        view._on_charts_skipped(4)
+        self.assertEqual(view._skip_note.text(), "4 games not charted: no date.")
+
+    def test_skip_note_cleared_by_clear_charts(self):
+        view = self._make_view()
+        view._on_charts_skipped(3)
+        view._clear_charts()
+        self.assertTrue(view._skip_note.isHidden())
+
+
+@unittest.skipUnless(_QT_AVAILABLE, "Qt not available in this environment")
+class TestDetailChessLogChartsViewUndatedMessages(unittest.TestCase):
+    """_on_charts_unavailable handles no_dated_clamp_cct:N:B reason strings."""
+
+    def _make_view(self) -> "DetailChessLogChartsView":
+        view = DetailChessLogChartsView(config={})
+        view.set_controller(_make_stub_controller())
+        return view
+
+    def test_no_dated_clamp_cct_shows_placeholder(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:4:0")
+        self.assertFalse(view._placeholder.isHidden())
+        self.assertTrue(view._charts_container.isHidden())
+
+    def test_no_dated_clamp_cct_singular_exact_string(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:1:0")
+        self.assertEqual(
+            view._placeholder.text(),
+            "No chart data for this selection.\n"
+            "1 game with CLAMP/CCT moments has no date, and charts need dated games.",
+        )
+
+    def test_no_dated_clamp_cct_plural_exact_string(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:4:0")
+        self.assertEqual(
+            view._placeholder.text(),
+            "No chart data for this selection.\n"
+            "4 games with CLAMP/CCT moments have no date, and charts need dated games.",
+        )
+
+    def test_no_dated_clamp_cct_with_3x3_exact_string(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:4:1")
+        self.assertEqual(
+            view._placeholder.text(),
+            "No chart data for this selection.\n"
+            "4 games with CLAMP/CCT moments have no date, and charts need dated games.\n"
+            "3x3 moments are not shown in charts — use Generate Narrative Summary below.",
+        )
+
+    def test_no_dated_clamp_cct_singular_with_3x3_exact_string(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:1:1")
+        self.assertEqual(
+            view._placeholder.text(),
+            "No chart data for this selection.\n"
+            "1 game with CLAMP/CCT moments has no date, and charts need dated games.\n"
+            "3x3 moments are not shown in charts — use Generate Narrative Summary below.",
+        )
+
+    def test_no_dated_clamp_cct_skip_note_hidden(self):
+        view = self._make_view()
+        view._on_charts_unavailable("no_dated_clamp_cct:4:0")
+        self.assertTrue(view._skip_note.isHidden())
 
 
 if __name__ == "__main__":

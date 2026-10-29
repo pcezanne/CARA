@@ -89,6 +89,7 @@ class DetailChessLogChartsView(QWidget):
             try:
                 self._controller.charts_updated.disconnect(self._on_charts_updated)
                 self._controller.charts_unavailable.disconnect(self._on_charts_unavailable)
+                self._controller.charts_skipped.disconnect(self._on_charts_skipped)
                 self._controller.charts_loading.disconnect(self._on_charts_loading)
                 self._controller.players_ready.disconnect(self._on_players_ready)
                 self._controller.player_selection_cleared.disconnect(self._reset_player_selection)
@@ -109,6 +110,7 @@ class DetailChessLogChartsView(QWidget):
 
         controller.charts_updated.connect(self._on_charts_updated)
         controller.charts_unavailable.connect(self._on_charts_unavailable)
+        controller.charts_skipped.connect(self._on_charts_skipped)
         controller.charts_loading.connect(self._on_charts_loading)
         controller.players_ready.connect(self._on_players_ready)
         controller.player_selection_cleared.connect(self._reset_player_selection)
@@ -181,8 +183,14 @@ class DetailChessLogChartsView(QWidget):
         self._charts_layout.setSpacing(12)
         self._charts_container.setVisible(False)
 
+        self._skip_note = QLabel()
+        self._skip_note.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._skip_note.setWordWrap(False)
+        self._skip_note.setVisible(False)
+
         content_layout.addWidget(self._placeholder)
         content_layout.addWidget(self._charts_container)
+        content_layout.addWidget(self._skip_note)
         content_layout.addWidget(self._build_narrative_panel())
         content_layout.addStretch()
 
@@ -425,6 +433,7 @@ class DetailChessLogChartsView(QWidget):
         )
         self._shallow_hint.setStyleSheet(f"color: {hint_s}; border: none;")
         self._placeholder.setStyleSheet(f"color: {hint_s}; border: none;")
+        self._skip_note.setStyleSheet(f"color: {hint_s}; border: none;")
 
     def _on_ai_hint_link_clicked(self, url: str) -> None:
         if url != "ai-model-settings":
@@ -490,12 +499,33 @@ class DetailChessLogChartsView(QWidget):
                 "No chart data for this selection.\n"
                 "3x3 moments are not shown in charts — use Generate Narrative Summary below."
             )
+        elif reason.startswith("no_dated_clamp_cct:"):
+            parts = reason.split(":")
+            n = int(parts[1]) if len(parts) > 1 else 0
+            has_3x3 = len(parts) > 2 and parts[2] == "1"
+            noun = "game" if n == 1 else "games"
+            verb = "has" if n == 1 else "have"
+            msg = (
+                f"No chart data for this selection.\n"
+                f"{n} {noun} with CLAMP/CCT moments {verb} no date, and charts need dated games."
+            )
+            if has_3x3:
+                msg += "\n3x3 moments are not shown in charts — use Generate Narrative Summary below."
+            self._set_placeholder_text(msg)
         else:
             self._set_placeholder_text(
                 "No Chess Log moments in the selected data.\n"
                 "Tag some via right-click on a move in the Moves List."
             )
         self._show_placeholder()
+
+    def _on_charts_skipped(self, n: int) -> None:
+        if n > 0:
+            noun = "game" if n == 1 else "games"
+            self._skip_note.setText(f"{n} {noun} not charted: no date.")
+            self._skip_note.setVisible(True)
+        else:
+            self._skip_note.setVisible(False)
 
     def _on_players_ready(self, players: List) -> None:
         current_raw = self._player_combo.itemData(self._player_combo.currentIndex())
@@ -592,6 +622,7 @@ class DetailChessLogChartsView(QWidget):
             self._charts_layout.removeWidget(w)
             w.deleteLater()
         self._chart_widgets.clear()
+        self._skip_note.setVisible(False)
 
     def _clear_narrative_and_check_logs(self) -> None:
         """Reset narrative and Check Logs display to first-open state."""

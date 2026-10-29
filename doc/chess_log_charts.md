@@ -162,6 +162,34 @@ Classification logic in `app/services/chess_log_shallow_service.py`. `ChessLogSh
 
 **Diagnostic logging**: on any parse failure, logs model, stop_reason, block_count, block_types, usage, and first 4000 chars of reply. ERROR for all-fail, DEBUG for partial-fail. Each classifier call logs at DEBUG before dispatch: model id and thinking payload.
 
+## Undated game skipping
+
+Games whose `Date` header is `????.??.??` (or any value that `_game_date_ordinal_for_trends` cannot resolve) cannot be placed on the time axis. The aggregation pipeline handles them as follows:
+
+- **CLAMP/CCT moments in undated games** are counted but not charted. The count is returned as `AggregateResult.n_undated_clamp_cct`.
+- **3x3 moments** are noted via `AggregateResult.has_3x3` (regardless of date); undated 3x3 games do not increment `n_undated_clamp_cct`.
+
+`ChessLogAggregationWorker` uses these fields — `has_any_moments()` is removed:
+
+| Scenario | Signal emitted |
+|---|---|
+| Dated CLAMP/CCT data present | `charts_updated(series_dict)` then `charts_skipped(n_undated_clamp_cct)` |
+| Only undated CLAMP/CCT games (n > 0) | `charts_unavailable("no_dated_clamp_cct:N:B")` where N=count, B=1 if has_3x3 |
+| No CLAMP/CCT; only 3x3 | `charts_unavailable("no_chartable_preset")` |
+| No moments at all | `charts_unavailable("no_data")` |
+
+When `charts_updated` is emitted, the view shows the charts and — if `n > 0` — a one-line skip note immediately below. The note text is `"{N} game(s) not charted: no date."` (singular "game" when N=1). The note is styled with `hint_text` color and cleared on every `_clear_charts()` call. It does not appear in PDF exports or clipboard copies.
+
+When `charts_unavailable("no_dated_clamp_cct:N:B")` is emitted, the placeholder text is:
+
+```
+No chart data for this selection.
+N game(s) with CLAMP/CCT moments has/have no date, and charts need dated games.
+[3x3 moments are not shown in charts — use Generate Narrative Summary below.]  ← only when B=1
+```
+
+**`AggregateResult`** is a plain dataclass (no dict protocol) returned by `aggregate()` in `chess_log_stats_service.py`. Fields: `series: Dict[str, ChessLogPresetSeries]`, `n_undated_clamp_cct: int`, `has_3x3: bool`. All callers access `result.series` explicitly. `has_any_moments()` is deleted.
+
 ## Right-click context menu
 
 `app/views/menus/chess_log_charts_context_menu.py`: right-clicking any chart widget or the narrative panel opens a three-action menu.

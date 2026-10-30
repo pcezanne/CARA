@@ -1471,7 +1471,7 @@ class TestSaveOrphanGuard(unittest.TestCase):
 
         captured = {}
 
-        def fake_store(game_, data, config, nag_shown=False, original_paths=None):
+        def fake_store(game_, data, config, nag_shown=False, original_paths=None, check_run=None):
             captured["original_paths"] = original_paths
             return True
 

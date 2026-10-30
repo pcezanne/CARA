@@ -73,6 +73,11 @@ class ChessLogController:
         # Keyed by id(game); reset to 0 on fresh load.
         self._cache_version_by_game: Dict[int, int] = {}
 
+        # Per-game _check_run override: set by ShowShallowTagsDialog._on_save after
+        # a Check Logs run to write the model+date to the PGN.  _save_single_game
+        # consumes and clears each entry after writing.
+        self._pending_check_runs: Dict[int, Dict[str, str]] = {}  # keyed by id(game)
+
         game_model = game_controller.get_game_model()
         game_model.active_game_changed.connect(self._on_active_game_changed)
         self._connect_to_database_panel_model()
@@ -167,10 +172,12 @@ class ChessLogController:
         if game is None:
             return False
         gid = id(game)
+        check_run = self._pending_check_runs.pop(gid, None)
         ok = ChessLogStorageService.store_tags(
             game, self._cached_paths_data, self.config,
             nag_shown=self._nag_shown_by_game.get(self._cached_game_id, False),
             original_paths=self._cached_original_paths.get(gid),
+            check_run=check_run,
         )
         if ok:
             self._dirty_games.pop(gid, None)
@@ -228,6 +235,7 @@ class ChessLogController:
                 is_shallow=bool(e.get("is_shallow")),
                 is_vague=bool(e.get("is_vague")),
                 ignore_text_hash=e.get("ignore_text_hash"),
+                check_hash=e.get("check_hash"),
             )
             for e in entries
         ]
@@ -284,6 +292,7 @@ class ChessLogController:
                 is_shallow=bool(e.get("is_shallow")),
                 is_vague=bool(e.get("is_vague")),
                 ignore_text_hash=e.get("ignore_text_hash"),
+                check_hash=e.get("check_hash"),
             )
             for e in entries
         ]
@@ -361,6 +370,19 @@ class ChessLogController:
                 failed += 1
         return saved, failed
 
+    def set_check_run_for_game(self, game: Any, check_run: Dict[str, str]) -> None:
+        """Queue a _check_run dict to be written the next time this game is saved.
+
+        Called by ShowShallowTagsDialog._on_save after a successful Check Logs run,
+        once per game that had at least one note classified.  _save_single_game
+        consumes and clears the entry after writing.
+        """
+        self._pending_check_runs[id(game)] = check_run
+
+    def get_check_run_for_game(self, game: Any) -> Optional[Dict[str, Any]]:
+        """Return the stored _check_run dict for a game, or None if absent."""
+        return ChessLogStorageService.load_check_run(game)
+
     def _save_single_game(self, game) -> bool:
         """Persist one game's Chess Log cache and mark its DB unsaved.
 
@@ -375,10 +397,15 @@ class ChessLogController:
             if gid == self._cached_game_id
             else self._multi_cache.get(gid, {})
         )
+        # Consume any pending _check_run override from a Check Logs Save.
+        # When present, store_tags writes the new run info; when absent (None),
+        # store_tags auto-preserves whatever _check_run is already in the PGN.
+        check_run = self._pending_check_runs.pop(gid, None)
         ok = ChessLogStorageService.store_tags(
             game, data, self.config,
             nag_shown=self._nag_shown_by_game.get(gid, False),
             original_paths=self._cached_original_paths.get(gid),
+            check_run=check_run,
         )
         if ok:
             self._cached_original_paths[gid] = ChessLogStorageService.load_tags(game)

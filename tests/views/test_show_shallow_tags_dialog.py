@@ -62,13 +62,25 @@ def _make_entry(preset, cat, why="", ignore_shallow=False):
 def _make_controller(tags_by_game=None):
     ctrl = MagicMock()
     tags_by_game = tags_by_game or {}
+    # Mutable state mirrors the real controller: replace_entries_at_path_for_game
+    # updates this dict so Phase b reads Phase a's output, matching real-controller
+    # behaviour (Phase a writes to the cache; Phase b reads the updated cache).
+    mutable_tags = {k: {pk: list(es) for pk, es in v.items()} for k, v in tags_by_game.items()}
 
     def _get_tags(game):
-        return tags_by_game.get(game.game_number, {})
+        return mutable_tags.get(game.game_number, {})
+
+    def _replace_entries(game, path_key, preset, entries):
+        gnum = game.game_number
+        if gnum not in mutable_tags:
+            mutable_tags[gnum] = {}
+        existing = mutable_tags[gnum].get(path_key, [])
+        kept = [e for e in existing if e.get("preset") != preset]
+        mutable_tags[gnum][path_key] = kept + list(entries)
 
     ctrl.get_tags_for_game.side_effect = _get_tags
     ctrl.get_custom_categories.return_value = []
-    ctrl.replace_entries_at_path_for_game = MagicMock()
+    ctrl.replace_entries_at_path_for_game = MagicMock(side_effect=_replace_entries)
     return ctrl
 
 

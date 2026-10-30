@@ -114,6 +114,7 @@ class ChessLogPDFService(BasePDFReportService):
         is_shallow_only: bool = False,
         source_label: str = "",
         model_label: str = "",
+        generated_at: str = "",
     ) -> bool:
         """Write tag rows from a Show-Tags dialog to a PDF."""
         painter = None
@@ -128,7 +129,11 @@ class ChessLogPDFService(BasePDFReportService):
             title = "Chess Log — Check Logs" if is_shallow_only else "Chess Log — Logged Moments"
             y = self._draw_report_header(painter, content, title)
             if is_shallow_only:
-                generated_str = datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+                generated_str = (
+                    f"Generated: {generated_at}"
+                    if generated_at
+                    else datetime.now().strftime("Generated: %Y-%m-%d %H:%M")
+                )
                 y = self._draw_source_generated_lines(painter, content, y, source_label, generated_str)
                 ai_label = model_label if model_label else "not run (chips from earlier checks)"
                 y = self._draw_text_line(

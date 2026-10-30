@@ -164,6 +164,7 @@ class _TagRowWidget(QFrame):
                 "is_shallow": is_shallow,
                 "is_vague": is_vague,
                 "original_why": why,
+                "check_hash": e.get("check_hash"),
             }
 
         # Original why text for CLAMP/CCT text-change detection (all entries share one why).
@@ -172,6 +173,11 @@ class _TagRowWidget(QFrame):
             if entries and preset != "3x3"
             else ""
         )
+        # check_hash for CLAMP/CCT (first non-None among entries).
+        self._original_check_hash_clamp_cct: Optional[str] = next(
+            (e.get("check_hash") for e in entries if e.get("check_hash")),
+            None,
+        ) if entries and preset != "3x3" else None
 
         self._preserved_ignore_shallow: bool = any(
             d.get("ignore_shallow", False) for d in self._preserved_per_cat.values()
@@ -565,6 +571,9 @@ class _TagRowWidget(QFrame):
                 d["is_shallow"] = True
             if self._preserved_is_vague:
                 d["is_vague"] = True
+            # check_hash is never modified by this dialog — pass it through unchanged.
+            if self._original_check_hash_clamp_cct:
+                d["check_hash"] = self._original_check_hash_clamp_cct
             return d
 
         if self._preset == "3x3":
@@ -608,6 +617,9 @@ class _TagRowWidget(QFrame):
                         entry["is_shallow"] = True
                     if per_cat.get("is_vague") and key == "Why4":
                         entry["is_vague"] = True
+                # check_hash is never modified by this dialog — pass it through unchanged.
+                if per_cat.get("check_hash"):
+                    entry["check_hash"] = per_cat["check_hash"]
                 entry = ChessLogStorageService.clear_verdict_if_text_changed(
                     entry, per_cat.get("original_why", "")
                 )

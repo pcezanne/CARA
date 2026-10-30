@@ -699,6 +699,8 @@ class DetailChessLogChartsView(QWidget):
         files = self._controller.get_current_source_filenames() if self._controller else []
         source_label = f"{label}: {', '.join(files)}" if files else label
         model_label = self._controller.get_cached_shallow_model_label() if self._controller else ""
+        timestamp = self._controller.get_cached_shallow_timestamp() if self._controller else ""
+        check_run_info = {"model": model_label, "date": timestamp} if model_label and timestamp else None
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         dlg = ShowShallowTagsDialog(
             config=self._config,
@@ -710,6 +712,7 @@ class DetailChessLogChartsView(QWidget):
             partial_notice=partial_notice,
             source_label=source_label,
             model_label=model_label,
+            check_run_info=check_run_info,
             parent=self,
         )
         dlg.exec()

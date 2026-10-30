@@ -33,6 +33,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from datetime import datetime, timezone
+
 from app.services.chess_log_storage_service import ChessLogStorageService
 from app.utils.chess_log_best_move import resolve_best_move_for_path
 from app.utils.help_icon import make_help_icon
@@ -40,6 +42,20 @@ from app.utils.pgn_variation_path import decode_path
 from app.views.dialogs._tag_row_helpers import node_info as _node_info_fn, ply_for_path as _ply_for_path_fn
 from app.views.dialogs.show_tags_dialog import _TagRowWidget, _PRESET_ORDER, _normalize_entries
 from app.views.style.style_manager import StyleManager
+
+
+def _format_check_run_date(utc_iso: str) -> str:
+    """Convert a UTC ISO-8601 timestamp to a local-time display string.
+
+    Accepts the "2026-10-30T14:23:45Z" format written by the controller.
+    Returns a "%Y-%m-%d %H:%M" string in local time, or the raw string on
+    parse failure.
+    """
+    try:
+        dt_utc = datetime.strptime(utc_iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        return dt_utc.astimezone().strftime("%Y-%m-%d %H:%M")
+    except Exception:
+        return utc_iso
 
 
 class ShowShallowTagsDialog(QDialog):
@@ -70,6 +86,8 @@ class ShowShallowTagsDialog(QDialog):
         partial_notice: Optional[str] = None,
         source_label: str = "",
         model_label: str = "",
+        check_run_info: Optional[Dict[str, str]] = None,
+        window_title: str = "Check Logs",
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -82,7 +100,14 @@ class ShowShallowTagsDialog(QDialog):
         self._partial_notice = partial_notice
         self._source_label = source_label
         self._model_label = model_label
+        # check_run_info: {"model": "...", "date": "..."} written to each game's PGN on Save.
+        # None in Saved-Logs mode (no new classification this session).
+        self._check_run_info: Optional[Dict[str, str]] = check_run_info
         self._games_in_scope = list(games)
+
+        # Unchecked count: answers in scope with non-blank why that are neither
+        # ignored nor checked (no matching check_hash and no legacy flags).
+        self._unchecked_count: int = self._compute_unchecked_count()
 
         self._load_config()
 
@@ -134,7 +159,7 @@ class ShowShallowTagsDialog(QDialog):
         self._row_widgets: List[_TagRowWidget] = []
         self._rows_layout = None
         self._setup_ui()
-        self.setWindowTitle("Check Logs")
+        self.setWindowTitle(window_title)
 
     # ------------------------------------------------------------------
     # Config
@@ -151,6 +176,29 @@ class ShowShallowTagsDialog(QDialog):
         sh = self._config.get("ui", {}).get("dialogs", {}).get("shallow", {})
         self._btn_save_label = sh.get("button_save", "Save")
         self._btn_cancel_label = sh.get("button_cancel", "Cancel")
+
+    # ------------------------------------------------------------------
+    # Unchecked count
+    # ------------------------------------------------------------------
+
+    def _compute_unchecked_count(self) -> int:
+        """Count answers in scope that haven't been checked by Check Logs yet."""
+        count = 0
+        for game in self._games_in_scope:
+            tags = self._controller.get_tags_for_game(game)
+            for entries in tags.values():
+                for e in entries:
+                    if not (e.get("why") or "").strip():
+                        continue
+                    if ChessLogStorageService.is_entry_ignore_honoured(e):
+                        continue
+                    if not ChessLogStorageService.is_entry_checked(e):
+                        count += 1
+        return count
+
+    def get_unchecked_count(self) -> int:
+        """Return the unchecked answer count computed at dialog open time."""
+        return self._unchecked_count
 
     # ------------------------------------------------------------------
     # 4-tuple key helpers
@@ -316,6 +364,25 @@ class ShowShallowTagsDialog(QDialog):
             )
             notice_lbl.setWordWrap(True)
             root.addWidget(notice_lbl)
+
+        if self._unchecked_count > 0:
+            n = self._unchecked_count
+            s = "s" if n != 1 else ""
+            have = "haven't" if n != 1 else "hasn't"
+            unchecked_lbl = QLabel(
+                f"{n} note{s} {have} been checked yet "
+                f"(new or edited since the last Check Logs). "
+                f"Run Check Logs to check them."
+            )
+            tr2, tg2, tb2 = self._text_color_rgb
+            br3, bg3, bb3 = self._bg_rgb
+            unchecked_lbl.setStyleSheet(
+                f"color: rgb({tr2},{tg2},{tb2}); "
+                f"background-color: rgb({min(255,br3+10)},{min(255,bg3+10)},{min(255,bb3+5)}); "
+                f"padding: 6px 8px; border-radius: 4px;"
+            )
+            unchecked_lbl.setWordWrap(True)
+            root.addWidget(unchecked_lbl)
 
         if not self._rows:
             tr, tg, tb = self._text_color_rgb
@@ -483,22 +550,63 @@ class ShowShallowTagsDialog(QDialog):
         if current_rows:
             tag_groups.append({"header": current_header, "rows": current_rows})
 
+        # Build Generated / AI model strings for the PDF header.
+        # Live Check Logs: use check_run_info from this session.
+        # Saved Check Logs (check_run_info=None): read _check_run from the PGN of each
+        # shown game, and summarise as single run / mixed runs / no run.
+        pdf_generated_at = ""
+        pdf_model_label = self._model_label
+        if self._check_run_info:
+            pdf_model_label = self._check_run_info.get("model", self._model_label)
+            raw_ts = self._check_run_info.get("date", "")
+            pdf_generated_at = _format_check_run_date(raw_ts)
+        else:
+            seen_models: set = set()
+            seen_dates: list = []
+            seen_game_ids: set = set()
+            for game in self._row_games:
+                if id(game) in seen_game_ids:
+                    continue
+                seen_game_ids.add(id(game))
+                cr = ChessLogStorageService.load_check_run(game)
+                if cr:
+                    m = cr.get("model", "")
+                    d = cr.get("date", "")
+                    if m:
+                        seen_models.add(m)
+                    if d:
+                        seen_dates.append(d)
+            if seen_models:
+                if len(seen_models) == 1:
+                    pdf_model_label = next(iter(seen_models))
+                else:
+                    pdf_model_label = ", ".join(sorted(seen_models))
+            if seen_dates:
+                # Use the most recent date in local time.
+                latest = max(seen_dates)
+                pdf_generated_at = _format_check_run_date(latest)
         ChessLogPDFService(self._config).export_tags(
             Path(path), tag_groups,
             is_shallow_only=True,
             source_label=self._source_label,
-            model_label=self._model_label,
+            model_label=pdf_model_label,
+            generated_at=pdf_generated_at,
         )
 
     def _on_save(self) -> None:
         affected: set = set()
 
-        # a) Shown rows: stamp is_shallow / is_vague per key membership.
+        # a) Shown rows: stamp is_shallow / is_vague and check_hash per key membership.
         for i, (path_key, preset, _) in enumerate(self._rows):
             row_widget = self._row_widgets[i]
             game = self._row_games[i]
             user_entries = row_widget.get_current_entries()
             new_entries = self._stamp_entries(game, path_key, preset, user_entries)
+            # Stamp check_hash on entries that were classified this run AND whose
+            # text has not been edited in this dialog session.
+            new_entries = self._stamp_check_hashes_shown(
+                new_entries, self._original_snapshot.get(i, []), game, path_key, preset
+            )
             original = self._original_snapshot.get(i, [])
             orig_with_flags = self._stamp_entries(game, path_key, preset, original)
             flags_missing = any(
@@ -525,9 +633,10 @@ class ShowShallowTagsDialog(QDialog):
                 )
                 affected.add(game)
 
-        # b) Classified-but-not-shown entries (parsed DEEP/non-vague this run):
-        #    clear stale is_shallow / is_vague.  Scoped to _classified_keys ONLY —
-        #    never touches unparsed, ignored, or empty-why entries.
+        # b) Classified-but-not-shown entries: clear stale is_shallow/is_vague and
+        #    stamp check_hash.  Scoped to _classified_keys — never touches unparsed,
+        #    ignored, or empty-why entries.  Skips entries already handled by Phase a
+        #    (those whose per-cat key is in _flagged_keys).
         for game in self._games_in_scope:
             tags = self._controller.get_tags_for_game(game)
             for path_key, entries in tags.items():
@@ -536,7 +645,7 @@ class ShowShallowTagsDialog(QDialog):
                     by_preset.setdefault(e.get("preset", ""), []).append(e)
                 for preset, preset_entries in by_preset.items():
                     if preset == "3x3":
-                        # Per-entry stale clear for 3x3
+                        # Per-entry processing for 3x3
                         new_list = []
                         changed = False
                         for e in preset_entries:
@@ -549,15 +658,27 @@ class ShowShallowTagsDialog(QDialog):
                             # Never stale-clear an entry whose Ignore is still honoured —
                             # the user's dismiss is intentional and must not be undone.
                             ignore_honoured = ChessLogStorageService.is_entry_ignore_honoured(e)
-                            if in_cls and not in_flag and not ignore_honoured and (e.get("is_shallow") or e.get("is_vague")):
-                                # Also clear ignore_shallow/ignore_text_hash: editing the text
-                                # (which caused the hash mismatch) invalidates the Ignore.
-                                # Never leave ignore_shallow=True with no chip flag.
-                                new_list.append(
-                                    {k: v for k, v in e.items()
-                                     if k not in ("is_shallow", "is_vague", "ignore_shallow", "ignore_text_hash")}
-                                )
-                                changed = True
+                            if in_cls and not in_flag:
+                                e_copy = dict(e)
+                                # Stale flag clear
+                                if not ignore_honoured and (e.get("is_shallow") or e.get("is_vague")):
+                                    # Also clear ignore_shallow/ignore_text_hash: editing the text
+                                    # (which caused the hash mismatch) invalidates the Ignore.
+                                    # Never leave ignore_shallow=True with no chip flag.
+                                    for k in ("is_shallow", "is_vague", "ignore_shallow", "ignore_text_hash"):
+                                        e_copy.pop(k, None)
+                                    changed = True
+                                # check_hash: stamp on non-ignored entries with non-blank why.
+                                # In-flag entries (shown in Phase a) are excluded so we don't
+                                # re-stamp entries whose text may have been edited by the user.
+                                if not ignore_honoured:
+                                    why = (e_copy.get("why") or "").strip()
+                                    if why:
+                                        new_hash = ChessLogStorageService.compute_check_hash(why)
+                                        if e_copy.get("check_hash") != new_hash:
+                                            e_copy["check_hash"] = new_hash
+                                            changed = True
+                                new_list.append(e_copy)
                             else:
                                 new_list.append(e)
                         if changed:
@@ -566,22 +687,86 @@ class ShowShallowTagsDialog(QDialog):
                             )
                             affected.add(game)
                     else:
-                        # Per-preset stale clear for CLAMP/CCT
+                        # Per-preset processing for CLAMP/CCT
                         key_4 = (game, path_key, preset, "")
                         if key_4 not in self._classified_keys:
                             continue
                         if self._moment_has_flag(game, path_key, preset):
-                            continue
-                        if any(e.get("is_shallow") or e.get("is_vague") for e in preset_entries):
-                            cleared = [
-                                {k: v for k, v in e.items() if k not in ("is_shallow", "is_vague")}
-                                for e in preset_entries
-                            ]
+                            continue  # shown in Phase a
+                        new_list = []
+                        changed = False
+                        for e in preset_entries:
+                            ignore_honoured = ChessLogStorageService.is_entry_ignore_honoured(e)
+                            e_copy = dict(e)
+                            # Stale flag clear
+                            if not ignore_honoured and (e.get("is_shallow") or e.get("is_vague")):
+                                for k in ("is_shallow", "is_vague"):
+                                    e_copy.pop(k, None)
+                                changed = True
+                            # check_hash: stamp on non-ignored entries with non-blank why
+                            if not ignore_honoured:
+                                why = (e_copy.get("why") or "").strip()
+                                if why:
+                                    new_hash = ChessLogStorageService.compute_check_hash(why)
+                                    if e_copy.get("check_hash") != new_hash:
+                                        e_copy["check_hash"] = new_hash
+                                        changed = True
+                            new_list.append(e_copy)
+                        if changed:
                             self._controller.replace_entries_at_path_for_game(
-                                game, path_key, preset, cleared
+                                game, path_key, preset, new_list
                             )
                             affected.add(game)
+
+        # c) Write _check_run to every game touched by this Check Logs run.
+        if self._check_run_info and self._classified_keys:
+            classified_games: set = {key[0] for key in self._classified_keys}
+            for cg in classified_games:
+                self._controller.set_check_run_for_game(cg, self._check_run_info)
+                affected.add(cg)
 
         if affected:
             self._controller.save_games(affected)
         self.accept()
+
+    def _stamp_check_hashes_shown(
+        self,
+        new_entries: List[Dict[str, Any]],
+        original_entries: List[Dict[str, Any]],
+        game: Any,
+        path_key: str,
+        preset: str,
+    ) -> List[Dict[str, Any]]:
+        """Stamp check_hash on shown-row entries that were classified AND text is unchanged.
+
+        Only entries in _classified_keys receive check_hash.  Entries whose text
+        was edited in this session are excluded (an edited answer is unchecked).
+        Ignored entries are excluded (their honoured Ignore already counts as checked).
+        """
+        if not self._classified_keys:
+            return new_entries
+
+        # Build original why lookup by cat (for comparison).
+        orig_by_cat: Dict[str, str] = {}
+        for e in original_entries:
+            cat = e.get("cat", "")
+            orig_by_cat[cat] = (e.get("why") or "").strip()
+
+        result = []
+        for e in new_entries:
+            cat = e.get("cat", "")
+            clamp_cat = cat if preset == "3x3" else ""
+            in_cls = self._in_classified(game, path_key, preset, clamp_cat)
+            ignore_honoured = ChessLogStorageService.is_entry_ignore_honoured(e)
+            if in_cls and not ignore_honoured:
+                why = (e.get("why") or "").strip()
+                if why:
+                    # Only stamp when the text hasn't changed from the original
+                    # (edited answers must remain unchecked after Save).
+                    orig_key = cat if preset == "3x3" else next(iter(orig_by_cat), "")
+                    original_why = orig_by_cat.get(orig_key, "")
+                    if why == original_why:
+                        e = dict(e)
+                        e["check_hash"] = ChessLogStorageService.compute_check_hash(why)
+            result.append(e)
+        return result

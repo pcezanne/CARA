@@ -104,10 +104,16 @@ class ShowShallowTagsDialog(QDialog):
         # None in Saved-Logs mode (no new classification this session).
         self._check_run_info: Optional[Dict[str, str]] = check_run_info
         self._games_in_scope = list(games)
+        # Saved mode = no classifier ran this session (classified_keys is empty).
+        # Only Saved mode shows the unchecked-count banner.
+        self._is_saved_mode: bool = not classified_keys
 
-        # Unchecked count: answers in scope with non-blank why that are neither
-        # ignored nor checked (no matching check_hash and no legacy flags).
-        self._unchecked_count: int = self._compute_unchecked_count()
+        # Unchecked count: answers in scope that haven't been checked yet.
+        # Only computed in Saved mode — in live mode the banner is never shown.
+        self._unchecked_count: int = (
+            self._controller.count_unchecked_answers(self._games_in_scope)
+            if self._is_saved_mode else 0
+        )
 
         self._load_config()
 
@@ -176,25 +182,9 @@ class ShowShallowTagsDialog(QDialog):
         sh = self._config.get("ui", {}).get("dialogs", {}).get("shallow", {})
         self._btn_save_label = sh.get("button_save", "Save")
         self._btn_cancel_label = sh.get("button_cancel", "Cancel")
-
-    # ------------------------------------------------------------------
-    # Unchecked count
-    # ------------------------------------------------------------------
-
-    def _compute_unchecked_count(self) -> int:
-        """Count answers in scope that haven't been checked by Check Logs yet."""
-        count = 0
-        for game in self._games_in_scope:
-            tags = self._controller.get_tags_for_game(game)
-            for entries in tags.values():
-                for e in entries:
-                    if not (e.get("why") or "").strip():
-                        continue
-                    if ChessLogStorageService.is_entry_ignore_honoured(e):
-                        continue
-                    if not ChessLogStorageService.is_entry_checked(e):
-                        count += 1
-        return count
+        banner = sh.get("unchecked_banner", {})
+        self._banner_bg_rgb = banner.get("background_color", [50, 50, 55])
+        self._banner_text_rgb = banner.get("text_color", [200, 200, 200])
 
     def get_unchecked_count(self) -> int:
         """Return the unchecked answer count computed at dialog open time."""
@@ -374,11 +364,11 @@ class ShowShallowTagsDialog(QDialog):
                 f"(new or edited since the last Check Logs). "
                 f"Run Check Logs to check them."
             )
-            tr2, tg2, tb2 = self._text_color_rgb
-            br3, bg3, bb3 = self._bg_rgb
+            bbr, bbg, bbb = self._banner_bg_rgb
+            btr, btg, btb = self._banner_text_rgb
             unchecked_lbl.setStyleSheet(
-                f"color: rgb({tr2},{tg2},{tb2}); "
-                f"background-color: rgb({min(255,br3+10)},{min(255,bg3+10)},{min(255,bb3+5)}); "
+                f"color: rgb({btr},{btg},{btb}); "
+                f"background-color: rgb({bbr},{bbg},{bbb}); "
                 f"padding: 6px 8px; border-radius: 4px;"
             )
             unchecked_lbl.setWordWrap(True)
@@ -552,8 +542,10 @@ class ShowShallowTagsDialog(QDialog):
 
         # Build Generated / AI model strings for the PDF header.
         # Live Check Logs: use check_run_info from this session.
-        # Saved Check Logs (check_run_info=None): read _check_run from the PGN of each
-        # shown game, and summarise as single run / mixed runs / no run.
+        # Saved mode (check_run_info=None): read _check_run from shown games:
+        #   - No run info in any game → model "Saved Check Logs results", no date
+        #   - All games same model+date → show that model and date
+        #   - Mixed runs → most recent run's model + " (mixed runs)", most recent date
         pdf_generated_at = ""
         pdf_model_label = self._model_label
         if self._check_run_info:
@@ -561,30 +553,26 @@ class ShowShallowTagsDialog(QDialog):
             raw_ts = self._check_run_info.get("date", "")
             pdf_generated_at = _format_check_run_date(raw_ts)
         else:
-            seen_models: set = set()
-            seen_dates: list = []
             seen_game_ids: set = set()
+            seen_runs: list = []  # (model, date) pairs for games that have _check_run
             for game in self._row_games:
                 if id(game) in seen_game_ids:
                     continue
                 seen_game_ids.add(id(game))
                 cr = ChessLogStorageService.load_check_run(game)
-                if cr:
-                    m = cr.get("model", "")
-                    d = cr.get("date", "")
-                    if m:
-                        seen_models.add(m)
-                    if d:
-                        seen_dates.append(d)
-            if seen_models:
-                if len(seen_models) == 1:
-                    pdf_model_label = next(iter(seen_models))
-                else:
-                    pdf_model_label = ", ".join(sorted(seen_models))
-            if seen_dates:
-                # Use the most recent date in local time.
-                latest = max(seen_dates)
-                pdf_generated_at = _format_check_run_date(latest)
+                if cr and cr.get("model") and cr.get("date"):
+                    seen_runs.append((cr["model"], cr["date"]))
+            if not seen_runs:
+                pdf_model_label = "Saved Check Logs results"
+            elif len(set(seen_runs)) == 1:
+                # Single run: same model and date across all shown games
+                pdf_model_label = seen_runs[0][0]
+                pdf_generated_at = _format_check_run_date(seen_runs[0][1])
+            else:
+                # Mixed runs: show most recent run's model + suffix and date
+                latest_model, latest_date = max(seen_runs, key=lambda r: r[1])
+                pdf_model_label = f"{latest_model} (mixed runs)"
+                pdf_generated_at = _format_check_run_date(latest_date)
         ChessLogPDFService(self._config).export_tags(
             Path(path), tag_groups,
             is_shallow_only=True,

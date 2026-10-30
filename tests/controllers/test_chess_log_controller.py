@@ -6,6 +6,7 @@ the real Qt signal/slot wiring is exercised in CI (QT_QPA_PLATFORM=offscreen).
 
 from __future__ import annotations
 
+import hashlib
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -2300,6 +2301,191 @@ class TestPresetForLogging(unittest.TestCase):
         with patch("app.controllers.chess_log_controller.encode_path", return_value="0"):
             result = ctrl.preset_for_logging()
         self.assertEqual(result, "CLAMP")
+
+
+class TestGetShallowVagueKeys(unittest.TestCase):
+    """get_shallow_vague_keys returns (shallow, vague) frozensets from stored flags."""
+
+    def _make_ctrl_with_tags(self, game, tags):
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+        ChessLogStorageService.store_tags(game, tags, {})
+        ctrl._load_into_cache(game)
+        return ctrl
+
+    def test_empty_when_no_flags(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._load_into_cache(game)
+        s, v = ctrl.get_shallow_vague_keys([game])
+        self.assertEqual(s, frozenset())
+        self.assertEqual(v, frozenset())
+
+    def test_shallow_key_for_is_shallow_clamp(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "a note", is_shallow=True)
+        ctrl = self._make_ctrl_with_tags(game, {"0": [e]})
+        s, _ = ctrl.get_shallow_vague_keys([game])
+        self.assertIn((game, "0", "CLAMP", ""), s)
+
+    def test_vague_key_for_is_vague_3x3(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("3x3", "Why4", "lesson", is_vague=True)
+        ctrl = self._make_ctrl_with_tags(game, {"0": [e]})
+        _, v = ctrl.get_shallow_vague_keys([game])
+        self.assertIn((game, "0", "3x3", "Why4"), v)
+
+    def test_3x3_key_includes_cat(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("3x3", "Why1", "why", is_shallow=True)
+        ctrl = self._make_ctrl_with_tags(game, {"0": [e]})
+        s, _ = ctrl.get_shallow_vague_keys([game])
+        self.assertIn((game, "0", "3x3", "Why1"), s)
+        self.assertNotIn((game, "0", "3x3", ""), s)
+
+    def test_clamp_key_has_empty_cat(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "M", "note", is_shallow=True)
+        ctrl = self._make_ctrl_with_tags(game, {"0": [e]})
+        s, _ = ctrl.get_shallow_vague_keys([game])
+        self.assertIn((game, "0", "CLAMP", ""), s)
+
+    def test_false_is_shallow_not_included(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "note")  # no is_shallow
+        ctrl = self._make_ctrl_with_tags(game, {"0": [e]})
+        s, _ = ctrl.get_shallow_vague_keys([game])
+        self.assertEqual(s, frozenset())
+
+
+class TestHasAnyCheckedAnswer(unittest.TestCase):
+    """has_any_checked_answer returns True when at least one note has been checked."""
+
+    def _ctrl(self, game, tags):
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+        ChessLogStorageService.store_tags(game, tags, {})
+        ctrl._load_into_cache(game)
+        return ctrl
+
+    def test_false_when_no_entries(self):
+        game = make_game()
+        ctrl, _ = make_controller(game)
+        ctrl._load_into_cache(game)
+        self.assertFalse(ctrl.has_any_checked_answer([game]))
+
+    def test_false_when_no_check_hash_no_flags(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "a note")
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertFalse(ctrl.has_any_checked_answer([game]))
+
+    def test_true_for_matching_check_hash(self):
+        game = make_game()
+        why = "a note"
+        h = ChessLogStorageService.compute_check_hash(why)
+        e = ChessLogStorageService.make_entry("CLAMP", "C", why, check_hash=h)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertTrue(ctrl.has_any_checked_answer([game]))
+
+    def test_true_for_legacy_is_shallow(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertTrue(ctrl.has_any_checked_answer([game]))
+
+    def test_true_for_honoured_ignore(self):
+        game = make_game()
+        why = "my why"
+        h = hashlib.sha256(why.encode("utf-8")).hexdigest()
+        e = ChessLogStorageService.make_entry(
+            "CLAMP", "C", why, ignore_shallow=True, ignore_text_hash=h
+        )
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertTrue(ctrl.has_any_checked_answer([game]))
+
+    def test_false_for_blank_why(self):
+        game = make_game()
+        h = ChessLogStorageService.compute_check_hash("")
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "", check_hash=h)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertFalse(ctrl.has_any_checked_answer([game]))
+
+
+class TestCountUncheckedAnswers(unittest.TestCase):
+    """count_unchecked_answers uses correct units for CLAMP/CCT vs 3x3."""
+
+    def _ctrl(self, game, tags):
+        ctrl, gm = make_controller(game)
+        gm.active_game = game
+        ctrl._load_into_cache(game)
+        ChessLogStorageService.store_tags(game, tags, {})
+        ctrl._load_into_cache(game)
+        return ctrl
+
+    def test_zero_when_all_checked_via_hash(self):
+        game = make_game()
+        why = "good note"
+        h = ChessLogStorageService.compute_check_hash(why)
+        e = ChessLogStorageService.make_entry("CLAMP", "C", why, check_hash=h)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 0)
+
+    def test_clamp_two_cats_one_note_counts_once(self):
+        """C and L share one note text — should count as one unchecked, not two."""
+        game = make_game()
+        why = "shared note"
+        e_c = ChessLogStorageService.make_entry("CLAMP", "C", why)
+        e_l = ChessLogStorageService.make_entry("CLAMP", "L", why)
+        ctrl = self._ctrl(game, {"0": [e_c, e_l]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 1)
+
+    def test_3x3_each_why_counted_separately(self):
+        game = make_game()
+        entries = [
+            ChessLogStorageService.make_entry("3x3", "Why1", "w1"),
+            ChessLogStorageService.make_entry("3x3", "Why2", "w2"),
+            ChessLogStorageService.make_entry("3x3", "Why3", "w3"),
+            ChessLogStorageService.make_entry("3x3", "Why4", "w4"),
+        ]
+        ctrl = self._ctrl(game, {"0": entries})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 4)
+
+    def test_blank_why_not_counted(self):
+        game = make_game()
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "")
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 0)
+
+    def test_checked_not_counted(self):
+        game = make_game()
+        why = "checked note"
+        h = ChessLogStorageService.compute_check_hash(why)
+        e = ChessLogStorageService.make_entry("CLAMP", "C", why, check_hash=h)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 0)
+
+    def test_ignored_not_counted(self):
+        game = make_game()
+        why = "ignored note"
+        h = hashlib.sha256(why.encode("utf-8")).hexdigest()
+        e = ChessLogStorageService.make_entry(
+            "CLAMP", "C", why, ignore_shallow=True, ignore_text_hash=h
+        )
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 0)
+
+    def test_hash_mismatch_counts_as_unchecked(self):
+        """An edited note (wrong hash) is unchecked even though hash field exists."""
+        game = make_game()
+        original = "original note"
+        h = ChessLogStorageService.compute_check_hash(original)
+        edited = "edited note"
+        e = ChessLogStorageService.make_entry("CLAMP", "C", edited, check_hash=h)
+        ctrl = self._ctrl(game, {"0": [e]})
+        self.assertEqual(ctrl.count_unchecked_answers([game]), 1)
 
 
 if __name__ == "__main__":

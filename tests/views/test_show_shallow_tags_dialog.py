@@ -78,7 +78,39 @@ def _make_controller(tags_by_game=None):
         kept = [e for e in existing if e.get("preset") != preset]
         mutable_tags[gnum][path_key] = kept + list(entries)
 
+    def _count_unchecked(games):
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        count = 0
+        for game in games:
+            tags = _get_tags(game)
+            for entries in tags.values():
+                by_preset = {}
+                for e in entries:
+                    by_preset.setdefault(e.get("preset", ""), []).append(e)
+                for preset, preset_entries in by_preset.items():
+                    if preset == "3x3":
+                        for e in preset_entries:
+                            why = (e.get("why") or "").strip()
+                            if why and not ChessLogStorageService.is_entry_checked(e):
+                                count += 1
+                    else:
+                        seen = {}
+                        for e in preset_entries:
+                            why = (e.get("why") or "").strip()
+                            if not why:
+                                continue
+                            chk = ChessLogStorageService.is_entry_checked(e)
+                            if why not in seen:
+                                seen[why] = chk
+                            elif chk:
+                                seen[why] = True
+                        for chk in seen.values():
+                            if not chk:
+                                count += 1
+        return count
+
     ctrl.get_tags_for_game.side_effect = _get_tags
+    ctrl.count_unchecked_answers.side_effect = _count_unchecked
     ctrl.get_custom_categories.return_value = []
     ctrl.replace_entries_at_path_for_game = MagicMock(side_effect=_replace_entries)
     return ctrl
@@ -2337,6 +2369,225 @@ class TestF5StaleCacheScenario(unittest.TestCase):
 
         self.assertEqual(len(dlg._row_widgets), 0,
                          "game_B from DB-B must not get a chip from DB-A's stale shallow_keys")
+
+
+# ---------------------------------------------------------------------------
+# Phase B: Unchecked banner
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestUncheckedBanner(unittest.TestCase):
+    """Banner shows N unchecked notes in Saved mode; absent in live mode."""
+
+    def _find_banner(self, dlg):
+        from PyQt6.QtWidgets import QLabel
+        for lbl in dlg.findChildren(QLabel):
+            t = lbl.text()
+            if "hasn't been checked yet" in t or "haven't been checked yet" in t:
+                return lbl
+        return None
+
+    def test_banner_absent_in_live_mode(self):
+        """In live mode (classified_keys non-empty) no unchecked banner is shown."""
+        game = _make_game()
+        entry = _make_entry("CLAMP", "C", "a note")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog_with_classified(
+            [game], {game.game_number: {"0": [entry]}}, sk, ck
+        )
+        self.assertIsNone(self._find_banner(dlg))
+
+    def test_banner_present_in_saved_mode(self):
+        """In Saved mode (classified_keys empty) an unchecked banner appears."""
+        game = _make_game()
+        entry = _make_entry("CLAMP", "C", "unchecked note")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk
+        )
+        self.assertIsNotNone(self._find_banner(dlg))
+
+    def test_banner_singular(self):
+        """N=1 uses singular wording: '1 note hasn't been checked yet'."""
+        game = _make_game()
+        entry = _make_entry("CLAMP", "C", "one unchecked note")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk
+        )
+        banner = self._find_banner(dlg)
+        self.assertIsNotNone(banner)
+        self.assertIn("1 note hasn't been checked yet", banner.text())
+        self.assertNotIn("notes", banner.text())
+
+    def test_banner_plural(self):
+        """N=2 uses plural wording: '2 notes haven't been checked yet'."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        e1 = ChessLogStorageService.make_entry("CLAMP", "C", "note alpha")
+        e2 = ChessLogStorageService.make_entry("CLAMP", "L", "note beta")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [e1, e2]}}, sk
+        )
+        banner = self._find_banner(dlg)
+        self.assertIsNotNone(banner)
+        self.assertIn("2 notes haven't been checked yet", banner.text())
+
+    def test_clamp_two_cats_same_note_counts_once(self):
+        """One note shared by C and L categories counts as one unchecked, not two."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        shared_note = "shared note text"
+        e_c = ChessLogStorageService.make_entry("CLAMP", "C", shared_note)
+        e_l = ChessLogStorageService.make_entry("CLAMP", "L", shared_note)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [e_c, e_l]}}, sk
+        )
+        banner = self._find_banner(dlg)
+        self.assertIsNotNone(banner)
+        self.assertIn("1 note hasn't been checked yet", banner.text())
+
+
+# ---------------------------------------------------------------------------
+# Phase B: Save in Saved mode must not write check_hash or _check_run
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestSavedModeNoWrite(unittest.TestCase):
+    """Save in Saved mode writes no check_hash and never calls set_check_run_for_game."""
+
+    def test_save_does_not_write_check_hash(self):
+        """After Save in Saved mode, no entry passed to replace_entries has check_hash."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "some note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk
+        )
+        dlg._on_save()
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            _, kw = call_args
+            entries_written = kw.get("entries") or (call_args[0][3] if len(call_args[0]) > 3 else [])
+            for e in entries_written:
+                self.assertNotIn("check_hash", e,
+                    f"Saved mode must not write check_hash; got entry: {e}")
+
+    def test_save_does_not_call_set_check_run(self):
+        """set_check_run_for_game must never be called in Saved mode."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "a note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk
+        )
+        dlg._on_save()
+        ctrl.set_check_run_for_game.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Phase B: PDF header in Saved mode
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestPDFHeaderSavedMode(unittest.TestCase):
+    """PDF header model_label reflects _check_run data from shown games in Saved mode."""
+
+    def _open_and_export(self, game, entry, check_run_side_effect):
+        from unittest.mock import patch, MagicMock
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk
+        )
+        captured = {}
+        with patch(
+            "app.views.dialogs.show_shallow_tags_dialog.ChessLogStorageService.load_check_run",
+            side_effect=check_run_side_effect,
+        ), patch(
+            "app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+            side_effect=lambda *a, **kw: captured.update(kw),
+        ), patch(
+            "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=("/tmp/test_export.pdf", "PDF Files (*.pdf)"),
+        ):
+            dlg._on_export_pdf()
+        return captured.get("model_label", "")
+
+    def test_no_run_info_shows_saved_check_logs_results(self):
+        """When no game has _check_run, model_label is 'Saved Check Logs results'."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        label = self._open_and_export(game, entry, lambda g: None)
+        self.assertEqual(label, "Saved Check Logs results")
+
+    def test_single_run_shows_model_and_date(self):
+        """Single run (same model+date) shows just that model name."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        cr = {"model": "claude-sonnet-4-6", "date": "2026-10-30T12:00:00Z"}
+        label = self._open_and_export(game, entry, lambda g: cr)
+        self.assertEqual(label, "claude-sonnet-4-6")
+
+    def test_mixed_runs_shows_most_recent_model_suffix(self):
+        """Multiple different runs → most recent model + ' (mixed runs)'."""
+        import os
+        import sys
+        import json
+        from unittest.mock import patch, MagicMock
+        from app.models.database_model import GameData
+        from app.services.chess_log_storage_service import ChessLogStorageService
+
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app", "config", "config.json",
+        )
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+
+        game1 = _make_game(game_number=1)
+        game2 = _make_game(game_number=2)
+        entry1 = ChessLogStorageService.make_entry("CLAMP", "C", "note1", is_shallow=True)
+        entry2 = ChessLogStorageService.make_entry("CLAMP", "C", "note2", is_shallow=True)
+
+        sk = frozenset([
+            (game1, "0", "CLAMP", ""),
+            (game2, "0", "CLAMP", ""),
+        ])
+        ctrl = _make_controller({
+            game1.game_number: {"0": [entry1]},
+            game2.game_number: {"0": [entry2]},
+        })
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(
+            config=cfg, games=[game1, game2],
+            controller=ctrl,
+            shallow_keys=sk,
+            vague_keys=frozenset(),
+            classified_keys=frozenset(),
+        )
+        cr_map = {
+            id(game1): {"model": "claude-opus-4-7", "date": "2026-10-28T10:00:00Z"},
+            id(game2): {"model": "claude-sonnet-4-6", "date": "2026-10-30T12:00:00Z"},
+        }
+        captured = {}
+        with patch(
+            "app.views.dialogs.show_shallow_tags_dialog.ChessLogStorageService.load_check_run",
+            side_effect=lambda g: cr_map.get(id(g)),
+        ), patch(
+            "app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+            side_effect=lambda *a, **kw: captured.update(kw),
+        ), patch(
+            "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=("/tmp/test_mixed.pdf", "PDF Files (*.pdf)"),
+        ):
+            dlg._on_export_pdf()
+        self.assertEqual(captured.get("model_label"), "claude-sonnet-4-6 (mixed runs)")
 
 
 if __name__ == "__main__":

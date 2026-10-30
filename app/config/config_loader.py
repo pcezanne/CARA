@@ -3243,6 +3243,8 @@ _REQUIRED_CONFIG_KEY_PATHS: tuple[str, ...] = (
     "ui.dialogs.shallow.labels.vague_lesson.tooltip",
     "ui.dialogs.shallow.labels.vague_lesson.background_color",
     "ui.dialogs.shallow.labels.vague_lesson.text_color",
+    "ui.dialogs.shallow.unchecked_banner.background_color",
+    "ui.dialogs.shallow.unchecked_banner.text_color",
     "prompts.ai_chat.system_preamble",
     "prompts.ai_chat.formatting_rules",
 )

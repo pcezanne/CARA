@@ -383,6 +383,81 @@ class ChessLogController:
         """Return the stored _check_run dict for a game, or None if absent."""
         return ChessLogStorageService.load_check_run(game)
 
+    def get_shallow_vague_keys(self, games) -> Tuple[FrozenSet, FrozenSet]:
+        """Return (shallow_keys, vague_keys) from stored is_shallow/is_vague flags.
+
+        Keys are 4-tuples (game, path_key, preset, cat) keyed by game object.
+        CLAMP/CCT entries use cat="" ; 3x3 entries use the actual cat string.
+        """
+        shallow: set = set()
+        vague: set = set()
+        for game in games:
+            tags = self.get_tags_for_game(game)
+            for path_key, entries in tags.items():
+                by_preset: Dict[str, list] = {}
+                for e in entries:
+                    by_preset.setdefault(e.get("preset", ""), []).append(e)
+                for preset, preset_entries in by_preset.items():
+                    for e in preset_entries:
+                        cat = e.get("cat", "")
+                        key = (game, path_key, preset, cat if preset == "3x3" else "")
+                        if e.get("is_shallow"):
+                            shallow.add(key)
+                        if e.get("is_vague"):
+                            vague.add(key)
+        return frozenset(shallow), frozenset(vague)
+
+    def has_any_checked_answer(self, games) -> bool:
+        """Return True if any non-blank answer in games has been checked by Check Logs.
+
+        Checked means: matching check_hash, legacy is_shallow/is_vague flag, or
+        honoured ignore_shallow.
+        """
+        for game in games:
+            tags = self.get_tags_for_game(game)
+            for entries in tags.values():
+                for e in entries:
+                    if (e.get("why") or "").strip() and ChessLogStorageService.is_entry_checked(e):
+                        return True
+        return False
+
+    def count_unchecked_answers(self, games) -> int:
+        """Count non-blank answers that have not been checked by Check Logs yet.
+
+        CLAMP/CCT: counted per distinct note text per moment (same unit the
+        classifier receives — one note may have multiple entries with different cats
+        but only one is counted).  3x3: counted per Why answer independently.
+        """
+        count = 0
+        for game in games:
+            tags = self.get_tags_for_game(game)
+            for entries in tags.values():
+                by_preset: Dict[str, list] = {}
+                for e in entries:
+                    by_preset.setdefault(e.get("preset", ""), []).append(e)
+                for preset, preset_entries in by_preset.items():
+                    if preset == "3x3":
+                        for e in preset_entries:
+                            why = (e.get("why") or "").strip()
+                            if why and not ChessLogStorageService.is_entry_checked(e):
+                                count += 1
+                    else:
+                        # Per distinct note text per moment.
+                        seen: Dict[str, bool] = {}  # why_text → is_checked
+                        for e in preset_entries:
+                            why = (e.get("why") or "").strip()
+                            if not why:
+                                continue
+                            chk = ChessLogStorageService.is_entry_checked(e)
+                            if why not in seen:
+                                seen[why] = chk
+                            elif chk:
+                                seen[why] = True
+                        for chk in seen.values():
+                            if not chk:
+                                count += 1
+        return count
+
     def _save_single_game(self, game) -> bool:
         """Persist one game's Chess Log cache and mark its DB unsaved.
 

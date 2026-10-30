@@ -1514,7 +1514,7 @@ class MainWindow(QMainWindow):
         dlg.exec()
 
     def _show_saved_shallow_logs(self) -> None:
-        """Open Saved Check Logs dialog — shows stored is_shallow / is_vague entries."""
+        """Open Shallow/Vague Logs dialog — shows stored Check Logs results."""
         if not self.controller:
             return
         db_controller = self.controller.get_database_controller()
@@ -1530,35 +1530,17 @@ class MainWindow(QMainWindow):
         games = [g for g in db.get_all_games() if getattr(g, "has_chess_log_tags", False)]
         if not games:
             from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "Saved Check Logs", "No logged games in the active database.")
+            QMessageBox.information(self, "Shallow/Vague Logs", "No logged games in the active database.")
             return
-        shallow_keys: set = set()
-        vague_keys: set = set()
-        for game in games:
-            tags = chess_log_controller.get_tags_for_game(game)
-            for path_key, entries in tags.items():
-                seen_presets: dict = {}
-                for e in entries:
-                    seen_presets.setdefault(e.get("preset", ""), []).append(e)
-                for preset, preset_entries in seen_presets.items():
-                    for e in preset_entries:
-                        cat = e.get("cat", "")
-                        if preset == "3x3":
-                            key = (game, path_key, "3x3", cat)
-                        else:
-                            key = (game, path_key, preset, "")
-                        if e.get("is_shallow"):
-                            shallow_keys.add(key)
-                        if e.get("is_vague"):
-                            vague_keys.add(key)
-        if not shallow_keys and not vague_keys:
+        if not chess_log_controller.has_any_checked_answer(games):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(
-                self, "Saved Check Logs",
-                "No saved Check Logs results found in the active database.\n"
-                "Run Check Logs from the Chess Log Charts tab to classify your notes."
+                self, "Shallow/Vague Logs",
+                "No saved Check Logs results for this database. "
+                "Run Check Logs from the Chess Log Charts tab first."
             )
             return
+        shallow_keys, vague_keys = chess_log_controller.get_shallow_vague_keys(games)
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         dlg = ShowShallowTagsDialog(
             config=self.config,
@@ -1568,7 +1550,7 @@ class MainWindow(QMainWindow):
             vague_keys=vague_keys,
             classified_keys=frozenset(),
             check_run_info=None,
-            window_title="Saved Check Logs",
+            window_title="Shallow/Vague Logs",
             parent=self,
         )
         dlg.exec()

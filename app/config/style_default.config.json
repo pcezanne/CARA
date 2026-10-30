@@ -4394,6 +4394,10 @@
             "background_color": [195, 145, 55],
             "text_color": [255, 255, 255]
           }
+        },
+        "unchecked_banner": {
+          "background_color": {"$ref": "$_COLOR_BACKGROUND_5"},
+          "text_color": {"$ref": "$_COLOR_TEXT_SECONDARY"}
         }
       },
       "chess_log_settings": {

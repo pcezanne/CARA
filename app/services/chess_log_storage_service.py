@@ -28,11 +28,17 @@ class ChessLogStorageService:
     for integrity verification — same pattern as CARAAnnotations / CARANotes.
 
     Storage schema (before compression):
-        {"_v": 1, "paths": {path_key: [entry, ...]}, "nag_shown": true}
+        {"_v": 1, "paths": {path_key: [entry, ...]}, "nag_shown": true,
+         "_check_run": {"model": "...", "date": "2026-10-30T..."}}
 
     "nag_shown" is omitted when False (backward-compatible; readers default to False
     via .get()).  It records that the user has already been shown the "more than three
     moments?" nag for this game so it is suppressed on future saves/sessions.
+
+    "_check_run" is omitted when absent; written/preserved by store_tags.  Records the
+    AI model label and UTC ISO-8601 timestamp of the most recent Check Logs run that
+    touched this game.  Entries carry "check_hash" (first 16 hex chars of
+    sha256(why.strip())) when they have been classified by Check Logs.
 
     One path key = one moment. A path's list may hold multiple entries so that
     a CCT tag with two letters (both apply to the same moment) costs one moment
@@ -138,6 +144,32 @@ class ChessLogStorageService:
         return resolved
 
     @staticmethod
+    def compute_check_hash(why_text: str) -> str:
+        """Return the first 16 hex chars of sha256(why_text.strip()).
+
+        Used for both writing ``check_hash`` entries and verifying them.
+        Always call this helper; never inline the hash computation.
+        """
+        return hashlib.sha256(why_text.strip().encode("utf-8")).hexdigest()[:16]
+
+    @staticmethod
+    def is_entry_checked(entry: Dict[str, Any]) -> bool:
+        """Return True when this entry counts as 'checked' for the unchecked warning.
+
+        Checked when any of these hold:
+        - ``check_hash`` present and sha256(why.strip())[:16] matches it.
+        - ``is_shallow`` or ``is_vague`` present (legacy: flag proves classification).
+        - ``ignore_shallow`` is honoured (a classified-then-ignored entry; Correction 4).
+        """
+        why = (entry.get("why") or "").strip()
+        stored_hash = entry.get("check_hash")
+        if stored_hash:
+            return ChessLogStorageService.compute_check_hash(why) == stored_hash
+        if entry.get("is_shallow") or entry.get("is_vague"):
+            return True
+        return ChessLogStorageService.is_entry_ignore_honoured(entry)
+
+    @staticmethod
     def load_nag_shown(game: GameData) -> bool:
         """Read the nag_shown flag from the CARAChessLog payload.
 
@@ -159,12 +191,32 @@ class ChessLogStorageService:
             return False
 
     @staticmethod
+    def load_check_run(game: GameData) -> Optional[Dict[str, Any]]:
+        """Read the _check_run dict from the CARAChessLog payload.
+
+        Returns None on missing tag, missing key, or any error.
+        """
+        if game is None or not hasattr(game, "pgn") or game.pgn is None:
+            return None
+        try:
+            chess_game = chess.pgn.read_game(StringIO(game.pgn))
+            if not chess_game or ChessLogStorageService.TAG_NAME not in chess_game.headers:
+                return None
+            encoded = chess_game.headers[ChessLogStorageService.TAG_NAME]
+            json_text = decode_and_decompress_to_str(encoded)
+            payload = json.loads(json_text)
+            return payload.get("_check_run") or None
+        except Exception:
+            return None
+
+    @staticmethod
     def store_tags(
         game: GameData,
         paths_data: Dict[str, List[Dict[str, Any]]],
         config: Optional[Dict[str, Any]] = None,
         nag_shown: bool = False,
         original_paths: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        check_run: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """Store Chess Log moments into game PGN (in-memory). Returns True on success.
 
@@ -174,6 +226,11 @@ class ChessLogStorageService:
         ``original_paths`` even if they no longer resolve) pass through untouched so that
         historical data is never silently destroyed.  When ``original_paths`` is None the
         guard is not applied (backward-compatible behaviour).
+
+        ``check_run`` is an optional dict ``{"model": ..., "date": ...}`` written as
+        ``_check_run`` in the payload.  When None, any existing ``_check_run`` in the
+        game's current PGN tag is preserved automatically so non-Check-Logs saves do not
+        erase run history.
         """
         if game is None or not hasattr(game, "pgn") or game.pgn is None:
             return False
@@ -181,6 +238,17 @@ class ChessLogStorageService:
             chess_game = chess.pgn.read_game(StringIO(game.pgn))
             if not chess_game:
                 return False
+            # Preserve existing _check_run when no new one is supplied.
+            if check_run is None and ChessLogStorageService.TAG_NAME in chess_game.headers:
+                try:
+                    _existing = json.loads(
+                        decode_and_decompress_to_str(
+                            chess_game.headers[ChessLogStorageService.TAG_NAME]
+                        )
+                    )
+                    check_run = _existing.get("_check_run") or None
+                except Exception:
+                    pass
             if original_paths is not None:
                 filtered: Dict[str, List[Dict[str, Any]]] = {}
                 for pk, entries in paths_data.items():
@@ -201,6 +269,8 @@ class ChessLogStorageService:
             payload: Dict[str, Any] = {"_v": 1, "paths": paths_data}
             if nag_shown:
                 payload["nag_shown"] = True
+            if check_run:
+                payload["_check_run"] = check_run
             json_text = json.dumps(payload, ensure_ascii=False)
             data_bytes = json_text.encode("utf-8")
             checksum = compute_checksum(data_bytes)
@@ -250,6 +320,7 @@ class ChessLogStorageService:
         is_shallow: bool = False,
         is_vague: bool = False,
         ignore_text_hash: Optional[str] = None,
+        check_hash: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Build a single moment entry dict with a new UUID and UTC timestamp."""
         entry: Dict[str, Any] = {
@@ -267,6 +338,8 @@ class ChessLogStorageService:
             entry["is_vague"] = True
         if ignore_text_hash:
             entry["ignore_text_hash"] = ignore_text_hash
+        if check_hash:
+            entry["check_hash"] = check_hash
         return entry
 
     @staticmethod

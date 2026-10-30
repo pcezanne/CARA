@@ -684,5 +684,171 @@ class TestStoreSideOrphanGuard(unittest.TestCase):
         self.assertIn("99.0", loaded)  # orphan written without guard
 
 
+class TestComputeCheckHash(unittest.TestCase):
+    """compute_check_hash: 16 hex chars, sha256, strips whitespace."""
+
+    def test_returns_16_hex_chars(self):
+        h = ChessLogStorageService.compute_check_hash("hello")
+        self.assertEqual(len(h), 16)
+        self.assertRegex(h, r'^[0-9a-f]{16}$')
+
+    def test_uses_sha256_first_16(self):
+        import hashlib
+        text = "I attacked too early"
+        expected = hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(ChessLogStorageService.compute_check_hash(text), expected)
+
+    def test_strips_whitespace_before_hashing(self):
+        h_clean = ChessLogStorageService.compute_check_hash("hello")
+        h_padded = ChessLogStorageService.compute_check_hash("  hello  ")
+        self.assertEqual(h_clean, h_padded)
+
+    def test_different_texts_differ(self):
+        h1 = ChessLogStorageService.compute_check_hash("abc")
+        h2 = ChessLogStorageService.compute_check_hash("xyz")
+        self.assertNotEqual(h1, h2)
+
+    def test_empty_string(self):
+        h = ChessLogStorageService.compute_check_hash("")
+        self.assertEqual(len(h), 16)
+
+
+class TestIsEntryChecked(unittest.TestCase):
+    """is_entry_checked covers: check_hash match/mismatch, legacy flags, ignored, no-hash."""
+
+    def _make(self, why="some text", **kwargs):
+        e = {"why": why}
+        e.update(kwargs)
+        return e
+
+    def test_check_hash_match_returns_true(self):
+        h = ChessLogStorageService.compute_check_hash("need to slow down")
+        e = self._make(why="need to slow down", check_hash=h)
+        self.assertTrue(ChessLogStorageService.is_entry_checked(e))
+
+    def test_check_hash_with_whitespace_mismatch_text_returns_true(self):
+        h = ChessLogStorageService.compute_check_hash("need to slow down")
+        e = self._make(why="  need to slow down  ", check_hash=h)
+        self.assertTrue(ChessLogStorageService.is_entry_checked(e))
+
+    def test_check_hash_mismatch_returns_false(self):
+        h = ChessLogStorageService.compute_check_hash("different text")
+        e = self._make(why="actual text", check_hash=h)
+        self.assertFalse(ChessLogStorageService.is_entry_checked(e))
+
+    def test_is_shallow_legacy_returns_true(self):
+        e = self._make(is_shallow=True)
+        self.assertTrue(ChessLogStorageService.is_entry_checked(e))
+
+    def test_is_vague_legacy_returns_true(self):
+        e = self._make(is_vague=True)
+        self.assertTrue(ChessLogStorageService.is_entry_checked(e))
+
+    def test_ignore_honoured_returns_true(self):
+        import hashlib
+        text = "I need to double-check before moving"
+        h = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        e = self._make(why=text, ignore_shallow=True, ignore_text_hash=h)
+        self.assertTrue(ChessLogStorageService.is_entry_checked(e))
+
+    def test_no_hash_no_flags_returns_false(self):
+        e = self._make()
+        self.assertFalse(ChessLogStorageService.is_entry_checked(e))
+
+    def test_empty_why_no_flags_returns_false(self):
+        e = self._make(why="")
+        self.assertFalse(ChessLogStorageService.is_entry_checked(e))
+
+    def test_edit_breaks_check_hash_unchecked(self):
+        orig_text = "I attacked too early"
+        h = ChessLogStorageService.compute_check_hash(orig_text)
+        edited = {"why": "I edited this note", "check_hash": h}
+        self.assertFalse(ChessLogStorageService.is_entry_checked(edited))
+
+    def test_restore_text_rechecks(self):
+        orig_text = "I attacked too early"
+        h = ChessLogStorageService.compute_check_hash(orig_text)
+        restored = {"why": orig_text, "check_hash": h}
+        self.assertTrue(ChessLogStorageService.is_entry_checked(restored))
+
+
+class TestMakeEntryCheckHash(unittest.TestCase):
+    """make_entry includes check_hash when passed; omits it when absent/None."""
+
+    def test_check_hash_included_when_provided(self):
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "text", check_hash="abc123")
+        self.assertEqual(e.get("check_hash"), "abc123")
+
+    def test_check_hash_omitted_when_none(self):
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "text", check_hash=None)
+        self.assertNotIn("check_hash", e)
+
+    def test_check_hash_omitted_when_not_provided(self):
+        e = ChessLogStorageService.make_entry("CLAMP", "C", "text")
+        self.assertNotIn("check_hash", e)
+
+
+class TestCheckRun(unittest.TestCase):
+    """load_check_run and store_tags _check_run round-trip."""
+
+    def test_load_check_run_returns_none_when_absent(self):
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {})
+        self.assertIsNone(ChessLogStorageService.load_check_run(game))
+
+    def test_load_check_run_returns_none_for_none_game(self):
+        self.assertIsNone(ChessLogStorageService.load_check_run(None))
+
+    def test_load_check_run_returns_none_when_no_tag(self):
+        game = make_game()
+        self.assertIsNone(ChessLogStorageService.load_check_run(game))
+
+    def test_store_and_load_check_run_round_trip(self):
+        game = make_game()
+        run = {"model": "Anthropic claude-sonnet-4-6", "date": "2026-10-30T14:23:45Z"}
+        ChessLogStorageService.store_tags(game, {}, check_run=run)
+        loaded = ChessLogStorageService.load_check_run(game)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["model"], run["model"])
+        self.assertEqual(loaded["date"], run["date"])
+
+    def test_check_run_preserved_when_not_supplied_on_save(self):
+        game = make_game()
+        run = {"model": "Anthropic claude-sonnet-4-6", "date": "2026-10-30T14:23:45Z"}
+        ChessLogStorageService.store_tags(game, {}, check_run=run)
+        # Second save without check_run= should preserve existing _check_run
+        ChessLogStorageService.store_tags(game, {"0": [ChessLogStorageService.make_entry("CLAMP", "C")]})
+        loaded = ChessLogStorageService.load_check_run(game)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["model"], run["model"])
+
+    def test_check_run_not_written_when_no_prior_run(self):
+        game = make_game()
+        ChessLogStorageService.store_tags(game, {})
+        self.assertIsNone(ChessLogStorageService.load_check_run(game))
+
+    def test_check_run_updated_on_explicit_write(self):
+        game = make_game()
+        run1 = {"model": "Model A", "date": "2026-10-01T10:00:00Z"}
+        run2 = {"model": "Model B", "date": "2026-10-30T14:23:45Z"}
+        ChessLogStorageService.store_tags(game, {}, check_run=run1)
+        ChessLogStorageService.store_tags(game, {}, check_run=run2)
+        loaded = ChessLogStorageService.load_check_run(game)
+        self.assertEqual(loaded["model"], "Model B")
+
+    def test_check_run_survives_along_with_paths(self):
+        game = make_game()
+        paths = {"0": [ChessLogStorageService.make_entry("CLAMP", "L", "why text",
+                                                          check_hash="abcdef1234567890")]}
+        run = {"model": "X", "date": "2026-10-30T12:00:00Z"}
+        ChessLogStorageService.store_tags(game, paths, check_run=run)
+        loaded_paths = ChessLogStorageService.load_tags(game)
+        loaded_run = ChessLogStorageService.load_check_run(game)
+        self.assertIn("0", loaded_paths)
+        self.assertEqual(loaded_paths["0"][0].get("check_hash"), "abcdef1234567890")
+        self.assertIsNotNone(loaded_run)
+        self.assertEqual(loaded_run["model"], "X")
+
+
 if __name__ == "__main__":
     unittest.main()

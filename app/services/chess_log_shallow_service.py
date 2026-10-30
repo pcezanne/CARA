@@ -239,8 +239,8 @@ def build_notes(
     games: Iterable[Any],
     tags_resolver: Callable[[Any], Dict[str, List[Dict[str, Any]]]],
 ) -> Tuple[
-    List[Tuple[int, int, str, str, str]],
-    List[Tuple[int, int, str, str, str, str, str, str]],
+    List[Tuple[int, Any, str, str, str]],
+    List[Tuple[int, Any, str, str, str, str, str, str]],
     List[FrozenSet[str]],
 ]:
     """Build classifier-ready note tuples by replicating Check Logs' filter rules.
@@ -258,7 +258,7 @@ def build_notes(
     un-ignored the text is sent exactly once.
 
     Args:
-        games: Iterable of game-like objects exposing a ``game_number`` int.
+        games: Iterable of game objects (GameData or compatible).
         tags_resolver: Callable that returns ``{path_key: [entry, ...]}`` for
             a game. The resolver is expected to apply any orphan-filtering
             the caller requires (controller: ``get_tags_for_game``; service
@@ -268,16 +268,18 @@ def build_notes(
         ``(legacy_notes, three_notes, three_ignored_sets)``.
 
         ``legacy_notes``: 5-tuples ``(idx, game, path_key, preset, why)``
-        for CLAMP/CCT, one per emitted entry.  ``game`` is the GameData object.
+        for CLAMP/CCT, one per emitted entry.  ``game`` is the GameData object
+        (identity-keyed; it is NOT a game_number integer).
 
         ``three_notes``: 8-tuples
         ``(idx, game, path_key, "3x3", why1, why2, why3, why4)``.
+        ``game`` is likewise the GameData object.
 
         ``three_ignored_sets``: parallel to ``three_notes``; each element is
         the set of ``cat`` strings whose Ignore was honoured for that moment.
     """
-    legacy_notes: List[Tuple[int, int, str, str, str]] = []
-    three_notes: List[Tuple[int, int, str, str, str, str, str, str]] = []
+    legacy_notes: List[Tuple[int, Any, str, str, str]] = []
+    three_notes: List[Tuple[int, Any, str, str, str, str, str, str]] = []
     three_ignored_sets: List[FrozenSet[str]] = []
 
     for game in games:

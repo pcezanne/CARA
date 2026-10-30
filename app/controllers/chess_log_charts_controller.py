@@ -186,8 +186,8 @@ class ChessLogShallowThread(QThread):
         base_url_override: Optional[str],
         config: Optional[Dict[str, Any]],
         timeout_seconds: int,
-        legacy_notes: List[Tuple[int, int, str, str, str]],           # (idx, gn, pk, preset, why) — CLAMP/CCT
-        three_notes: List[Tuple[int, int, str, str, str, str, str, str]],  # (idx, gn, pk, preset, w1, w2, w3, w4)
+        legacy_notes: List[Tuple[int, Any, str, str, str]],           # (idx, game, pk, preset, why) — CLAMP/CCT
+        three_notes: List[Tuple[int, Any, str, str, str, str, str, str]],  # (idx, game, pk, preset, w1..w4)
         three_ignored_sets: Optional[List[FrozenSet[str]]] = None,    # parallel to three_notes: cats ignored per note
     ) -> None:
         super().__init__()
@@ -526,6 +526,7 @@ class ChessLogChartsController(QObject):
         self._cached_vague_keys: Optional[Any] = None
         self._cached_shallow_usage: Optional[Any] = None
         self._cached_shallow_model_label: str = ""
+        self._cached_shallow_timestamp: str = ""  # UTC ISO-8601; set when shallow_ready fires
 
         self._selection_debounce = QTimer(self)
         self._selection_debounce.setSingleShot(True)
@@ -649,6 +650,10 @@ class ChessLogChartsController(QObject):
         """Return '<Provider> <model-id>' from the most recent Check Logs run, or '' if none."""
         return self._cached_shallow_model_label
 
+    def get_cached_shallow_timestamp(self) -> str:
+        """Return UTC ISO-8601 timestamp when the last Check Logs result arrived, or ''."""
+        return self._cached_shallow_timestamp
+
     def _clear_result_cache(self) -> None:
         self._game_set_generation += 1
         self._last_game_set_key = None
@@ -662,6 +667,7 @@ class ChessLogChartsController(QObject):
         self._cached_vague_keys = None
         self._cached_shallow_usage = None
         self._cached_shallow_model_label = ""
+        self._cached_shallow_timestamp = ""
 
     # --- narrative panel controls ---
 
@@ -909,10 +915,12 @@ class ChessLogChartsController(QObject):
         """Cache shallow/vague results then pass to the view; the dialog's Save commits them."""
         if self._shallow_launch_gen != self._game_set_generation:
             return
+        from datetime import datetime, timezone
         self._cached_shallow_keys = frozenset(shallow_keys) if shallow_keys else None
         self._cached_vague_keys = frozenset(vague_keys) if vague_keys else None
         self._cached_shallow_usage = usage
         self._cached_shallow_model_label = model_label
+        self._cached_shallow_timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.shallow_ready.emit(shallow_keys, vague_keys, classified_keys, usage)
 
     def _on_shallow_thread_partial(self, message: str) -> None:

@@ -106,6 +106,12 @@ Each row's board thumbnail uses `MiniChessBoardWidget.set_played_and_best(played
 
 Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one logged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.
 
+### "Show Saved Check Logs"
+
+Chess Log menu item (after "Show Logged Moments for All Games"): opens `ShowShallowTagsDialog` showing all stored `is_shallow`/`is_vague` entries across the active database — no new AI call. Handler: `MainWindow._show_saved_shallow_logs`.
+
+Differences from a live Check Logs run: window title is "Saved Check Logs"; `classified_keys` is `frozenset()` (stale-clear Phase b is a no-op); `check_run_info` is `None` (the dialog reads `_check_run` per game at PDF-export time instead). Shows a message box if no checked entries are found. Save writes `_check_run` Phase c only for games that actually had rows, using the stored run info from each game's `_check_run` payload.
+
 ### Moves List highlight
 
 Chess Log menu → "Highlight Logged Moments in Moves List" (checkable toggle): when on, moves that have at least one logged entry in the current game's in-memory cache render a themed "logged moment" icon (`app/resources/icons/chess_log_moment.svg`) to the **left** of the move text in the Moves List. Returned via `Qt.DecorationRole` on `COL_WHITE` / `COL_BLACK`; Qt's default delegate handles the left-of-text placement — no custom delegate. Tinting follows the Moves List's own theme colors (normal move-text color on regular rows; `active_move.text_color` on the current-move row; `selection_text_color` via the icon's `QIcon.Mode.Selected` pixmap when a row is selected), rebuilt from `ChessLogMomentIconProvider` on each theme change. The state is persisted to `user_settings.json` under `chess_log_settings.highlight_chess_log_moves_in_list` and restored on startup. The highlight is applied by `MovesListModel.set_highlight_chess_log_moves` and refreshed automatically via `notify_chess_log_changed` whenever Chess Log entries are added, saved, or cleared.

@@ -44,6 +44,10 @@ def setup_chess_log_menu(mw, menu_bar: QMenuBar) -> None:
     mw.show_all_chess_logs_action.triggered.connect(mw._show_chess_logs_for_all_games)
     chess_log_menu.addAction(mw.show_all_chess_logs_action)
 
+    mw.show_saved_shallow_logs_action = QAction("Show Saved Check Logs", mw)
+    mw.show_saved_shallow_logs_action.triggered.connect(mw._show_saved_shallow_logs)
+    chess_log_menu.addAction(mw.show_saved_shallow_logs_action)
+
     chess_log_menu.addSeparator()
 
     mw.highlight_chess_log_moves_action = QAction("Highlight Logged Moments in Moves List", mw)

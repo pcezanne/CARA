@@ -316,6 +316,7 @@ if _QT_AVAILABLE:
         mw._save_chess_log_for_current_game = lambda: None
         mw._save_chess_logs_for_all_games = lambda: None
         mw._show_chess_logs_for_all_games = lambda: None
+        mw._show_saved_shallow_logs = lambda: None
         mw._on_highlight_chess_log_moves_toggled = lambda checked=False: None
         # set_menubar_themable_action_icon reads mw.config for icon tinting; empty
         # dict is fine — menu_icon_tint_rgb falls back to (200, 200, 200).
@@ -323,8 +324,8 @@ if _QT_AVAILABLE:
 
         # Build the real Chess Log menu.  This sets _chess_log_charts_settings_separator,
         # chess_log_charts_settings_menu, chess_log_settings_action, clear_chess_log_action,
-        # save_chess_log_action, save_all_chess_logs_action, show_all_chess_logs_action, and
-        # highlight_chess_log_moves_action on mw.
+        # save_chess_log_action, save_all_chess_logs_action, show_all_chess_logs_action,
+        # show_saved_shallow_logs_action, and highlight_chess_log_moves_action on mw.
         setup_chess_log_menu(mw, mw.menuBar())
 
         # F-key action (View menu would normally create this).

@@ -106,11 +106,11 @@ Each row's board thumbnail uses `MiniChessBoardWidget.set_played_and_best(played
 
 Chess Log menu item (after "Save Chess Logs for all games"): opens `ShowTagsDialog` scoped to every game in the active database that has at least one logged entry (`has_chess_log_tags=True`). Buffered editing — OK writes, Cancel discards. Handler: `MainWindow._show_chess_logs_for_all_games`.
 
-### "Show Saved Check Logs"
+### "Show Shallow/Vague Logs"
 
-Chess Log menu item (after "Show Logged Moments for All Games"): opens `ShowShallowTagsDialog` showing all stored `is_shallow`/`is_vague` entries across the active database — no new AI call. Handler: `MainWindow._show_saved_shallow_logs`.
+Chess Log menu item (after "Show Logged Moments for All Games"): opens `ShowShallowTagsDialog` in **Saved mode**, showing all stored `is_shallow`/`is_vague` entries across the active database — no new AI call. Handler: `MainWindow._show_saved_shallow_logs`.
 
-Differences from a live Check Logs run: window title is "Saved Check Logs"; `classified_keys` is `frozenset()` (stale-clear Phase b is a no-op); `check_run_info` is `None` (the dialog reads `_check_run` per game at PDF-export time instead). Shows a message box if no checked entries are found. Save writes `_check_run` Phase c only for games that actually had rows, using the stored run info from each game's `_check_run` payload.
+Differences from a live Check Logs run: window title is "Shallow/Vague Logs"; `classified_keys` is `frozenset()` (stale-clear Phase b and Phase c are both no-ops — **no `check_hash` or `_check_run` is written on Save**); `check_run_info` is `None` (the dialog reads `_check_run` per game at PDF-export time only). Shows a message box if no logged games exist, and a different message box if no checked entries are found (checked = has `check_hash`, `is_shallow`/`is_vague`, or honoured `ignore_shallow`). The unchecked-notes banner (notes without a valid `check_hash`) is shown only in Saved mode — never during a live Check Logs run.
 
 ### Moves List highlight
 

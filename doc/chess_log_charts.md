@@ -38,7 +38,7 @@ All 6 settings persist under `user_settings.chess_log.charts.{target_progression
 
 Smooth Catmull-Rom lines via `smooth_polyline_path()` when `series.progression_line_style == "smooth"`. `ChessLogPresetSeries` carries `t_min`/`t_max` populated by `_bin_preset()` in `chess_log_stats_service.py`.
 
-**Check Logs PDF header**: three header lines below the logo — `Source: <combo-text>: <pgn-stem>[, …]`, `Generated: YYYY-MM-DD HH:MM`, `AI model: <model-id>`. For a live Check Logs run the date is taken from `_cached_shallow_timestamp` (UTC ISO-8601 captured when `shallow_ready` fires, displayed in local time). For "Show Saved Check Logs" the date is read from the `_check_run` payload key in the PGN. No warning triangle (⚠️) anywhere in Check Logs PDFs.
+**Check Logs PDF header**: three header lines below the logo — `Source: <combo-text>: <pgn-stem>[, …]`, `Generated: YYYY-MM-DD HH:MM`, `AI model: <model-id>`. For a live Check Logs run the date is taken from `_cached_shallow_timestamp` (UTC ISO-8601 captured when `shallow_ready` fires, displayed in local time). For "Show Shallow/Vague Logs" the date and model are read from each shown game's `_check_run` payload at PDF-export time: no `_check_run` on any shown game → `AI model: Saved Check Logs results`; all shown games share the same run → model+date from that run; mixed runs → most recent run's model + " (mixed runs)" and most recent date. No warning triangle (⚠️) anywhere in Check Logs PDFs.
 
 ## Shared helpers
 
@@ -73,7 +73,7 @@ Clicking "Check Logs" disables the button, starts a `BusySpinner` and shows "Che
 
 **Token usage labels.** Two right-aligned `QLabel` instances appear after runs: `_narrative_token_label` (below `_narrative_edit`) and `_shallow_token_label` (below the Check Logs row). Lifecycle: cleared when a request *starts* and when a request *fails* — never show stale counts. Format when usage is reported: `Tokens: {in:,} in / {out:,} out`; appends ` / {thinking:,} thinking` when `reasoning_tokens > 0`. When usage is absent from the provider response: `Token usage not reported by this provider`. Styled via `ui.panels.detail.chess_log_charts.token_usage_label.{color, font_size}` in all three theme JSONs (registered in `config_loader`; covered by `test_theme_coverage`). Labels are pure view widgets — not passed to `ChessLogPDFService`; a PDF absence test in `tests/services/test_chess_log_pdf_service.py` confirms this.
 
-**Signal arity.** `narrative_ready = pyqtSignal(str, list, object)` carries `(text, shallow_flags, usage: Optional[TokenUsage])`; `shallow_ready = pyqtSignal(object, object, object, object)` carries `(shallow_keys, vague_keys, classified_keys, usage: Optional[TokenUsage])`. All three key sets use **4-tuple** `(game_number, path_key, preset, cat)` keys: CLAMP/CCT use `cat=""` (empty string); 3x3 uses `cat` in `{"Why1","Why2","Why3","Why4"}`. `classified_keys` is a `frozenset` of 4-tuples that were parsed this run (the "touchable set"); `shallow_keys ∪ vague_keys ⊆ classified_keys`. `vague_keys` is always empty for CLAMP/CCT notes. Both thread classes and the controller class use these arities. Every consumer (`_on_narrative_ready`, `_on_shallow_ready`, all test stubs) must accept all arguments.
+**Signal arity.** `narrative_ready = pyqtSignal(str, list, object)` carries `(text, shallow_flags, usage: Optional[TokenUsage])`; `shallow_ready = pyqtSignal(object, object, object, object)` carries `(shallow_keys, vague_keys, classified_keys, usage: Optional[TokenUsage])`. All three key sets use **4-tuple** `(game, path_key, preset, cat)` keys where `game` is the **GameData object** (Python identity, not `game_number`): CLAMP/CCT use `cat=""` (empty string); 3x3 uses `cat` in `{"Why1","Why2","Why3","Why4"}`. `classified_keys` is a `frozenset` of 4-tuples that were parsed this run (the "touchable set"); `shallow_keys ∪ vague_keys ⊆ classified_keys`. `vague_keys` is always empty for CLAMP/CCT notes. Both thread classes and the controller class use these arities. Every consumer (`_on_narrative_ready`, `_on_shallow_ready`, all test stubs) must accept all arguments.
 
 The controller's `get_available_models()` / `get_default_narrative_model()` / `get_narrative_timeout_seconds()` drive the view; `set_narrative_*()` setters update the in-memory state (timeout also persists).
 
@@ -92,11 +92,13 @@ The controller's `get_available_models()` / `get_default_narrative_model()` / `g
 `app/views/dialogs/show_shallow_tags_dialog.py`, class `ShowShallowTagsDialog` (internal name unchanged). Two entry points:
 
 - **Live Check Logs** (window title "Check Logs"): opened from `_on_shallow_ready` after a classifier run; receives `classified_keys` (frozenset of 4-tuples the AI touched), `shallow_keys ∪ vague_keys` (flagged subset), and `check_run_info` (`{"model": …, "date": …}` built from `_cached_shallow_timestamp`).
-- **Show Saved Check Logs** (window title "Saved Check Logs"): opened from *Chess Log → Show Saved Check Logs*; collects rows with stored `is_shallow`/`is_vague` across all games in the active database. `classified_keys` is `frozenset()` (no AI ran), so stale-clear Phase b is a no-op and `_check_run` is written per-game on Save.
+- **Show Shallow/Vague Logs** (window title "Shallow/Vague Logs"): opened from *Chess Log → Show Shallow/Vague Logs*; collects rows with stored `is_shallow`/`is_vague` across all games in the active database. `classified_keys` is `frozenset()` (no AI ran), so stale-clear Phase b and Phase c are both no-ops — **no `check_hash` or `_check_run` is written on Save**.
 
-Displays rows whose 4-tuple keys `(game_number, path_key, preset, cat)` are in `shallow_keys ∪ vague_keys`. For 3x3 a moment row appears if **any** of its cat-level keys is flagged; for CLAMP/CCT the row appears when `(gn, pk, preset, "")` is flagged.
+Displays rows whose 4-tuple keys `(game, path_key, preset, cat)` are in `shallow_keys ∪ vague_keys`. For 3x3 a moment row appears if **any** of its cat-level keys is flagged; for CLAMP/CCT the row appears when `(game, pk, preset, "")` is flagged.
 
 **Save/Cancel model**: edits are buffered in row widgets until the user clicks **Save**. Save stamps `is_shallow=True` / `is_vague=True` per-entry (per 4-tuple key membership), clears stale flags on classified-clean entries (scoped to `classified_keys` only — entries the classifier didn't touch are never modified), then calls `save_games()`. For 3x3, stale-clear operates per-entry: only entries whose exact `(gn, pk, "3x3", cat)` key is in `classified_keys` but not in `flagged_keys` get their flags cleared; entries outside `classified_keys` are untouched. **Cancel** and the window close button discard all edits. **Export to PDF** button (left of button row) calls `ChessLogPDFService.export_tags(..., is_shallow_only=True)` with a WYSIWYG snapshot of current row state; PDF title "Chess Log — Check Logs", filename segment "CheckLogs".
+
+**Unchecked-notes banner** (Saved mode only): when `_is_saved_mode` is `True` (i.e. `classified_keys` is empty), a banner label is shown at the top of the dialog if `count_unchecked_answers() > 0`. Text: `"{N} note{s} {have/hasn't} been checked yet (new or edited since the last Check Logs). Run Check Logs to check them."` Counting unit: **CLAMP/CCT count per distinct `why` text per moment** (mirrors `build_notes` — one note shared across C and L counts once); **3x3 counts per-answer**. Entries with a valid `check_hash`, a legacy `is_shallow`/`is_vague` flag, or a honoured `ignore_shallow` are considered checked. Banner colors come from `ui.dialogs.shallow.unchecked_banner.{background_color,text_color}` in the theme files. The banner is **never** shown during a live Check Logs run.
 
 **Row display**: CLAMP/CCT rows show **Ignore** in the move-header row (`show_ignore_checkbox=True`). 3x3 rows show per-answer Ignore checkboxes stacked below the chip in the chip column (right of the answer box). No ⚠️ triangle anywhere. `ShowShallowTagsDialog._setup_ui()` pre-stamps entries per-entry (via `_stamp_entries`) before constructing `_TagRowWidget`, so chip labels appear during the current run even before Save.
 
@@ -120,9 +122,9 @@ Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, ig
 
 Added to entry dicts via `ChessLogStorageService.make_entry(preset, cat, why, is_shallow=False)`. Omitted when `False` (backward-compatible). **Written by `ShowShallowTagsDialog._on_save()`** (Save-deferred — no longer written directly by the controller after classification). Persisted to the PGN via the normal Save Chess Log flow (same lifecycle as `ignore_shallow`). Both `_TagRowWidget._preserved_is_shallow` and `get_current_entries()` carry the flag through edits so it survives round-trips in both dialogs.
 
-**CLAMP/CCT**: `is_shallow` is written per `(game_number, path_key, preset)` key. A position tagged with two CLAMP letters (e.g. C and L) produces two entries; the classifier returns a single verdict for that key and both entries get `is_shallow=True`.
+**CLAMP/CCT**: `is_shallow` is written per `(game, path_key, preset)` key. A position tagged with two CLAMP letters (e.g. C and L) produces two entries; the classifier returns a single verdict for that key and both entries get `is_shallow=True`.
 
-**3x3**: `is_shallow` is written per-entry, keyed by the 4-tuple `(game_number, path_key, "3x3", cat)`. Only entries with `cat ∈ {Why1,Why2,Why3}` receive `is_shallow=True` — a GENERIC verdict on a Why answer does not affect Why4. The B4 chip-eligibility rule also enforces this at render time.
+**3x3**: `is_shallow` is written per-entry, keyed by the 4-tuple `(game, path_key, "3x3", cat)`. Only entries with `cat ∈ {Why1,Why2,Why3}` receive `is_shallow=True` — a GENERIC verdict on a Why answer does not affect Why4. The B4 chip-eligibility rule also enforces this at render time.
 
 ### `is_vague` schema field
 
@@ -151,7 +153,7 @@ Rules: for Why1–3, `is_shallow = (verdict == "GENERIC")`; for Why4, `is_vague 
 
 A 16-character lowercase hex string — the first 16 characters of `SHA-256(why.strip().encode("utf-8")).hexdigest()`. Written per-entry on `ShowShallowTagsDialog._on_save()` alongside `is_shallow`/`is_vague`. Omitted when absent (backward-compatible — entries without it are treated as unchecked by `is_entry_checked()`).
 
-**Purpose**: lets the dialog (and "Show Saved Check Logs") tell at a glance whether the AI verdict on record matches the current answer text. `is_entry_checked()` returns `True` when the stored hash matches `SHA-256(why.strip())[:16]`, when legacy `is_shallow`/`is_vague` flags are set (pre-hash entries), or when the entry's Ignore flag is honoured. Parse failures leave the entry unchecked regardless of hash.
+**Purpose**: lets the dialog (and "Show Shallow/Vague Logs") tell at a glance whether the AI verdict on record matches the current answer text. `is_entry_checked()` returns `True` when the stored hash matches `SHA-256(why.strip())[:16]`, when legacy `is_shallow`/`is_vague` flags are set (pre-hash entries), or when the entry's Ignore flag is honoured. Parse failures leave the entry unchecked regardless of hash.
 
 `check_hash` is **never cleared on text edit** — `clear_verdict_if_text_changed()` strips `is_shallow`, `is_vague`, `ignore_shallow`, and `ignore_text_hash`, but not `check_hash` (the hash is stale once the text changes, but there is no harm in leaving it; it will simply mismatch and the entry will show as unchecked until the next Check Logs run writes a fresh hash).
 
@@ -167,7 +169,7 @@ Top-level key in the PGN `[ChessLog ...]` payload (sibling of `paths`, `preset`,
 
 `date` is UTC ISO-8601 (`YYYY-MM-DDTHH:MM:SSZ`), captured when `shallow_ready` fires in `_on_shallow_thread_ready`. Written by `ShowShallowTagsDialog._on_save()` Phase c for every game that was saved during the run. Read by `ChessLogStorageService.load_check_run(game) -> Optional[Dict]`.
 
-PDF uses the stored date converted to local time via `_format_check_run_date()` in `show_shallow_tags_dialog.py`. "Show Saved Check Logs" reads `_check_run` per game at PDF-export time; a game without `_check_run` contributes no date to the header (the header shows the earliest/latest across all shown games, or is omitted if none have it).
+PDF uses the stored date converted to local time via `_format_check_run_date()` in `show_shallow_tags_dialog.py`. "Show Shallow/Vague Logs" reads `_check_run` per shown game at PDF-export time — see **Check Logs PDF header** above for the single/mixed/no-run logic.
 
 ### `request_flag_shallow_notes()` in `ChessLogChartsController`
 

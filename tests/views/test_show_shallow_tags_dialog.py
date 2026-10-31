@@ -60,6 +60,7 @@ def _make_entry(preset, cat, why="", ignore_shallow=False):
 
 
 def _make_controller(tags_by_game=None):
+    from app.controllers.chess_log_controller import ChessLogController
     ctrl = MagicMock()
     tags_by_game = tags_by_game or {}
     # Mutable state mirrors the real controller: replace_entries_at_path_for_game
@@ -78,45 +79,16 @@ def _make_controller(tags_by_game=None):
         kept = [e for e in existing if e.get("preset") != preset]
         mutable_tags[gnum][path_key] = kept + list(entries)
 
-    def _count_unchecked(games):
-        from app.services.chess_log_storage_service import ChessLogStorageService
-        count = 0
-        for game in games:
-            tags = _get_tags(game)
-            for entries in tags.values():
-                by_preset = {}
-                for e in entries:
-                    by_preset.setdefault(e.get("preset", ""), []).append(e)
-                for preset, preset_entries in by_preset.items():
-                    if preset == "3x3":
-                        for e in preset_entries:
-                            why = (e.get("why") or "").strip()
-                            if why and not ChessLogStorageService.is_entry_checked(e):
-                                count += 1
-                    else:
-                        seen = {}
-                        for e in preset_entries:
-                            why = (e.get("why") or "").strip()
-                            if not why:
-                                continue
-                            chk = ChessLogStorageService.is_entry_checked(e)
-                            if why not in seen:
-                                seen[why] = chk
-                            elif chk:
-                                seen[why] = True
-                        for chk in seen.values():
-                            if not chk:
-                                count += 1
-        return count
-
     ctrl.get_tags_for_game.side_effect = _get_tags
-    ctrl.count_unchecked_answers.side_effect = _count_unchecked
+    ctrl.count_unchecked_answers.side_effect = lambda games: ChessLogController.count_unchecked_answers(ctrl, games)
+    ctrl.has_any_checked_answer.side_effect = lambda games: ChessLogController.has_any_checked_answer(ctrl, games)
+    ctrl.get_shallow_vague_keys.side_effect = lambda games: ChessLogController.get_shallow_vague_keys(ctrl, games)
     ctrl.get_custom_categories.return_value = []
     ctrl.replace_entries_at_path_for_game = MagicMock(side_effect=_replace_entries)
     return ctrl
 
 
-def _make_dialog(games, tags_by_game, shallow_keys):
+def _make_dialog(games, tags_by_game, shallow_keys, saved_mode=True):
     from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
     ctrl = _make_controller(tags_by_game)
     return ShowShallowTagsDialog(
@@ -124,6 +96,7 @@ def _make_dialog(games, tags_by_game, shallow_keys):
         games=games,
         controller=ctrl,
         shallow_keys=shallow_keys,
+        saved_mode=saved_mode,
     ), ctrl
 
 
@@ -2455,6 +2428,104 @@ class TestUncheckedBanner(unittest.TestCase):
 # Phase B: Save in Saved mode must not write check_hash or _check_run
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# _clear_stale_flags_after_edit: flag cleared, check_hash preserved after edit
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestClearStaleFlagsAfterEdit(unittest.TestCase):
+    """_clear_stale_flags_after_edit clears is_shallow/is_vague but keeps check_hash."""
+
+    def _run_edit_test(self, game, entry, sk, ck, saved_mode, cat_key):
+        """Open dialog, edit answer text, save; return all entries written to controller."""
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+            saved_mode=saved_mode,
+        )
+        self.assertTrue(dlg._row_widgets, "Expected at least one row widget")
+        why_edit = dlg._row_widgets[0]._why_texts.get(cat_key)
+        self.assertIsNotNone(why_edit, f"Expected _why_texts['{cat_key}']")
+        why_edit.setPlainText("edited text")
+        dlg._on_save()
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            all_written.extend(kw.get("entries") or (args[3] if len(args) > 3 else []))
+        return all_written
+
+    def test_clamp_live_edit_clears_flag_preserves_check_hash(self):
+        """CLAMP, live mode: edit text → is_shallow cleared, check_hash preserved."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "original", is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash("original")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        written = self._run_edit_test(game, entry, sk, ck, saved_mode=False, cat_key="why")
+        self.assertTrue(written)
+        for e in written:
+            self.assertFalse(e.get("is_shallow"), f"is_shallow must be cleared; got {e}")
+            self.assertIn("check_hash", e,
+                f"check_hash must survive the edit; got {e}")
+
+    def test_clamp_saved_edit_clears_flag_preserves_check_hash(self):
+        """CLAMP, Saved mode: edit text → is_shallow cleared, check_hash preserved."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "original", is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash("original")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        written = self._run_edit_test(game, entry, sk, ck=frozenset(), saved_mode=True,
+                                       cat_key="why")
+        self.assertTrue(written)
+        for e in written:
+            self.assertFalse(e.get("is_shallow"), f"is_shallow must be cleared; got {e}")
+            self.assertIn("check_hash", e,
+                f"check_hash must survive the edit; got {e}")
+
+    def test_3x3_live_edit_clears_flag_preserves_check_hash(self):
+        """3x3, live mode: edit Why1 → is_shallow cleared, check_hash preserved."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "original why1",
+                                                   is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash("original why1")
+        sk = frozenset([(game, "0", "3x3", "Why1")])
+        ck = frozenset([(game, "0", "3x3", "Why1")])
+        written = self._run_edit_test(game, entry, sk, ck, saved_mode=False, cat_key="Why1")
+        self.assertTrue(written)
+        edited = [e for e in written if e.get("cat") == "Why1"]
+        self.assertTrue(edited, f"Expected Why1 entry in written; got {written}")
+        for e in edited:
+            self.assertFalse(e.get("is_shallow"), f"is_shallow must be cleared; got {e}")
+            self.assertIn("check_hash", e,
+                f"check_hash must survive the edit; got {e}")
+
+    def test_3x3_saved_edit_clears_flag_preserves_check_hash(self):
+        """3x3, Saved mode: edit Why1 → is_shallow cleared, check_hash preserved."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "original why1",
+                                                   is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash("original why1")
+        sk = frozenset([(game, "0", "3x3", "Why1")])
+        written = self._run_edit_test(game, entry, sk, ck=frozenset(), saved_mode=True,
+                                       cat_key="Why1")
+        self.assertTrue(written)
+        edited = [e for e in written if e.get("cat") == "Why1"]
+        self.assertTrue(edited, f"Expected Why1 entry in written; got {written}")
+        for e in edited:
+            self.assertFalse(e.get("is_shallow"), f"is_shallow must be cleared; got {e}")
+            self.assertIn("check_hash", e,
+                f"check_hash must survive the edit; got {e}")
+
+
 @requires_qt
 class TestSavedModeNoWrite(unittest.TestCase):
     """Save in Saved mode writes no check_hash and never calls set_check_run_for_game."""
@@ -2515,24 +2586,27 @@ class TestPDFHeaderSavedMode(unittest.TestCase):
             return_value=("/tmp/test_export.pdf", "PDF Files (*.pdf)"),
         ):
             dlg._on_export_pdf()
-        return captured.get("model_label", "")
+        return captured
 
     def test_no_run_info_shows_saved_check_logs_results(self):
         """When no game has _check_run, model_label is 'Saved Check Logs results'."""
         from app.services.chess_log_storage_service import ChessLogStorageService
         game = _make_game()
         entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
-        label = self._open_and_export(game, entry, lambda g: None)
-        self.assertEqual(label, "Saved Check Logs results")
+        result = self._open_and_export(game, entry, lambda g: None)
+        self.assertEqual(result.get("model_label"), "Saved Check Logs results")
 
     def test_single_run_shows_model_and_date(self):
-        """Single run (same model+date) shows just that model name."""
+        """Single run (same model+date) shows model name and a formatted date."""
         from app.services.chess_log_storage_service import ChessLogStorageService
         game = _make_game()
         entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
         cr = {"model": "claude-sonnet-4-6", "date": "2026-10-30T12:00:00Z"}
-        label = self._open_and_export(game, entry, lambda g: cr)
-        self.assertEqual(label, "claude-sonnet-4-6")
+        result = self._open_and_export(game, entry, lambda g: cr)
+        self.assertEqual(result.get("model_label"), "claude-sonnet-4-6")
+        generated_at = result.get("generated_at", "")
+        self.assertTrue(generated_at, "Expected generated_at to be set")
+        self.assertIn("2026-10-30", generated_at)
 
     def test_mixed_runs_shows_most_recent_model_suffix(self):
         """Multiple different runs → most recent model + ' (mixed runs)'."""
@@ -2588,6 +2662,744 @@ class TestPDFHeaderSavedMode(unittest.TestCase):
         ):
             dlg._on_export_pdf()
         self.assertEqual(captured.get("model_label"), "claude-sonnet-4-6 (mixed runs)")
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: explicit saved_mode parameter
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestExplicitSavedMode(unittest.TestCase):
+    """saved_mode=False (default) means no banner even when classified_keys is empty."""
+
+    def _find_banner(self, dlg):
+        from PyQt6.QtWidgets import QLabel
+        for lbl in dlg.findChildren(QLabel):
+            t = lbl.text()
+            if "hasn't been checked yet" in t or "haven't been checked yet" in t:
+                return lbl
+        return None
+
+    def test_live_empty_classified_no_banner(self):
+        """Live dialog with classified_keys=frozenset() and saved_mode default (False)
+        must not show the unchecked banner — a parse all-fail is not Saved mode."""
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = _make_entry("CLAMP", "C", "an unchecked note")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        # classified_keys empty but saved_mode=False (default) → live mode, no banner
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=frozenset(),
+            # saved_mode NOT passed → defaults to False
+        )
+        self.assertIsNone(self._find_banner(dlg))
+
+    def test_saved_mode_flag_shows_banner(self):
+        """saved_mode=True with an unchecked entry shows the unchecked banner."""
+        game = _make_game()
+        entry = _make_entry("CLAMP", "C", "unchecked note")
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, _ = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        self.assertIsNotNone(self._find_banner(dlg))
+
+
+# ---------------------------------------------------------------------------
+# Fix 1: Saved mode does not call AI / shallow thread
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestNoAICallInSavedMode(unittest.TestCase):
+    """Opening, editing, and saving in Saved mode never touches the AI pipeline."""
+
+    def test_saved_mode_never_calls_ai_methods(self):
+        """No AI-related controller methods are called during open/edit/save in Saved mode."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "some note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        # Edit text in the row widget
+        if dlg._row_widgets:
+            dlg._row_widgets[0]._why_texts.get("why") and \
+                dlg._row_widgets[0]._why_texts["why"].setPlainText("edited text")
+        dlg._on_save()
+        # Controller methods that belong to the AI pipeline must never be called
+        ctrl.request_flag_shallow_notes.assert_not_called()
+
+    def test_shallow_thread_not_instantiated_in_saved_mode(self):
+        """ChessLogShallowThread is never instantiated when the dialog is in Saved mode."""
+        from unittest.mock import patch
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "a note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        with patch(
+            "app.controllers.chess_log_charts_controller.ChessLogShallowThread",
+            side_effect=AssertionError("ShallowThread must not be constructed in Saved mode"),
+        ):
+            dlg, ctrl = _make_dialog(
+                [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+            )
+            dlg._on_save()
+        # If we reach here, no AssertionError was raised — shallow thread was never created
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: editing a flagged answer clears its chip on save
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestEditSinceCheck(unittest.TestCase):
+    """Editing a flagged answer and saving must drop is_shallow from that entry."""
+
+    def test_edit_drops_is_shallow_in_live_save(self):
+        """In live mode: editing the why text of a shallow-flagged entry clears is_shallow."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        original_text = "original text"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", original_text, is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash(original_text)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+        )
+        # Edit the why text
+        self.assertTrue(dlg._row_widgets, "Expected at least one row widget")
+        why_edit = dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit, "Expected _why_texts['why'] to be a QPlainTextEdit")
+        why_edit.setPlainText("edited text")
+
+        dlg._on_save()
+
+        # Inspect all entries written to controller
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            entries_written = kw.get("entries") or (args[3] if len(args) > 3 else [])
+            all_written.extend(entries_written)
+        self.assertTrue(all_written, "Expected replace_entries_at_path_for_game to be called")
+        self.assertFalse(
+            any(e.get("is_shallow") for e in all_written),
+            f"is_shallow must be cleared after text edit; got: {all_written}",
+        )
+
+    def test_edit_drops_is_shallow_in_saved_mode(self):
+        """In Saved mode: editing the why text of a shallow-flagged entry clears is_shallow."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        original_text = "original text"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", original_text, is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash(original_text)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        self.assertTrue(dlg._row_widgets, "Expected at least one row widget")
+        why_edit = dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        why_edit.setPlainText("different text entirely")
+
+        dlg._on_save()
+
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            entries_written = kw.get("entries") or (args[3] if len(args) > 3 else [])
+            all_written.extend(entries_written)
+        self.assertTrue(all_written, "Expected replace_entries_at_path_for_game to be called")
+        self.assertFalse(
+            any(e.get("is_shallow") for e in all_written),
+            f"is_shallow must be cleared after text edit; got: {all_written}",
+        )
+
+    def test_edit_drops_is_shallow_unchecked_count_increases(self):
+        """After editing a flagged answer, count_unchecked_answers reflects the cleared flag."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        original_text = "original text"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", original_text, is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash(original_text)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        self.assertTrue(dlg._row_widgets)
+        why_edit = dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        why_edit.setPlainText("new text here")
+        dlg._on_save()
+        # After save, the mutable storage in the mock should reflect the cleared chip.
+        # count_unchecked_answers delegates to the real controller method.
+        count = ctrl.count_unchecked_answers([game])
+        self.assertEqual(count, 1,
+            f"Expected 1 unchecked answer after editing a flagged entry; got {count}")
+
+
+# ---------------------------------------------------------------------------
+# Fix 3: restoring exact text keeps chip and hash
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestRestoreExactText(unittest.TestCase):
+    """Restoring exact original text after editing must preserve the chip and check_hash."""
+
+    def test_restore_exact_keeps_chip_and_hash(self):
+        """Set text to 'different text' then back to 'exact text'; chip stays on Save.
+
+        When text is restored to the original, nothing changed from storage so no
+        write call occurs — the entry remains in storage with is_shallow=True.
+        Verify the entry is still accessible with its chip intact after _on_save.
+        """
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        exact_text = "exact text"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", exact_text, is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash(exact_text)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+        )
+        self.assertTrue(dlg._row_widgets)
+        why_edit = dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        # Simulate: edit then restore to original
+        why_edit.setPlainText("different text")
+        why_edit.setPlainText(exact_text)
+
+        dlg._on_save()
+
+        # When text is restored, nothing changed → no write needed; entry stays in storage.
+        # The storage (via ctrl.get_tags_for_game) should still show is_shallow=True.
+        tags = ctrl.get_tags_for_game(game)
+        all_stored = [e for entries in tags.values() for e in entries]
+        expected_hash = ChessLogStorageService.compute_check_hash(exact_text)
+        # Chip must be preserved (either unchanged in storage or written via replace)
+        any_is_shallow = any(e.get("is_shallow") for e in all_stored)
+        any_correct_hash = any(e.get("check_hash") == expected_hash for e in all_stored)
+        self.assertTrue(
+            any_is_shallow,
+            f"is_shallow must be preserved when text is restored; storage: {all_stored}",
+        )
+        self.assertTrue(
+            any_correct_hash,
+            f"check_hash must match exact_text in storage; storage: {all_stored}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Phase b: entries not in classified_keys get no check_hash
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestParseFailureUnchecked(unittest.TestCase):
+    """Entries not in classified_keys are not touched by Phase b — no check_hash written."""
+
+    def test_entry_not_in_classified_gets_no_check_hash(self):
+        """classified_keys empty → Phase b loop is empty → replace not called."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "a note")
+        # Not in shallow_keys or classified_keys
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=frozenset(),
+            classified_keys=frozenset(),
+        )
+        dlg._on_save()
+        # Phase a has no rows, Phase b has no classified_keys → nothing written
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Honoured-Ignore counts as checked
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestHonouredIgnoreChecked(unittest.TestCase):
+    """An entry with honoured ignore_shallow counts as checked (not unchecked)."""
+
+    def test_honoured_ignore_not_counted_as_unchecked(self):
+        """ignore_shallow=True with matching ignore_text_hash → entry is checked."""
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        note = "the note"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", note)
+        entry["ignore_shallow"] = True
+        # ignore_text_hash uses full sha256 (not the truncated compute_check_hash)
+        entry["ignore_text_hash"] = hashlib.sha256(note.encode("utf-8")).hexdigest()
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        # Entry has honoured ignore → count_unchecked_answers should be 0
+        count = ctrl.count_unchecked_answers([game])
+        self.assertEqual(count, 0,
+            f"Honoured ignore_shallow should count as checked; got {count}")
+
+
+# ---------------------------------------------------------------------------
+# Phase b: deep (non-flagged) entries in classified_keys get check_hash
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestDeepAnswersGetCheckHash(unittest.TestCase):
+    """Non-flagged entries that are in classified_keys get check_hash stamped (Phase b)."""
+
+    def test_clamp_deep_entry_gets_check_hash_on_live_save(self):
+        """CLAMP entry in classified_keys but not in shallow_keys: Phase b stamps check_hash."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "deep note")
+        # In classified_keys (parsed), but not in shallow_keys (not flagged)
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=frozenset(),
+            classified_keys=ck,
+        )
+        # No rows shown (not flagged)
+        self.assertEqual(len(dlg._row_widgets), 0)
+        dlg._on_save()
+        # Phase b should write check_hash
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            entries_written = kw.get("entries") or (args[3] if len(args) > 3 else [])
+            all_written.extend(entries_written)
+        expected_hash = ChessLogStorageService.compute_check_hash("deep note")
+        self.assertTrue(
+            any(e.get("check_hash") == expected_hash for e in all_written),
+            f"Phase b must stamp check_hash on non-flagged classified entry; got: {all_written}",
+        )
+
+    def test_3x3_deep_entry_gets_check_hash_on_live_save(self):
+        """3x3 entry in classified_keys but not flagged: Phase b stamps check_hash."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("3x3", "Why1", "deep why1")
+        ck = frozenset([(game, "0", "3x3", "Why1")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=frozenset(),
+            classified_keys=ck,
+        )
+        self.assertEqual(len(dlg._row_widgets), 0)
+        dlg._on_save()
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            entries_written = kw.get("entries") or (args[3] if len(args) > 3 else [])
+            all_written.extend(entries_written)
+        expected_hash = ChessLogStorageService.compute_check_hash("deep why1")
+        self.assertTrue(
+            any(e.get("check_hash") == expected_hash for e in all_written),
+            f"Phase b must stamp check_hash on non-flagged 3x3 classified entry; got: {all_written}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Saved mode: real edits written; check_hash preserved; no check run
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestSavedModeRealEditsWritten(unittest.TestCase):
+    """In Saved mode: text edits and Ignore ticks are written; check_run NOT written;
+    check_hash is PRESERVED (never cleared on edit — restoring original text re-checks it)."""
+
+    def test_edit_text_clears_flag_and_preserves_check_hash_no_check_run(self):
+        """Saved mode: editing text clears is_shallow but preserves check_hash.
+
+        check_hash must survive a text edit in Saved mode so that restoring the
+        exact original text makes the answer count as checked again without
+        re-running Check Logs. Only is_shallow/is_vague/ignore fields are cleared.
+        set_check_run_for_game must never be called in Saved mode.
+        """
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        game = _make_game()
+        original = "original"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", original, is_shallow=True)
+        original_hash = ChessLogStorageService.compute_check_hash(original)
+        entry["check_hash"] = original_hash
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        self.assertTrue(dlg._row_widgets, "Expected a row widget")
+        row_widget = dlg._row_widgets[0]
+        why_edit = row_widget._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        why_edit.setPlainText("new text")
+
+        dlg._on_save()
+
+        # Must not call set_check_run_for_game
+        ctrl.set_check_run_for_game.assert_not_called()
+
+        all_written = []
+        for call_args in ctrl.replace_entries_at_path_for_game.call_args_list:
+            args, kw = call_args
+            entries_written = kw.get("entries") or (args[3] if len(args) > 3 else [])
+            all_written.extend(entries_written)
+        self.assertTrue(all_written, "Expected entries to be written after text edit")
+        # is_shallow must be cleared (text was edited)
+        self.assertFalse(
+            any(e.get("is_shallow") for e in all_written),
+            f"is_shallow must be cleared after text edit; got: {all_written}",
+        )
+        # check_hash must be PRESERVED (original hash survives, enabling text-restore check)
+        for e in all_written:
+            self.assertEqual(
+                e.get("check_hash"), original_hash,
+                f"check_hash must be preserved after Saved-mode text edit; got: {e}",
+            )
+
+
+# ---------------------------------------------------------------------------
+# PDF header: live mode uses check_run_info
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestPDFHeaderLiveMode(unittest.TestCase):
+    """PDF header in live mode uses check_run_info passed to the dialog."""
+
+    def test_live_mode_pdf_header_uses_check_run_info(self):
+        """Live dialog with check_run_info: PDF gets model_label from info and formatted date."""
+        from unittest.mock import patch
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        check_run_info = {"model": "claude-opus-4-7", "date": "2026-10-30T12:00:00Z"}
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+            check_run_info=check_run_info,
+        )
+        captured = {}
+        with patch(
+            "app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+            side_effect=lambda *a, **kw: captured.update(kw),
+        ), patch(
+            "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=("/tmp/test_live.pdf", "PDF Files (*.pdf)"),
+        ):
+            dlg._on_export_pdf()
+        self.assertEqual(captured.get("model_label"), "claude-opus-4-7")
+        # generated_at should be a non-empty formatted date string
+        generated_at = captured.get("generated_at", "")
+        self.assertTrue(generated_at, "Expected generated_at to be set in live mode")
+        self.assertIn("2026-10-30", generated_at)
+
+
+# ---------------------------------------------------------------------------
+# Step 2: nothing-flagged message box from _show_saved_shallow_logs
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestNothingFlaggedMessage(unittest.TestCase):
+    """_show_saved_shallow_logs shows a QMessageBox when nothing is flagged.
+
+    Matches the wording live Check Logs uses when a run flags nothing:
+    title "Nothing Flagged", message "No shallow notes or vague lessons found — great job."
+    Plus unchecked count text when some answers haven't been checked yet.
+    """
+
+    def _make_fake_window(self, games, chess_log_ctrl, config=None):
+        """Return a minimal stand-in for MainWindow with the required attributes."""
+        from unittest.mock import MagicMock
+        db = MagicMock()
+        db.get_all_games.return_value = games
+        db_controller = MagicMock()
+        db_controller.get_active_database.return_value = db
+        fake = MagicMock()
+        fake.config = config or {}
+        fake.controller.get_database_controller.return_value = db_controller
+        fake.controller.get_chess_log_controller.return_value = chess_log_ctrl
+        return fake
+
+    def _make_checked_game(self):
+        """Return a game whose has_chess_log_tags=True so it passes the logged-game filter."""
+        game = _make_game()
+        game.has_chess_log_tags = True
+        return game
+
+    def _make_ctrl_mock(self, *, has_checked, unchecked_count):
+        """Plain MagicMock controller — no side_effects — for main_window tests."""
+        from unittest.mock import MagicMock
+        ctrl = MagicMock()
+        ctrl.has_any_checked_answer.return_value = has_checked
+        ctrl.get_shallow_vague_keys.return_value = (frozenset(), frozenset())
+        ctrl.count_unchecked_answers.return_value = unchecked_count
+        return ctrl
+
+    def _load_cfg(self):
+        import json, os
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app", "config", "config.json",
+        )
+        with open(path) as f:
+            return json.load(f)
+
+    def test_all_checked_shows_nothing_flagged_message(self):
+        """All answers checked + nothing flagged → QMessageBox with exact config wording."""
+        from unittest.mock import patch
+        from app.main_window import MainWindow
+        game = self._make_checked_game()
+        ctrl = self._make_ctrl_mock(has_checked=True, unchecked_count=0)
+        fake = self._make_fake_window([game], ctrl, config=self._load_cfg())
+        with patch("PyQt6.QtWidgets.QMessageBox.information") as mock_info:
+            MainWindow._show_saved_shallow_logs(fake)
+        mock_info.assert_called_once()
+        _, title, message = mock_info.call_args[0]
+        self.assertEqual(title, "Nothing Flagged")
+        self.assertEqual(message, "No shallow notes or vague lessons found — great job.")
+
+    def test_one_unchecked_appends_count_text(self):
+        """1 unchecked answer + nothing flagged → base message + '1 note hasn't been checked yet…'"""
+        from unittest.mock import patch
+        from app.main_window import MainWindow
+        game = self._make_checked_game()
+        ctrl = self._make_ctrl_mock(has_checked=True, unchecked_count=1)
+        fake = self._make_fake_window([game], ctrl, config=self._load_cfg())
+        with patch("PyQt6.QtWidgets.QMessageBox.information") as mock_info:
+            MainWindow._show_saved_shallow_logs(fake)
+        mock_info.assert_called_once()
+        _, title, message = mock_info.call_args[0]
+        self.assertEqual(title, "Nothing Flagged")
+        expected = (
+            "No shallow notes or vague lessons found — great job."
+            "\n\n1 note hasn't been checked yet"
+            " (new or edited since the last Check Logs). Run Check Logs to check them."
+        )
+        self.assertEqual(message, expected)
+
+    def test_plural_unchecked_uses_have_not(self):
+        """3 unchecked answers → '3 notes haven't been checked yet…'"""
+        from unittest.mock import patch
+        from app.main_window import MainWindow
+        game = self._make_checked_game()
+        ctrl = self._make_ctrl_mock(has_checked=True, unchecked_count=3)
+        fake = self._make_fake_window([game], ctrl, config=self._load_cfg())
+        with patch("PyQt6.QtWidgets.QMessageBox.information") as mock_info:
+            MainWindow._show_saved_shallow_logs(fake)
+        mock_info.assert_called_once()
+        _, title, message = mock_info.call_args[0]
+        self.assertEqual(title, "Nothing Flagged")
+        expected = (
+            "No shallow notes or vague lessons found — great job."
+            "\n\n3 notes haven't been checked yet"
+            " (new or edited since the last Check Logs). Run Check Logs to check them."
+        )
+        self.assertEqual(message, expected)
+
+
+# ---------------------------------------------------------------------------
+# End-to-end: real ChessLogController + real PGN round-trip (no store_tags mock)
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestEndToEndRealDatabaseModel(unittest.TestCase):
+    """End-to-end: live Check Logs Save → Saved-mode dialog → real PGN write/read-back.
+
+    Uses real GameData objects with real PGN text and a real ChessLogController.
+    store_tags is NOT patched — data actually round-trips through game.pgn.
+    Assertions read state back from the PGN with load_tags / load_check_run,
+    not from the controller's in-memory cache.
+    """
+
+    def _make_ctrl(self, game1, game2):
+        from app.controllers.chess_log_controller import ChessLogController
+        from unittest.mock import MagicMock
+        gm = MagicMock()
+        gm.active_game = None
+        gc = MagicMock()
+        gc.get_game_model.return_value = gm
+        db_model = MagicMock()
+        pm = MagicMock()
+        pm.get_all_database_models.return_value = [db_model]
+        pm.active_database_changed = MagicMock()
+        pm.active_database_changed.connect = MagicMock()
+        pm.active_database_changed.disconnect = MagicMock()
+        dc = MagicMock()
+        dc.get_panel_model.return_value = pm
+        dc.find_database_model_for_game.return_value = db_model
+        ctrl = ChessLogController({}, gc, database_controller=dc)
+        return ctrl, dc
+
+    def test_live_save_then_edit_and_ignore_in_saved_mode(self):
+        """Full PGN round-trip:
+        1. Live Check Logs Save (classified_keys set): check_hash + _check_run written to PGN.
+        2. Saved-mode dialog: edit one answer, tick Ignore on the other → Save.
+        3. load_tags / load_check_run read state directly from PGN (not cache).
+        4. Reopen: 1 dimmed row, banner = '1 note hasn't been checked yet...'.
+        """
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+
+        game1 = _make_game(game_number=1)
+        game2 = _make_game(game_number=2)
+
+        ctrl, dc = self._make_ctrl(game1, game2)
+
+        # Seed the controller's cache with unflagged entries (pre-Check-Logs state)
+        entry1 = ChessLogStorageService.make_entry("CLAMP", "C", "note one")
+        entry2 = ChessLogStorageService.make_entry("CLAMP", "C", "note two")
+        ctrl._multi_cache[id(game1)] = {"0": [dict(entry1)]}
+        ctrl._multi_cache[id(game2)] = {"0": [dict(entry2)]}
+
+        # ---- Step 1: Live Check Logs Save (both games in shallow_keys + classified_keys) ----
+        sk = frozenset([
+            (game1, "0", "CLAMP", ""),
+            (game2, "0", "CLAMP", ""),
+        ])
+        ck = frozenset([
+            (game1, "0", "CLAMP", ""),
+            (game2, "0", "CLAMP", ""),
+        ])
+        check_run_info = {"model": "claude-sonnet-4-6", "date": "2026-10-31T10:00:00Z"}
+
+        live_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game1, game2],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+            check_run_info=check_run_info,
+        )
+        live_dlg._on_save()
+
+        # Verify _check_run written to PGN (read from game.pgn, not cache)
+        cr1 = ChessLogStorageService.load_check_run(game1)
+        self.assertIsNotNone(cr1, "Expected _check_run in game1 PGN after live save")
+        self.assertEqual(cr1.get("model"), "claude-sonnet-4-6")
+
+        # ---- Step 2: Saved-mode dialog ----
+        sk2, vk2 = ctrl.get_shallow_vague_keys([game1, game2])
+        saved_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game1, game2],
+            controller=ctrl,
+            shallow_keys=sk2,
+            vague_keys=vk2,
+            classified_keys=frozenset(),
+            saved_mode=True,
+        )
+        self.assertEqual(len(saved_dlg._row_widgets), 2, "Expected 2 rows in saved-mode dialog")
+
+        # Row 0 = game1: edit the text
+        why_edit = saved_dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        why_edit.setPlainText("note one edited")
+
+        # Row 1 = game2: tick Ignore
+        ignore_cb = saved_dlg._row_widgets[1]._ignore_check
+        self.assertIsNotNone(ignore_cb)
+        ignore_cb.setChecked(True)
+
+        saved_dlg._on_save()
+
+        # DB was marked unsaved
+        dc.mark_database_unsaved.assert_called()
+
+        # ---- Step 3: Read back from PGN (not cache) ----
+        tags1 = ChessLogStorageService.load_tags(game1)
+        entries1 = [e for es in tags1.values() for e in es]
+        # is_shallow cleared (text edited)
+        self.assertFalse(
+            any(e.get("is_shallow") for e in entries1),
+            f"game1 is_shallow must be cleared after text edit; PGN: {entries1}",
+        )
+        # check_hash preserved (not cleared by the edit)
+        self.assertTrue(
+            any("check_hash" in e for e in entries1),
+            f"game1 check_hash must survive the edit; PGN: {entries1}",
+        )
+
+        tags2 = ChessLogStorageService.load_tags(game2)
+        entries2 = [e for es in tags2.values() for e in es]
+        expected_hash = hashlib.sha256("note two".encode("utf-8")).hexdigest()
+        self.assertTrue(
+            any(e.get("ignore_text_hash") == expected_hash for e in entries2),
+            f"game2 ignore_text_hash must match 'note two'; PGN: {entries2}",
+        )
+        # _check_run preserved in game1 (Saved mode must not erase it)
+        cr1_after = ChessLogStorageService.load_check_run(game1)
+        self.assertEqual(cr1_after, cr1, "game1 _check_run must survive Saved-mode save")
+
+        # ---- Step 4: Reopen in Saved mode ----
+        sk3, _vk3 = ctrl.get_shallow_vague_keys([game1, game2])
+        reopen_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game1, game2],
+            controller=ctrl,
+            shallow_keys=sk3,
+            saved_mode=True,
+        )
+        # Only game2's row shown (game1 no longer has is_shallow)
+        self.assertEqual(len(reopen_dlg._row_widgets), 1,
+            "Reopen: only game2's row should be shown")
+        row2 = reopen_dlg._row_widgets[0]
+        # game2 row is dimmed (ignore_shallow=True → _preserved_ignore_shallow)
+        self.assertTrue(row2._preserved_ignore_shallow,
+            "Reopen: game2 row must be dimmed (_preserved_ignore_shallow=True)")
+        # Banner: 1 note hasn't been checked yet (game1 was edited)
+        self.assertEqual(reopen_dlg.get_unchecked_count(), 1,
+            "Reopen: unchecked count must be 1")
+        # Assert the banner text is exactly right
+        from PyQt6.QtWidgets import QLabel
+        banner_labels = [
+            lbl for lbl in reopen_dlg.findChildren(QLabel)
+            if "hasn't been checked yet" in lbl.text()
+        ]
+        self.assertEqual(len(banner_labels), 1, "Expected exactly one banner label")
+        self.assertIn(
+            "1 note hasn't been checked yet",
+            banner_labels[0].text(),
+        )
 
 
 if __name__ == "__main__":

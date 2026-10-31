@@ -2488,5 +2488,72 @@ class TestCountUncheckedAnswers(unittest.TestCase):
         self.assertEqual(ctrl.count_unchecked_answers([game]), 1)
 
 
+# ---------------------------------------------------------------------------
+# Log this Moment: check_hash handling in add_moment_at_active_path
+# ---------------------------------------------------------------------------
+
+class TestLogThisMomentCheckHash(unittest.TestCase):
+    """Log this Moment (add_moment_at_active_path) does not preserve check_hash.
+
+    This is a known limitation: MomentDialog.get_entries() returns {preset,cat,why}
+    dicts without check_hash, and add_moment_at_active_path calls make_entry() which
+    creates fresh entries.  The existing check_hash is discarded on every re-log,
+    even when the text is unchanged.
+
+    These tests document the actual behaviour.  If the path is ever fixed to
+    preserve check_hash, the assertions must be updated.
+    """
+
+    def _make_ctrl(self, game, paths_data):
+        """Return a real ChessLogController seeded with paths_data for game."""
+        gm = make_game_model_mock(game, active_path=(0,))
+        gc = make_game_controller_mock(gm)
+        ctrl = ChessLogController({}, gc)
+        ctrl._cached_game = game
+        ctrl._cached_game_id = id(game)
+        ctrl._cached_paths_data = {k: list(v) for k, v in paths_data.items()}
+        return ctrl
+
+    def test_relogging_same_text_drops_check_hash(self):
+        """Re-logging with identical text replaces the entry and drops check_hash.
+
+        Known limitation: add_moment_at_active_path creates fresh entries via
+        make_entry() which does not carry over the existing check_hash field.
+        """
+        game = make_game()
+        note = "a checked note"
+        h = ChessLogStorageService.compute_check_hash(note)
+        existing = ChessLogStorageService.make_entry("CLAMP", "C", note, check_hash=h)
+        ctrl = self._make_ctrl(game, {"0": [existing]})
+        # Re-log with the same text (simulating MomentDialog returning unchanged entries)
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": note}])
+        new_entries = ctrl._cached_paths_data.get("0", [])
+        self.assertTrue(new_entries, "Expected entries after re-log")
+        # Known limitation: check_hash is dropped (fresh entry created)
+        for e in new_entries:
+            if e.get("preset") == "CLAMP":
+                self.assertNotIn(
+                    "check_hash", e,
+                    "add_moment_at_active_path drops check_hash (known limitation — "
+                    "update this assertion if the path is fixed to preserve it)",
+                )
+
+    def test_relogging_changed_text_drops_check_hash(self):
+        """Re-logging with changed text also drops check_hash (no check_hash is kept)."""
+        game = make_game()
+        original = "original text"
+        h = ChessLogStorageService.compute_check_hash(original)
+        existing = ChessLogStorageService.make_entry("CLAMP", "C", original, check_hash=h)
+        ctrl = self._make_ctrl(game, {"0": [existing]})
+        ctrl.add_moment_at_active_path([{"preset": "CLAMP", "cat": "C", "why": "changed text"}])
+        new_entries = ctrl._cached_paths_data.get("0", [])
+        for e in new_entries:
+            if e.get("preset") == "CLAMP":
+                self.assertNotIn(
+                    "check_hash", e,
+                    "check_hash must not be present in fresh entry from add_moment_at_active_path",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -3402,5 +3402,222 @@ class TestEndToEndRealDatabaseModel(unittest.TestCase):
         )
 
 
+# ---------------------------------------------------------------------------
+# Item 2 (gap): No AI call from Saved-mode export
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestNoAICallInSavedModeExport(unittest.TestCase):
+    """Exporting PDF from Saved-mode dialog never touches the AI pipeline."""
+
+    def test_export_in_saved_mode_never_calls_ai_services(self):
+        """Opening, editing, saving, and exporting in Saved mode must not construct
+        or call AIService, ChessLogShallowThread, or classify_notes."""
+        from unittest.mock import patch
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "a note", is_shallow=True)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        dlg, ctrl = _make_dialog(
+            [game], {game.game_number: {"0": [entry]}}, sk, saved_mode=True
+        )
+        if dlg._row_widgets:
+            w = dlg._row_widgets[0]._why_texts.get("why")
+            if w:
+                w.setPlainText("edited text")
+        dlg._on_save()
+
+        # Patch AI constructors/functions to fail if called during export
+        with patch(
+            "app.controllers.chess_log_charts_controller.ChessLogShallowThread.__init__",
+            side_effect=AssertionError("ChessLogShallowThread must not be created in Saved mode"),
+        ), patch(
+            "app.services.ai_service.AIService.__init__",
+            side_effect=AssertionError("AIService must not be created in Saved mode"),
+        ), patch(
+            "app.services.chess_log_shallow_service.classify_notes",
+            side_effect=AssertionError("classify_notes must not be called in Saved mode"),
+        ), patch(
+            "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=("/tmp/test_export_saved.pdf", "PDF Files (*.pdf)"),
+        ), patch(
+            "app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+        ):
+            dlg._on_export_pdf()
+        # If any AI class was invoked the patches would have raised AssertionError
+
+
+# ---------------------------------------------------------------------------
+# Item 3 (gap): Reopen after restore-exact-text shows chip; count unchanged
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestRestoreExactTextReopen(unittest.TestCase):
+    """After restore + save, reopening dialog still shows the chip and count stays 0."""
+
+    def test_restore_exact_then_reopen_chip_shown_and_count_zero(self):
+        """Edit text, restore original, Save → chip still shown on reopen; count = 0."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        exact_text = "exact text"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", exact_text, is_shallow=True)
+        entry["check_hash"] = ChessLogStorageService.compute_check_hash(exact_text)
+        sk = frozenset([(game, "0", "CLAMP", "")])
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        live_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk,
+            classified_keys=ck,
+        )
+        self.assertTrue(live_dlg._row_widgets)
+        why_edit = live_dlg._row_widgets[0]._why_texts.get("why")
+        self.assertIsNotNone(why_edit)
+        why_edit.setPlainText("different text")
+        why_edit.setPlainText(exact_text)  # restore
+        live_dlg._on_save()
+
+        # Reopen in saved mode — shallow_keys from real controller
+        sk2, _ = ctrl.get_shallow_vague_keys([game])
+        self.assertTrue(sk2, "is_shallow must be preserved when text is restored")
+        reopen_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=sk2,
+            saved_mode=True,
+        )
+        self.assertEqual(len(reopen_dlg._row_widgets), 1,
+            "Reopen: chip row must be shown when is_shallow is preserved")
+        count = ctrl.count_unchecked_answers([game])
+        self.assertEqual(count, 0,
+            "Unchecked count must be 0 when exact text is restored (check_hash matches)")
+
+
+# ---------------------------------------------------------------------------
+# Item 4 (gap): Parse failure also counted as unchecked
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestParseFailureUncheckedCount(unittest.TestCase):
+    """Entry not in classified_keys gets no check_hash and counts as 1 unchecked."""
+
+    def test_entry_not_in_classified_counts_as_unchecked(self):
+        """Live Save with classified_keys=frozenset(): no check_hash written, count=1."""
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", "a note")
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=frozenset(),
+            classified_keys=frozenset(),
+        )
+        dlg._on_save()
+        ctrl.replace_entries_at_path_for_game.assert_not_called()
+        count = ctrl.count_unchecked_answers([game])
+        self.assertEqual(count, 1,
+            "Entry not in classified_keys must count as 1 unchecked after live Save")
+
+
+# ---------------------------------------------------------------------------
+# Item 5 (gap): Honoured Ignore counts as checked AFTER a live Check Logs Save
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestHonouredIgnoreAfterLiveSave(unittest.TestCase):
+    """Phase b in a live save skips honoured-Ignore entries; count stays 0."""
+
+    def test_honoured_ignore_after_live_save_counts_as_checked(self):
+        """Entry with ignore_shallow + matching hash: Phase b skips it; count = 0."""
+        import hashlib
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        game = _make_game()
+        note = "the note"
+        entry = ChessLogStorageService.make_entry("CLAMP", "C", note)
+        entry["ignore_shallow"] = True
+        entry["ignore_text_hash"] = hashlib.sha256(note.encode("utf-8")).hexdigest()
+        # In classified_keys (classifier ran) but not in shallow_keys (Ignore honoured)
+        ck = frozenset([(game, "0", "CLAMP", "")])
+        ctrl = _make_controller({game.game_number: {"0": [entry]}})
+        live_dlg = ShowShallowTagsDialog(
+            config={},
+            games=[game],
+            controller=ctrl,
+            shallow_keys=frozenset(),   # not flagged
+            classified_keys=ck,
+        )
+        self.assertEqual(len(live_dlg._row_widgets), 0, "Honoured-Ignore entry not shown")
+        live_dlg._on_save()
+        count = ctrl.count_unchecked_answers([game])
+        self.assertEqual(count, 0,
+            "Honoured ignore_shallow must count as checked (0) after a live Check Logs Save")
+
+
+# ---------------------------------------------------------------------------
+# Item 9 (gap): Mixed-runs PDF header also sets the most-recent date
+# ---------------------------------------------------------------------------
+
+@requires_qt
+class TestMixedRunsPDFDate(unittest.TestCase):
+    """Mixed-runs PDF header sets generated_at to the most recent run's date."""
+
+    def test_mixed_runs_pdf_header_uses_most_recent_date(self):
+        """Two games, different run dates → generated_at = most recent date."""
+        import json, os
+        from unittest.mock import patch
+        from app.services.chess_log_storage_service import ChessLogStorageService
+        from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
+        cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+            "app", "config", "config.json",
+        )
+        with open(cfg_path) as f:
+            cfg = json.load(f)
+        game1 = _make_game(game_number=1)
+        game2 = _make_game(game_number=2)
+        e1 = ChessLogStorageService.make_entry("CLAMP", "C", "note1", is_shallow=True)
+        e2 = ChessLogStorageService.make_entry("CLAMP", "C", "note2", is_shallow=True)
+        sk = frozenset([(game1, "0", "CLAMP", ""), (game2, "0", "CLAMP", "")])
+        ctrl = _make_controller({
+            game1.game_number: {"0": [e1]},
+            game2.game_number: {"0": [e2]},
+        })
+        dlg = ShowShallowTagsDialog(
+            config=cfg, games=[game1, game2],
+            controller=ctrl,
+            shallow_keys=sk,
+            vague_keys=frozenset(),
+            classified_keys=frozenset(),
+        )
+        cr_map = {
+            id(game1): {"model": "claude-opus-4-7", "date": "2026-10-28T10:00:00Z"},
+            id(game2): {"model": "claude-sonnet-4-6", "date": "2026-10-30T12:00:00Z"},
+        }
+        captured = {}
+        with patch(
+            "app.views.dialogs.show_shallow_tags_dialog.ChessLogStorageService.load_check_run",
+            side_effect=lambda g: cr_map.get(id(g)),
+        ), patch(
+            "app.services.chess_log_pdf_service.ChessLogPDFService.export_tags",
+            side_effect=lambda *a, **kw: captured.update(kw),
+        ), patch(
+            "PyQt6.QtWidgets.QFileDialog.getSaveFileName",
+            return_value=("/tmp/test_mixed_date.pdf", "PDF Files (*.pdf)"),
+        ):
+            dlg._on_export_pdf()
+        self.assertIn("2026-10-30", captured.get("generated_at", ""),
+            "generated_at must contain the most recent run's date in mixed-runs export")
+        self.assertEqual(captured.get("model_label"), "claude-sonnet-4-6 (mixed runs)")
+
+
 if __name__ == "__main__":
     unittest.main()

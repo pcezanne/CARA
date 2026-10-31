@@ -88,6 +88,7 @@ class ShowShallowTagsDialog(QDialog):
         model_label: str = "",
         check_run_info: Optional[Dict[str, str]] = None,
         window_title: str = "Check Logs",
+        saved_mode: bool = False,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -104,9 +105,11 @@ class ShowShallowTagsDialog(QDialog):
         # None in Saved-Logs mode (no new classification this session).
         self._check_run_info: Optional[Dict[str, str]] = check_run_info
         self._games_in_scope = list(games)
-        # Saved mode = no classifier ran this session (classified_keys is empty).
-        # Only Saved mode shows the unchecked-count banner.
-        self._is_saved_mode: bool = not classified_keys
+        # Saved mode = explicitly flagged by the caller (opened from Menu, not from a
+        # live Check Logs run).  Only Saved mode shows the unchecked-count banner.
+        # Using an explicit flag avoids treating a live run that parsed zero entries
+        # (all-fail) as Saved mode.
+        self._is_saved_mode: bool = saved_mode
 
         # Unchecked count: answers in scope that haven't been checked yet.
         # Only computed in Saved mode — in live mode the banner is never shown.
@@ -590,12 +593,18 @@ class ShowShallowTagsDialog(QDialog):
             game = self._row_games[i]
             user_entries = row_widget.get_current_entries()
             new_entries = self._stamp_entries(game, path_key, preset, user_entries)
+            original_row = self._original_snapshot.get(i, [])
+            # Clear is_shallow/is_vague for entries whose text was edited in this session.
+            # _stamp_entries stamps based on key membership without checking text changes;
+            # this pass applies clear_verdict_if_text_changed so edited answers lose
+            # their chip (the classifier's verdict was for the old text).
+            new_entries = self._clear_stale_flags_after_edit(new_entries, original_row, preset)
             # Stamp check_hash on entries that were classified this run AND whose
             # text has not been edited in this dialog session.
             new_entries = self._stamp_check_hashes_shown(
-                new_entries, self._original_snapshot.get(i, []), game, path_key, preset
+                new_entries, original_row, game, path_key, preset
             )
-            original = self._original_snapshot.get(i, [])
+            original = original_row
             orig_with_flags = self._stamp_entries(game, path_key, preset, original)
             flags_missing = any(
                 (
@@ -758,3 +767,36 @@ class ShowShallowTagsDialog(QDialog):
                         e["check_hash"] = ChessLogStorageService.compute_check_hash(why)
             result.append(e)
         return result
+
+    def _clear_stale_flags_after_edit(
+        self,
+        new_entries: List[Dict[str, Any]],
+        original_entries: List[Dict[str, Any]],
+        preset: str,
+    ) -> List[Dict[str, Any]]:
+        """Clear is_shallow/is_vague/ignore fields from entries whose why text was edited.
+
+        _stamp_entries stamps flags based on key membership without checking for
+        text changes — this post-pass re-applies clear_verdict_if_text_changed so
+        that editing an answer drops its chip (the verdict was for the old text).
+        check_hash is intentionally NOT cleared: a stored check_hash lets the user
+        restore the exact original text and have it count as checked again without
+        re-running Check Logs.
+        """
+        if not original_entries:
+            return new_entries
+
+        def _clear_stale(entry: Dict[str, Any], orig_why: str) -> Dict[str, Any]:
+            return ChessLogStorageService.clear_verdict_if_text_changed(entry, orig_why)
+
+        if preset == "3x3":
+            orig_why_by_cat = {
+                e.get("cat", ""): (e.get("why") or "").strip()
+                for e in original_entries
+            }
+            return [
+                _clear_stale(e, orig_why_by_cat.get(e.get("cat", ""), ""))
+                for e in new_entries
+            ]
+        orig_why = (original_entries[0].get("why") or "").strip()
+        return [_clear_stale(e, orig_why) for e in new_entries]

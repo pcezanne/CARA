@@ -1541,6 +1541,26 @@ class MainWindow(QMainWindow):
             )
             return
         shallow_keys, vague_keys = chess_log_controller.get_shallow_vague_keys(games)
+        if not shallow_keys and not vague_keys:
+            from PyQt6.QtWidgets import QMessageBox
+            msgs = (self.config or {}).get("ui", {}).get("dialogs", {}).get(
+                "chess_log_messages", {}
+            ).get("shallow_notes", {}).get("none_found", {})
+            title = msgs.get("title", "Nothing Flagged")
+            message = msgs.get(
+                "message_template",
+                "No shallow notes or vague lessons found — great job.",
+            )
+            count_unchecked = chess_log_controller.count_unchecked_answers(games)
+            if count_unchecked > 0:
+                s = "s" if count_unchecked != 1 else ""
+                have = "haven't" if count_unchecked != 1 else "hasn't"
+                message = (
+                    f"{message}\n\n{count_unchecked} note{s} {have} been checked yet"
+                    " (new or edited since the last Check Logs). Run Check Logs to check them."
+                )
+            QMessageBox.information(self, title, message)
+            return
         from app.views.dialogs.show_shallow_tags_dialog import ShowShallowTagsDialog
         dlg = ShowShallowTagsDialog(
             config=self.config,
@@ -1551,6 +1571,7 @@ class MainWindow(QMainWindow):
             classified_keys=frozenset(),
             check_run_info=None,
             window_title="Shallow/Vague Logs",
+            saved_mode=True,
             parent=self,
         )
         dlg.exec()
